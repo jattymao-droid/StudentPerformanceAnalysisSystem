@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasStudentMapper">
+
+    <resultMap type="SpasStudent" id="SpasStudentResult">
+        <id     property="studentId"    column="student_id"    />
+        <result property="studentNo"    column="student_no"    />
+        <result property="studentName"  column="student_name"  />
+        <result property="gender"       column="gender"        />
+        <result property="deptId"       column="dept_id"       />
+        <result property="gradeYear"    column="grade_year"    />
+        <result property="userId"       column="user_id"       />
+        <result property="parentMobile" column="parent_mobile" />
+        <result property="status"       column="status"        />
+        <result property="delFlag"      column="del_flag"      />
+        <result property="deptName"     column="dept_name"     />
+        <result property="createBy"     column="create_by"     />
+        <result property="createTime"   column="create_time"   />
+        <result property="updateBy"     column="update_by"     />
+        <result property="updateTime"   column="update_time"   />
+        <result property="remark"       column="remark"        />
+    </resultMap>
+
+    <sql id="selectSpasStudentVo">
+        select s.student_id, s.student_no, s.student_name, s.gender, s.dept_id, s.grade_year,
+               s.user_id, s.parent_mobile, s.status, s.del_flag,
+               s.create_by, s.create_time, s.update_by, s.update_time, s.remark,
+               d.dept_name
+        from spas_student s
+        left join sys_dept d on s.dept_id = d.dept_id
+    </sql>
+
+    <select id="selectSpasStudentList" parameterType="SpasStudent" resultMap="SpasStudentResult">
+        <include refid="selectSpasStudentVo"/>
+        where s.del_flag = '0'
+        <if test="studentNo != null and studentNo != ''">
+            AND s.student_no like concat('%', #{studentNo,jdbcType=VARCHAR}, '%')
+        </if>
+        <if test="studentName != null and studentName != ''">
+            AND s.student_name like concat('%', #{studentName,jdbcType=VARCHAR}, '%')
+        </if>
+        <if test="status != null and status != ''">
+            AND s.status = #{status}
+        </if>
+        <if test="deptId != null and deptId != 0">
+            AND (s.dept_id = #{deptId} OR s.dept_id IN (
+                SELECT t.dept_id FROM sys_dept t
+                WHERE cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+            ))
+        </if>
+        <if test="gradeYear != null and gradeYear != ''">
+            AND s.grade_year = #{gradeYear}
+        </if>
+        <!-- Data scope: multi-class teacher OR role data scope -->
+        <choose>
+            <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
+                AND s.dept_id in
+                <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+            </when>
+            <otherwise>${params.dataScope}</otherwise>
+        </choose>
+        order by s.student_id desc
+    </select>
+
+    <select id="selectSpasStudentById" parameterType="Long" resultMap="SpasStudentResult">
+        <include refid="selectSpasStudentVo"/>
+        where s.student_id = #{studentId} and s.del_flag = '0'
+    </select>
+
+    <select id="selectSpasStudentByStudentNo" parameterType="String" resultMap="SpasStudentResult">
+        <include refid="selectSpasStudentVo"/>
+        where s.student_no = #{studentNo} and s.del_flag = '0' limit 1
+    </select>
+
+    <select id="selectSpasStudentByUserId" parameterType="Long" resultMap="SpasStudentResult">
+        <include refid="selectSpasStudentVo"/>
+        where s.user_id = #{userId} and s.del_flag = '0' limit 1
+    </select>
+
+    <select id="checkStudentNoUnique" parameterType="String" resultMap="SpasStudentResult">
+        select student_id, student_no from spas_student
+        where student_no = #{studentNo} and del_flag = '0' limit 1
+    </select>
+
+    <insert id="insertSpasStudent" parameterType="SpasStudent" useGeneratedKeys="true" keyProperty="studentId">
+        insert into spas_student(
+            <if test="studentNo != null and studentNo != ''">student_no,</if>
+            <if test="studentName != null and studentName != ''">student_name,</if>
+            <if test="gender != null and gender != ''">gender,</if>
+            <if test="deptId != null">dept_id,</if>
+            <if test="gradeYear != null and gradeYear != ''">grade_year,</if>
+            <if test="userId != null">user_id,</if>
+            <if test="parentMobile != null and parentMobile != ''">parent_mobile,</if>
+            <if test="status != null and status != ''">status,</if>
+            <if test="delFlag != null and delFlag != ''">del_flag,</if>
+            <if test="remark != null and remark != ''">remark,</if>
+            <if test="createBy != null and createBy != ''">create_by,</if>
+            create_time
+        )values(
+            <if test="studentNo != null and studentNo != ''">#{studentNo},</if>
+            <if test="studentName != null and studentName != ''">#{studentName},</if>
+            <if test="gender != null and gender != ''">#{gender},</if>
+            <if test="deptId != null">#{deptId},</if>
+            <if test="gradeYear != null and gradeYear != ''">#{gradeYear},</if>
+            <if test="userId != null">#{userId},</if>
+            <if test="parentMobile != null and parentMobile != ''">#{parentMobile},</if>
+            <if test="status != null and status != ''">#{status},</if>
+            <if test="delFlag != null and delFlag != ''">#{delFlag},</if>
+            <if test="remark != null and remark != ''">#{remark},</if>
+            <if test="createBy != null and createBy != ''">#{createBy},</if>
+            now()
+        )
+    </insert>
+
+    <update id="updateSpasStudent" parameterType="SpasStudent">
+        update spas_student
+        <set>
+            <if test="studentNo != null and studentNo != ''">student_no = #{studentNo},</if>
+            <if test="studentName != null and studentName != ''">student_name = #{studentName},</if>
+            <if test="gender != null and gender != ''">gender = #{gender},</if>
+            <if test="deptId != null">dept_id = #{deptId},</if>
+            <if test="gradeYear != null">grade_year = #{gradeYear},</if>
+            <if test="userId != null">user_id = #{userId},</if>
+            <if test="parentMobile != null">parent_mobile = #{parentMobile},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="delFlag != null and delFlag != ''">del_flag = #{delFlag},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where student_id = #{studentId}
+    </update>
+
+    <update id="deleteSpasStudentByIds" parameterType="Long">
+        update spas_student set del_flag = '1', update_time = now()
+        where student_id in
+        <foreach collection="array" item="studentId" open="(" separator="," close=")">
+            #{studentId}
+        </foreach>
+    </update>
+
+</mapper>

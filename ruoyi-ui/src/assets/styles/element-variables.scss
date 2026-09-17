@@ -1,0 +1,24 @@
+/**
+ * OneSchool-inspired theme — soft lavender primary
+ **/
+$--color-primary: #7B6CF6;
+$--color-success: #34C759;
+$--color-warning: #FFB020;
+$--color-danger: #FF5A5F;
+
+$--button-font-weight: 500;
+
+$--border-color-light: #E8E4F5;
+$--border-color-lighter: #F0EDF8;
+$--border-radius-base: 12px;
+$--border-radius-small: 8px;
+
+$--table-border: 1px solid #EDEAF5;
+
+$--font-path: '~element-ui/lib/theme-chalk/fonts';
+
+@import "~element-ui/packages/theme-chalk/src/index";
+
+:export {
+  theme: $--color-primary;
+}

@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasScoreMapper">
+
+    <resultMap type="SpasScoreBatch" id="SpasScoreBatchResult">
+        <id     property="batchId"     column="batch_id"     />
+        <result property="paperId"     column="paper_id"     />
+        <result property="fileName"    column="file_name"    />
+        <result property="totalRows"   column="total_rows"   />
+        <result property="successRows" column="success_rows" />
+        <result property="failRows"    column="fail_rows"    />
+        <result property="status"      column="status"       />
+        <result property="errorLog"    column="error_log"    />
+        <result property="paperName"   column="paper_name"   />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"  column="create_time"  />
+    </resultMap>
+
+    <resultMap type="SpasScoreDetail" id="SpasScoreDetailResult">
+        <id     property="detailId"    column="detail_id"    />
+        <result property="paperId"     column="paper_id"     />
+        <result property="questionId"  column="question_id"  />
+        <result property="studentId"   column="student_id"   />
+        <result property="batchId"     column="batch_id"     />
+        <result property="score"       column="score"        />
+        <result property="fullScore"   column="full_score"   />
+        <result property="rate"        column="rate"         />
+        <result property="studentNo"   column="student_no"   />
+        <result property="studentName" column="student_name" />
+        <result property="questionNo"  column="question_no"  />
+        <result property="createTime"  column="create_time"  />
+        <result property="updateTime"  column="update_time"  />
+    </resultMap>
+
+    <sql id="scoreStudentDeptScope">
+        <choose>
+            <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
+                AND st.dept_id in
+                <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+            </when>
+            <otherwise>${params.dataScope}</otherwise>
+        </choose>
+    </sql>
+
+    <select id="selectSpasScoreBatchList" parameterType="SpasScoreBatch" resultMap="SpasScoreBatchResult">
+        select b.batch_id, b.paper_id, b.file_name, b.total_rows, b.success_rows, b.fail_rows,
+               b.status, b.error_log, b.create_by, b.create_time, p.paper_name
+        from spas_score_batch b
+        left join spas_paper p on b.paper_id = p.paper_id
+        <where>
+            <if test="paperId != null">
+                AND b.paper_id = #{paperId}
+            </if>
+            <if test="status != null and status != ''">
+                AND b.status = #{status}
+            </if>
+            <if test="fileName != null and fileName != ''">
+                AND b.file_name like concat('%', #{fileName,jdbcType=VARCHAR}, '%')
+            </if>
+            AND exists (
+                select 1 from spas_score_detail sd
+                join spas_student st on st.student_id = sd.student_id
+                left join sys_dept d on st.dept_id = d.dept_id
+                where sd.batch_id = b.batch_id
+                <include refid="scoreStudentDeptScope"/>
+            )
+        </where>
+        order by b.batch_id desc
+    </select>
+
+    <select id="selectSpasScoreBatchById" parameterType="Long" resultMap="SpasScoreBatchResult">
+        select b.batch_id, b.paper_id, b.file_name, b.total_rows, b.success_rows, b.fail_rows,
+               b.status, b.error_log, b.create_by, b.create_time, p.paper_name
+        from spas_score_batch b
+        left join spas_paper p on b.paper_id = p.paper_id
+        where b.batch_id = #{batchId}
+    </select>
+
+    <insert id="insertSpasScoreBatch" parameterType="SpasScoreBatch" useGeneratedKeys="true" keyProperty="batchId">
+        insert into spas_score_batch(
+            <if test="paperId != null">paper_id,</if>
+            <if test="fileName != null and fileName != ''">file_name,</if>
+            <if test="totalRows != null">total_rows,</if>
+            <if test="successRows != null">success_rows,</if>
+            <if test="failRows != null">fail_rows,</if>
+            <if test="status != null and status != ''">status,</if>
+            <if test="errorLog != null">error_log,</if>
+            <if test="createBy != null and createBy != ''">create_by,</if>
+            create_time
+        )values(
+            <if test="paperId != null">#{paperId},</if>
+            <if test="fileName != null and fileName != ''">#{fileName},</if>
+            <if test="totalRows != null">#{totalRows},</if>
+            <if test="successRows != null">#{successRows},</if>
+            <if test="failRows != null">#{failRows},</if>
+            <if test="status != null and status != ''">#{status},</if>
+            <if test="errorLog != null">#{errorLog},</if>
+            <if test="createBy != null and createBy != ''">#{createBy},</if>
+            now()
+        )
+    </insert>
+
+    <update id="updateSpasScoreBatch" parameterType="SpasScoreBatch">
+        update spas_score_batch
+        <set>
+            <if test="totalRows != null">total_rows = #{totalRows},</if>
+            <if test="successRows != null">success_rows = #{successRows},</if>
+            <if test="failRows != null">fail_rows = #{failRows},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="errorLog != null">error_log = #{errorLog},</if>
+        </set>
+        where batch_id = #{batchId}
+    </update>
+
+    <select id="selectSpasScoreDetailList" parameterType="SpasScoreDetail" resultMap="SpasScoreDetailResult">
+        select sd.detail_id, sd.paper_id, sd.question_id, sd.student_id, sd.batch_id,
+               sd.score, sd.full_score, sd.rate, sd.create_time, sd.update_time,
+               st.student_no, st.student_name, q.question_no
+        from spas_score_detail sd
+        left join spas_student st on sd.student_id = st.student_id
+        left join spas_paper_question q on sd.question_id = q.question_id
+        <where>
+            <if test="paperId != null">
+                AND sd.paper_id = #{paperId}
+            </if>
+            <if test="studentId != null">
+                AND sd.student_id = #{studentId}
+            </if>
+            <if test="questionId != null">
+                AND sd.question_id = #{questionId}
+            </if>
+            <if test="batchId != null">
+                AND sd.batch_id = #{batchId}
+            </if>
+            <choose>
+                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
+                    AND st.dept_id in
+                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                </when>
+                <otherwise>${params.dataScope}</otherwise>
+            </choose>
+        </where>
+        order by st.student_no asc, q.question_order asc
+    </select>
+
+    <insert id="upsertSpasScoreDetail" parameterType="SpasScoreDetail">
+        insert into spas_score_detail(
+            paper_id, question_id, student_id, batch_id, score, full_score, rate, score_source, create_time
+        ) values (
+            #{paperId}, #{questionId}, #{studentId}, #{batchId}, #{score}, #{fullScore}, #{rate},
+            coalesce(#{scoreSource}, '2'), now()
+        )
+        on conflict (paper_id, question_id, student_id) do update set
+            prev_batch_id = spas_score_detail.batch_id,
+            prev_score = spas_score_detail.score,
+            prev_full_score = spas_score_detail.full_score,
+            prev_rate = spas_score_detail.rate,
+            batch_id = excluded.batch_id,
+            score = excluded.score,
+            full_score = excluded.full_score,
+            rate = excluded.rate,
+            score_source = excluded.score_source,
+            update_time = now()
+        where spas_score_detail.batch_id is distinct from excluded.batch_id
+           or spas_score_detail.score is distinct from excluded.score
+           or spas_score_detail.full_score is distinct from excluded.full_score
+           or spas_score_detail.rate is distinct from excluded.rate
+           or spas_score_detail.score_source is distinct from excluded.score_source
+    </insert>
+
+    <select id="countScoreDetailByPaperId" parameterType="Long" resultType="int">
+        select count(1) from spas_score_detail where paper_id = #{paperId}
+    </select>
+
+    <!-- Restore overwritten rows owned by this batch back to previous batch values -->
+    <update id="restoreDetailFromPrevByBatchId" parameterType="Long">
+        update spas_score_detail set
+            batch_id = prev_batch_id,
+            score = prev_score,
+            full_score = prev_full_score,
+            rate = prev_rate,
+            prev_batch_id = null,
+            prev_score = null,
+            prev_full_score = null,
+            prev_rate = null,
+            update_time = now()
+        where batch_id = #{batchId}
+          and prev_batch_id is not null
+    </update>
+
+    <!-- First-time imports (no previous): remove rows owned by this batch -->
+    <delete id="deleteDetailByBatchId" parameterType="Long">
+        delete from spas_score_detail
+        where batch_id = #{batchId}
+          and prev_batch_id is null
+    </delete>
+
+    <select id="selectStudentIdsByBatchId" parameterType="Long" resultType="Long">
+        select distinct student_id from spas_score_detail where batch_id = #{batchId}
+    </select>
+
+    <select id="countDetailByBatchId" parameterType="Long" resultType="int">
+        select count(1) from spas_score_detail where batch_id = #{batchId}
+    </select>
+
+    <delete id="deleteBatchById" parameterType="Long">
+        delete from spas_score_batch where batch_id = #{batchId}
+    </delete>
+
+</mapper>

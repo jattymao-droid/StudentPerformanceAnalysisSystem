@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasQualityMapper">
+
+    <sql id="paperFilter">
+        <if test="deptId != null">
+            and (p.dept_id = #{deptId} or p.dept_id in (select t.dept_id from sys_dept t where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))))
+        </if>
+        <if test="subjectId != null">
+            and p.subject_id = #{subjectId}
+        </if>
+    </sql>
+
+    <sql id="studentDeptFilter">
+        <if test="deptId != null">
+            and (s.dept_id = #{deptId} or s.dept_id in (select t.dept_id from sys_dept t where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))))
+        </if>
+    </sql>
+
+    <select id="selectOverview" resultType="java.util.HashMap">
+        select
+          (select count(*) from spas_paper_question q
+             join spas_paper p on p.paper_id = q.paper_id
+            where not exists (select 1 from spas_question_knowledge qk where qk.question_id = q.question_id)
+              <include refid="paperFilter"/>
+          ) as "noKnowledge",
+          (select count(*) from (
+              select q.question_id
+              from spas_paper_question q
+              join spas_paper p on p.paper_id = q.paper_id
+              join spas_question_knowledge qk on qk.question_id = q.question_id
+              where 1=1
+              <include refid="paperFilter"/>
+              group by q.question_id
+              having abs(coalesce(sum(qk.weight),0) - 1) &gt; 0.0001
+          ) t) as "weightSum",
+          (select count(*) from spas_student_knowledge_stat st
+             join spas_student s on s.student_id = st.student_id
+            where st.attempt_count &lt; #{minAttempts}
+              and s.del_flag = '0'
+              <include refid="studentDeptFilter"/>
+              <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
+          ) as "lowAttempt",
+          (select count(*) from spas_paper p
+            where p.exam_date is null
+              <include refid="paperFilter"/>
+          ) as "missingExamDate",
+          (select count(*) from (
+              select d.paper_id, d.student_id
+              from spas_score_detail d
+              join spas_paper p on p.paper_id = d.paper_id
+              join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
+              where 1=1
+              <include refid="paperFilter"/>
+              <include refid="studentDeptFilter"/>
+              group by d.paper_id, d.student_id
+              having count(d.detail_id) &lt; (select count(*) from spas_paper_question q where q.paper_id = d.paper_id)
+          ) t) as "partialPaper",
+          (select count(*) from spas_score_detail d
+             left join spas_paper p on p.paper_id = d.paper_id
+             join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
+            where (p.paper_id is null or p.status = '0')
+              <include refid="studentDeptFilter"/>
+              <if test="subjectId != null">
+                and (p.subject_id = #{subjectId} or p.paper_id is null)
+              </if>
+          ) as "orphanScore",
+          (select count(*) from spas_score_detail d
+             join spas_paper p on p.paper_id = d.paper_id
+             join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
+            where (
+                d.score_source = '3'
+                or (
+                  coalesce(d.score_source, '2') &lt;&gt; '3'
+                  and d.score = 0
+                  and exists (
+                    select 1 from spas_score_detail d2
+                    where d2.paper_id = d.paper_id and d2.student_id = d.student_id and d2.score &gt; 0
+                  )
+                )
+              )
+              <include refid="paperFilter"/>
+              <include refid="studentDeptFilter"/>
+          ) as "blankZero",
+          (select count(*) from spas_score_detail d
+             join spas_paper p on p.paper_id = d.paper_id
+             join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
+            where 1=1
+              <include refid="paperFilter"/>
+              <include refid="studentDeptFilter"/>
+          ) as "scoreTotal"
+    </select>
+
+    <select id="selectNoKnowledge" resultType="java.util.HashMap">
+        select p.paper_id as "paperId", p.paper_name as "paperName", q.question_id as "questionId",
+               q.question_no as "questionNo", q.full_score as "fullScore"
+        from spas_paper_question q
+        join spas_paper p on p.paper_id = q.paper_id
+        where not exists (select 1 from spas_question_knowledge qk where qk.question_id = q.question_id)
+        <include refid="paperFilter"/>
+        order by p.paper_id, q.question_order
+        limit 200
+    </select>
+
+    <select id="selectWeightSum" resultType="java.util.HashMap">
+        select p.paper_id as "paperId", p.paper_name as "paperName", q.question_id as "questionId",
+               q.question_no as "questionNo", coalesce(sum(qk.weight),0) as "weightSum"
+        from spas_paper_question q
+        join spas_paper p on p.paper_id = q.paper_id
+        left join spas_question_knowledge qk on qk.question_id = q.question_id
+        where 1=1
+        <include refid="paperFilter"/>
+        group by p.paper_id, p.paper_name, q.question_id, q.question_no, q.question_order
+        having abs(coalesce(sum(qk.weight),0) - 1) &gt; 0.0001
+        order by p.paper_id, q.question_order
+        limit 200
+    </select>
+
+    <select id="selectLowAttempt" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               st.knowledge_id as "knowledgeId", k.knowledge_name as "knowledgeName",
+               st.attempt_count as "attemptCount", st.weighted_rate as "weightedRate", st.weak_level as "weakLevel"
+        from spas_student_knowledge_stat st
+        join spas_student s on s.student_id = st.student_id and s.del_flag = '0'
+        left join spas_knowledge k on k.knowledge_id = st.knowledge_id
+        where st.attempt_count &lt; #{minAttempts}
+        <include refid="studentDeptFilter"/>
+        <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
+        order by st.attempt_count asc, s.student_no
+        limit 200
+    </select>
+
+    <select id="selectMissingExamDate" resultType="java.util.HashMap">
+        select p.paper_id as "paperId", p.paper_name as "paperName", p.subject_id as "subjectId",
+               p.status as "status", p.create_time as "createTime"
+        from spas_paper p
+        where p.exam_date is null
+        <include refid="paperFilter"/>
+        order by p.paper_id desc
+        limit 200
+    </select>
+
+    <select id="selectPartialPaper" resultType="java.util.HashMap">
+        select d.paper_id as "paperId", p.paper_name as "paperName", d.student_id as "studentId",
+               s.student_no as "studentNo", s.student_name as "studentName",
+               count(d.detail_id) as "answered",
+               (select count(*) from spas_paper_question q where q.paper_id = d.paper_id) as "totalQuestions"
+        from spas_score_detail d
+        join spas_paper p on p.paper_id = d.paper_id
+        join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
+        where 1=1
+        <include refid="paperFilter"/>
+        <include refid="studentDeptFilter"/>
+        group by d.paper_id, p.paper_name, d.student_id, s.student_no, s.student_name
+        having count(d.detail_id) &lt; (select count(*) from spas_paper_question q where q.paper_id = d.paper_id)
+        order by d.paper_id desc
+        limit 200
+    </select>
+
+    <select id="selectOrphanScore" resultType="java.util.HashMap">
+        select d.detail_id as "detailId", d.paper_id as "paperId", p.paper_name as "paperName", p.status as "status",
+               d.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               d.question_id as "questionId", d.score as "score"
+        from spas_score_detail d
+        left join spas_paper p on p.paper_id = d.paper_id
+        join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
+        where (p.paper_id is null or p.status = '0')
+        <include refid="studentDeptFilter"/>
+        <if test="subjectId != null">
+          and (p.subject_id = #{subjectId} or p.paper_id is null)
+        </if>
+        order by d.detail_id desc
+        limit 200
+    </select>
+
+    <select id="selectBlankZero" resultType="java.util.HashMap">
+        select d.paper_id as "paperId", p.paper_name as "paperName", d.student_id as "studentId",
+               s.student_no as "studentNo", s.student_name as "studentName",
+               d.question_id as "questionId", q.question_no as "questionNo", d.score as "score", d.full_score as "fullScore", d.score_source as "scoreSource"
+        from spas_score_detail d
+        join spas_paper p on p.paper_id = d.paper_id
+        join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
+        left join spas_paper_question q on q.question_id = d.question_id
+        where d.score = 0
+          and exists (
+            select 1 from spas_score_detail d2
+            where d2.paper_id = d.paper_id and d2.student_id = d.student_id and d2.score &gt; 0
+          )
+        <include refid="paperFilter"/>
+        <include refid="studentDeptFilter"/>
+        order by d.paper_id desc, s.student_no
+        limit 200
+    </select>
+</mapper>

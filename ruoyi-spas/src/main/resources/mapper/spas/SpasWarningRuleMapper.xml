@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasWarningRuleMapper">
+    <resultMap type="SpasWarningRule" id="SpasWarningRuleResult">
+        <id property="ruleId" column="rule_id"/>
+        <result property="ruleName" column="rule_name"/>
+        <result property="ruleCode" column="rule_code"/>
+        <result property="scopeType" column="scope_type"/>
+        <result property="scopeId" column="scope_id"/>
+        <result property="metric" column="metric"/>
+        <result property="operator" column="operator"/>
+        <result property="threshold" column="threshold"/>
+        <result property="windowDays" column="window_days"/>
+        <result property="level" column="level"/>
+        <result property="enabled" column="enabled"/>
+        <result property="notifyChannels" column="notify_channels"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+    </resultMap>
+
+    <sql id="selectVo">
+        select rule_id, rule_name, rule_code, scope_type, scope_id, metric, operator, threshold,
+               window_days, level, enabled, notify_channels, create_by, create_time, update_by, update_time, remark
+        from spas_warning_rule
+    </sql>
+
+    <select id="selectSpasWarningRuleList" parameterType="SpasWarningRule" resultMap="SpasWarningRuleResult">
+        <include refid="selectVo"/>
+        <where>
+            <if test="ruleName != null and ruleName != ''">AND rule_name like concat('%', #{ruleName,jdbcType=VARCHAR}, '%')</if>
+            <if test="ruleCode != null and ruleCode != ''">AND rule_code = #{ruleCode}</if>
+            <if test="metric != null and metric != ''">AND metric = #{metric}</if>
+            <if test="enabled != null and enabled != ''">AND enabled = #{enabled}</if>
+            <if test="level != null and level != ''">AND level = #{level}</if>
+        </where>
+        order by rule_id desc
+    </select>
+
+    <select id="selectSpasWarningRuleById" resultMap="SpasWarningRuleResult">
+        <include refid="selectVo"/> where rule_id = #{ruleId}
+    </select>
+
+    <select id="selectEnabledRules" resultMap="SpasWarningRuleResult">
+        <include refid="selectVo"/> where enabled = '1' order by rule_id
+    </select>
+
+    <select id="checkRuleCodeUnique" resultMap="SpasWarningRuleResult">
+        <include refid="selectVo"/> where rule_code = #{ruleCode} limit 1
+    </select>
+
+    <insert id="insertSpasWarningRule" parameterType="SpasWarningRule" useGeneratedKeys="true" keyProperty="ruleId">
+        insert into spas_warning_rule(
+            rule_name, rule_code, scope_type, scope_id, metric, operator, threshold,
+            window_days, level, enabled, notify_channels, create_by, create_time, remark
+        ) values (
+            #{ruleName}, #{ruleCode}, #{scopeType}, #{scopeId}, #{metric}, #{operator}, #{threshold},
+            #{windowDays}, #{level}, #{enabled}, #{notifyChannels}, #{createBy}, now(), #{remark}
+        )
+    </insert>
+
+    <update id="updateSpasWarningRule" parameterType="SpasWarningRule">
+        update spas_warning_rule
+        <set>
+            <if test="ruleName != null">rule_name = #{ruleName},</if>
+            <if test="ruleCode != null">rule_code = #{ruleCode},</if>
+            <if test="scopeType != null">scope_type = #{scopeType},</if>
+            <if test="scopeId != null">scope_id = #{scopeId},</if>
+            <if test="metric != null">metric = #{metric},</if>
+            <if test="operator != null">operator = #{operator},</if>
+            <if test="threshold != null">threshold = #{threshold},</if>
+            <if test="windowDays != null">window_days = #{windowDays},</if>
+            <if test="level != null">level = #{level},</if>
+            <if test="enabled != null">enabled = #{enabled},</if>
+            <if test="notifyChannels != null">notify_channels = #{notifyChannels},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = now()
+        </set>
+        where rule_id = #{ruleId}
+    </update>
+
+    <delete id="deleteSpasWarningRuleByIds">
+        delete from spas_warning_rule where rule_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+</mapper>

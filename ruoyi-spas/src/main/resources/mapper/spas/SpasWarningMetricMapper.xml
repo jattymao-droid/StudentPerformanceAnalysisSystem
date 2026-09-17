@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasWarningMetricMapper">
+
+    <select id="selectStudentAvgRate" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_name as "studentName", s.dept_id as "deptId",
+               case when coalesce(sum(st.attempt_count), 0) &gt; 0
+                    then sum(st.weighted_rate * st.attempt_count) / sum(st.attempt_count)
+                    else avg(st.weighted_rate) end as "metricValue",
+               max(st.subject_id) as "subjectId"
+        from spas_student s
+        join spas_student_knowledge_stat st on st.student_id = s.student_id
+        where s.del_flag = '0' and s.status = '0'
+        <if test="subjectId != null">AND st.subject_id = #{subjectId}</if>
+        <if test="deptId != null">
+            AND (s.dept_id = #{deptId} OR s.dept_id IN (
+                SELECT t.dept_id FROM sys_dept t
+                WHERE cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+            ))
+        </if>
+        group by s.student_id, s.student_name, s.dept_id
+    </select>
+
+    <select id="selectStudentWeakCount" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_name as "studentName", s.dept_id as "deptId",
+               count(*)::numeric as "metricValue", max(st.subject_id) as "subjectId"
+        from spas_student s
+        join spas_student_knowledge_stat st on st.student_id = s.student_id
+        where s.del_flag = '0' and s.status = '0' and st.weak_level in ('2', '3')
+        <if test="subjectId != null">AND st.subject_id = #{subjectId}</if>
+        <if test="deptId != null">
+            AND (s.dept_id = #{deptId} OR s.dept_id IN (
+                SELECT t.dept_id FROM sys_dept t
+                WHERE cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+            ))
+        </if>
+        group by s.student_id, s.student_name, s.dept_id
+    </select>
+
+    <select id="selectStudentVsClassGap" resultType="java.util.HashMap">
+        with stu as (
+            select s.student_id, s.student_name, s.dept_id,
+                   case when coalesce(sum(st.attempt_count), 0) &gt; 0
+                        then sum(st.weighted_rate * st.attempt_count) / sum(st.attempt_count)
+                        else avg(st.weighted_rate) end as stu_rate,
+                   max(st.subject_id) as subject_id
+            from spas_student s
+            join spas_student_knowledge_stat st on st.student_id = s.student_id
+            where s.del_flag = '0' and s.status = '0'
+            <if test="subjectId != null">AND st.subject_id = #{subjectId}</if>
+            <if test="deptId != null">
+                AND (s.dept_id = #{deptId} OR s.dept_id IN (
+                    SELECT t.dept_id FROM sys_dept t
+                    WHERE cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                ))
+            </if>
+            group by s.student_id, s.student_name, s.dept_id
+        ),
+        cls as (
+            select dept_id, avg(stu_rate) as class_rate from stu group by dept_id
+        )
+        select stu.student_id as "studentId", stu.student_name as "studentName", stu.dept_id as "deptId",
+               (cls.class_rate - stu.stu_rate) as "metricValue", stu.subject_id as "subjectId"
+        from stu join cls on cls.dept_id = stu.dept_id
+        where cls.class_rate is not null
+    </select>
+
+    <select id="selectStudentPaperRates" resultType="java.util.HashMap">
+        select d.paper_id as "paperId", p.paper_name as "paperName", p.exam_date as "examDate",
+               case when sum(d.full_score) &gt; 0
+                    then sum(d.score) / sum(d.full_score)
+                    else null end as "rate"
+        from spas_score_detail d
+        join spas_paper p on p.paper_id = d.paper_id
+        where d.student_id = #{studentId}
+        <if test="subjectId != null">AND p.subject_id = #{subjectId}</if>
+        group by d.paper_id, p.paper_name, p.exam_date
+        order by p.exam_date desc nulls last, d.paper_id desc
+        <if test="limit != null">limit #{limit}</if>
+    </select>
+
+    <select id="selectStudentIdsByPaper" resultType="long">
+        select distinct student_id from spas_score_detail where paper_id = #{paperId}
+    </select>
+</mapper>

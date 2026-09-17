@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasPaperMapper">
+
+    <resultMap type="SpasPaper" id="SpasPaperResult">
+        <id     property="paperId"     column="paper_id"     />
+        <result property="paperName"   column="paper_name"   />
+        <result property="paperType"   column="paper_type"   />
+        <result property="subjectId"   column="subject_id"   />
+        <result property="deptId"      column="dept_id"      />
+        <result property="examDate"    column="exam_date"    />
+        <result property="totalScore"  column="total_score"  />
+        <result property="status"      column="status"       />
+        <result property="publishTime" column="publish_time" />
+        <result property="subjectName" column="subject_name" />
+        <result property="deptName"    column="dept_name"    />
+        <result property="scoreCount"  column="score_count"  />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"  column="create_time"  />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"  column="update_time"  />
+        <result property="remark"      column="remark"       />
+    </resultMap>
+
+    <resultMap type="SpasPaperQuestion" id="SpasPaperQuestionResult">
+        <id     property="questionId"    column="question_id"    />
+        <result property="paperId"       column="paper_id"       />
+        <result property="questionNo"    column="question_no"    />
+        <result property="questionOrder" column="question_order" />
+        <result property="fullScore"     column="full_score"     />
+        <result property="difficulty"    column="difficulty"     />
+        <result property="questionType"  column="question_type"  />
+        <result property="remark"        column="remark"         />
+        <result property="createBy"      column="create_by"      />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"      column="update_by"      />
+        <result property="updateTime"    column="update_time"    />
+    </resultMap>
+
+    <resultMap type="SpasQuestionKnowledge" id="SpasQuestionKnowledgeResult">
+        <id     property="id"            column="id"             />
+        <result property="questionId"    column="question_id"    />
+        <result property="knowledgeId"   column="knowledge_id"   />
+        <result property="weight"        column="weight"         />
+        <result property="isPrimary"     column="is_primary"     />
+        <result property="knowledgeName" column="knowledge_name" />
+    </resultMap>
+
+    <sql id="selectSpasPaperVo">
+        select p.paper_id, p.paper_name, p.paper_type, p.subject_id, p.dept_id, p.exam_date,
+               p.total_score, p.status, p.publish_time,
+               p.create_by, p.create_time, p.update_by, p.update_time, p.remark,
+               s.subject_name, d.dept_name,
+               (select count(1) from spas_score_detail sd where sd.paper_id = p.paper_id) as score_count
+        from spas_paper p
+        left join spas_subject s on p.subject_id = s.subject_id
+        left join sys_dept d on p.dept_id = d.dept_id
+    </sql>
+
+    <select id="selectSpasPaperList" parameterType="SpasPaper" resultMap="SpasPaperResult">
+        <include refid="selectSpasPaperVo"/>
+        <where>
+            <if test="paperName != null and paperName != ''">
+                AND p.paper_name like concat('%', #{paperName,jdbcType=VARCHAR}, '%')
+            </if>
+            <if test="paperType != null and paperType != ''">
+                AND p.paper_type = #{paperType}
+            </if>
+            <if test="subjectId != null">
+                AND p.subject_id = #{subjectId}
+            </if>
+            <if test="deptId != null">
+                AND p.dept_id = #{deptId}
+            </if>
+            <if test="status != null and status != ''">
+                AND p.status = #{status}
+            </if>
+            <choose>
+                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
+                    AND p.dept_id in
+                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                </when>
+                <otherwise>${params.dataScope}</otherwise>
+            </choose>
+        </where>
+        order by p.paper_id desc
+    </select>
+
+    <select id="selectSpasPaperById" parameterType="Long" resultMap="SpasPaperResult">
+        <include refid="selectSpasPaperVo"/>
+        where p.paper_id = #{paperId}
+    </select>
+
+    <insert id="insertSpasPaper" parameterType="SpasPaper" useGeneratedKeys="true" keyProperty="paperId">
+        insert into spas_paper(
+            <if test="paperName != null and paperName != ''">paper_name,</if>
+            <if test="paperType != null and paperType != ''">paper_type,</if>
+            <if test="subjectId != null">subject_id,</if>
+            <if test="deptId != null">dept_id,</if>
+            <if test="examDate != null">exam_date,</if>
+            <if test="totalScore != null">total_score,</if>
+            <if test="status != null and status != ''">status,</if>
+            <if test="publishTime != null">publish_time,</if>
+            <if test="remark != null and remark != ''">remark,</if>
+            <if test="createBy != null and createBy != ''">create_by,</if>
+            create_time
+        )values(
+            <if test="paperName != null and paperName != ''">#{paperName},</if>
+            <if test="paperType != null and paperType != ''">#{paperType},</if>
+            <if test="subjectId != null">#{subjectId},</if>
+            <if test="deptId != null">#{deptId},</if>
+            <if test="examDate != null">#{examDate},</if>
+            <if test="totalScore != null">#{totalScore},</if>
+            <if test="status != null and status != ''">#{status},</if>
+            <if test="publishTime != null">#{publishTime},</if>
+            <if test="remark != null and remark != ''">#{remark},</if>
+            <if test="createBy != null and createBy != ''">#{createBy},</if>
+            now()
+        )
+    </insert>
+
+    <update id="updateSpasPaper" parameterType="SpasPaper">
+        update spas_paper
+        <set>
+            <if test="paperName != null and paperName != ''">paper_name = #{paperName},</if>
+            <if test="paperType != null and paperType != ''">paper_type = #{paperType},</if>
+            <if test="subjectId != null">subject_id = #{subjectId},</if>
+            <if test="deptId != null">dept_id = #{deptId},</if>
+            <if test="examDate != null">exam_date = #{examDate},</if>
+            <if test="totalScore != null">total_score = #{totalScore},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="publishTime != null">publish_time = #{publishTime},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where paper_id = #{paperId}
+    </update>
+
+    <delete id="deleteSpasPaperByIds" parameterType="Long">
+        delete from spas_paper where paper_id in
+        <foreach collection="array" item="paperId" open="(" separator="," close=")">
+            #{paperId}
+        </foreach>
+    </delete>
+
+    <select id="selectQuestionsByPaperId" parameterType="Long" resultMap="SpasPaperQuestionResult">
+        select question_id, paper_id, question_no, question_order, full_score, difficulty,
+               question_type, remark, create_by, create_time, update_by, update_time
+        from spas_paper_question
+        where paper_id = #{paperId}
+        order by question_order asc, question_id asc
+    </select>
+
+    <select id="selectQuestionById" parameterType="Long" resultMap="SpasPaperQuestionResult">
+        select question_id, paper_id, question_no, question_order, full_score, difficulty,
+               question_type, remark, create_by, create_time, update_by, update_time
+        from spas_paper_question
+        where question_id = #{questionId}
+    </select>
+
+    <insert id="insertSpasPaperQuestion" parameterType="SpasPaperQuestion" useGeneratedKeys="true" keyProperty="questionId">
+        insert into spas_paper_question(
+            <if test="paperId != null">paper_id,</if>
+            <if test="questionNo != null and questionNo != ''">question_no,</if>
+            <if test="questionOrder != null">question_order,</if>
+            <if test="fullScore != null">full_score,</if>
+            <if test="difficulty != null and difficulty != ''">difficulty,</if>
+            <if test="questionType != null and questionType != ''">question_type,</if>
+            <if test="remark != null and remark != ''">remark,</if>
+            <if test="createBy != null and createBy != ''">create_by,</if>
+            create_time
+        )values(
+            <if test="paperId != null">#{paperId},</if>
+            <if test="questionNo != null and questionNo != ''">#{questionNo},</if>
+            <if test="questionOrder != null">#{questionOrder},</if>
+            <if test="fullScore != null">#{fullScore},</if>
+            <if test="difficulty != null and difficulty != ''">#{difficulty},</if>
+            <if test="questionType != null and questionType != ''">#{questionType},</if>
+            <if test="remark != null and remark != ''">#{remark},</if>
+            <if test="createBy != null and createBy != ''">#{createBy},</if>
+            now()
+        )
+    </insert>
+
+    <update id="updateSpasPaperQuestion" parameterType="SpasPaperQuestion">
+        update spas_paper_question
+        <set>
+            <if test="questionNo != null and questionNo != ''">question_no = #{questionNo},</if>
+            <if test="questionOrder != null">question_order = #{questionOrder},</if>
+            <if test="fullScore != null">full_score = #{fullScore},</if>
+            <if test="difficulty != null and difficulty != ''">difficulty = #{difficulty},</if>
+            <if test="questionType != null">question_type = #{questionType},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where question_id = #{questionId}
+    </update>
+
+    <delete id="deleteQuestionsByPaperId" parameterType="Long">
+        delete from spas_paper_question where paper_id = #{paperId}
+    </delete>
+
+    <delete id="deleteQuestionKnowledgeByPaperId" parameterType="Long">
+        delete from spas_question_knowledge
+        where question_id in (select question_id from spas_paper_question where paper_id = #{paperId})
+    </delete>
+
+    <delete id="deleteQuestionKnowledgeByQuestionIds" parameterType="Long">
+        delete from spas_question_knowledge where question_id in
+        <foreach collection="array" item="questionId" open="(" separator="," close=")">
+            #{questionId}
+        </foreach>
+    </delete>
+
+    <insert id="insertSpasQuestionKnowledge" parameterType="SpasQuestionKnowledge" useGeneratedKeys="true" keyProperty="id">
+        insert into spas_question_knowledge(question_id, knowledge_id, weight, is_primary)
+        values(#{questionId}, #{knowledgeId}, #{weight},
+               <choose>
+                   <when test="isPrimary != null and isPrimary != ''">#{isPrimary}</when>
+                   <otherwise>'0'</otherwise>
+               </choose>
+        )
+    </insert>
+
+    <insert id="batchInsertQuestionKnowledge" parameterType="java.util.List">
+        insert into spas_question_knowledge(question_id, knowledge_id, weight, is_primary) values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.questionId}, #{item.knowledgeId}, #{item.weight},
+             <choose>
+                 <when test="item.isPrimary != null and item.isPrimary != ''">#{item.isPrimary}</when>
+                 <otherwise>'0'</otherwise>
+             </choose>
+            )
+        </foreach>
+    </insert>
+
+    <select id="selectKnowledgeByQuestionId" parameterType="Long" resultMap="SpasQuestionKnowledgeResult">
+        select qk.id, qk.question_id, qk.knowledge_id, qk.weight, qk.is_primary, k.knowledge_name
+        from spas_question_knowledge qk
+        left join spas_knowledge k on qk.knowledge_id = k.knowledge_id
+        where qk.question_id = #{questionId}
+    </select>
+
+    <select id="selectKnowledgeByPaperId" parameterType="Long" resultMap="SpasQuestionKnowledgeResult">
+        select qk.id, qk.question_id, qk.knowledge_id, qk.weight, qk.is_primary, k.knowledge_name
+        from spas_question_knowledge qk
+        left join spas_knowledge k on qk.knowledge_id = k.knowledge_id
+        where qk.question_id in (select question_id from spas_paper_question where paper_id = #{paperId})
+    </select>
+
+    <select id="countScoreDetailByPaperId" parameterType="Long" resultType="int">
+        select count(1) from spas_score_detail where paper_id = #{paperId}
+    </select>
+
+</mapper>

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasSubjectMapper">
+
+    <resultMap type="SpasSubject" id="SpasSubjectResult">
+        <id     property="subjectId"   column="subject_id"   />
+        <result property="subjectName" column="subject_name" />
+        <result property="subjectCode" column="subject_code" />
+        <result property="sort"        column="sort"         />
+        <result property="status"      column="status"       />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"  column="create_time"  />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"  column="update_time"  />
+        <result property="remark"      column="remark"       />
+    </resultMap>
+
+    <sql id="selectSpasSubjectVo">
+        select subject_id, subject_name, subject_code, sort, status,
+               create_by, create_time, update_by, update_time, remark
+        from spas_subject
+    </sql>
+
+    <select id="selectSpasSubjectList" parameterType="SpasSubject" resultMap="SpasSubjectResult">
+        <include refid="selectSpasSubjectVo"/>
+        <where>
+            <if test="subjectName != null and subjectName != ''">
+                AND subject_name like concat('%', #{subjectName,jdbcType=VARCHAR}, '%')
+            </if>
+            <if test="subjectCode != null and subjectCode != ''">
+                AND subject_code like concat('%', #{subjectCode,jdbcType=VARCHAR}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+        </where>
+        order by sort asc, subject_id asc
+    </select>
+
+    <select id="selectSpasSubjectById" parameterType="Long" resultMap="SpasSubjectResult">
+        <include refid="selectSpasSubjectVo"/>
+        where subject_id = #{subjectId}
+    </select>
+
+    <select id="selectSpasSubjectAll" resultMap="SpasSubjectResult">
+        <include refid="selectSpasSubjectVo"/>
+        where status = '0'
+        order by sort asc, subject_id asc
+    </select>
+
+    <select id="checkSubjectCodeUnique" parameterType="String" resultMap="SpasSubjectResult">
+        <include refid="selectSpasSubjectVo"/>
+        where subject_code = #{subjectCode} limit 1
+    </select>
+
+    <insert id="insertSpasSubject" parameterType="SpasSubject" useGeneratedKeys="true" keyProperty="subjectId">
+        insert into spas_subject(
+            <if test="subjectName != null and subjectName != ''">subject_name,</if>
+            <if test="subjectCode != null and subjectCode != ''">subject_code,</if>
+            <if test="sort != null">sort,</if>
+            <if test="status != null and status != ''">status,</if>
+            <if test="remark != null and remark != ''">remark,</if>
+            <if test="createBy != null and createBy != ''">create_by,</if>
+            create_time
+        )values(
+            <if test="subjectName != null and subjectName != ''">#{subjectName},</if>
+            <if test="subjectCode != null and subjectCode != ''">#{subjectCode},</if>
+            <if test="sort != null">#{sort},</if>
+            <if test="status != null and status != ''">#{status},</if>
+            <if test="remark != null and remark != ''">#{remark},</if>
+            <if test="createBy != null and createBy != ''">#{createBy},</if>
+            now()
+        )
+    </insert>
+
+    <update id="updateSpasSubject" parameterType="SpasSubject">
+        update spas_subject
+        <set>
+            <if test="subjectName != null and subjectName != ''">subject_name = #{subjectName},</if>
+            <if test="subjectCode != null and subjectCode != ''">subject_code = #{subjectCode},</if>
+            <if test="sort != null">sort = #{sort},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where subject_id = #{subjectId}
+    </update>
+
+    <delete id="deleteSpasSubjectById" parameterType="Long">
+        delete from spas_subject where subject_id = #{subjectId}
+    </delete>
+
+    <delete id="deleteSpasSubjectByIds" parameterType="Long">
+        delete from spas_subject where subject_id in
+        <foreach collection="array" item="subjectId" open="(" separator="," close=")">
+            #{subjectId}
+        </foreach>
+    </delete>
+
+</mapper>

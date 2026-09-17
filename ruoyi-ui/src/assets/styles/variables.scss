@@ -1,0 +1,37 @@
+// base color
+$blue:#324157;
+$light-blue:#3A71A8;
+$red:#C03639;
+$pink: #E65D6E;
+$green: #30B08F;
+$tiffany: #4AB7BD;
+$yellow:#FEC171;
+$panGreen: #30B08F;
+
+// OneSchool menu theme (lavender light sidebar + violet active)
+$base-menu-color: #6B6685;
+$base-menu-color-active: #7B6CF6;
+$base-menu-background: #5B4BDB;
+$base-logo-title-color: #ffffff;
+
+$base-menu-light-color: rgba(44, 41, 64, 0.72);
+$base-menu-light-background: #F0ECFF;
+$base-logo-light-title-color: #2C2940;
+
+$base-sub-menu-background: #5240C9;
+$base-sub-menu-hover: rgba(255, 255, 255, 0.1);
+
+$base-sidebar-width: 210px;
+
+:export {
+  menuColor: $base-menu-color;
+  menuLightColor: $base-menu-light-color;
+  menuColorActive: $base-menu-color-active;
+  menuBackground: $base-menu-background;
+  menuLightBackground: $base-menu-light-background;
+  subMenuBackground: $base-sub-menu-background;
+  subMenuHover: $base-sub-menu-hover;
+  sideBarWidth: $base-sidebar-width;
+  logoTitleColor: $base-logo-title-color;
+  logoLightTitleColor: $base-logo-light-title-color
+}

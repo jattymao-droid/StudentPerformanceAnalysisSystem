@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasWarningRecordMapper">
+    <resultMap type="SpasWarningRecord" id="SpasWarningRecordResult">
+        <id property="warningId" column="warning_id"/>
+        <result property="ruleId" column="rule_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="subjectId" column="subject_id"/>
+        <result property="knowledgeId" column="knowledge_id"/>
+        <result property="paperId" column="paper_id"/>
+        <result property="level" column="level"/>
+        <result property="title" column="title"/>
+        <result property="content" column="content"/>
+        <result property="metricValue" column="metric_value"/>
+        <result property="status" column="status"/>
+        <result property="handleBy" column="handle_by"/>
+        <result property="handleTime" column="handle_time"/>
+        <result property="handleRemark" column="handle_remark"/>
+        <result property="createTime" column="create_time"/>
+        <result property="studentName" column="student_name"/>
+        <result property="studentNo" column="student_no"/>
+        <result property="ruleName" column="rule_name"/>
+    </resultMap>
+
+    <select id="selectSpasWarningRecordList" parameterType="SpasWarningRecord" resultMap="SpasWarningRecordResult">
+        select r.warning_id, r.rule_id, r.student_id, r.subject_id, r.knowledge_id, r.paper_id,
+               r.level, r.title, r.content, r.metric_value, r.status, r.handle_by, r.handle_time,
+               r.handle_remark, r.create_time, s.student_name, s.student_no, wr.rule_name
+        from spas_warning_record r
+        left join spas_student s on s.student_id = r.student_id
+        left join spas_warning_rule wr on wr.rule_id = r.rule_id
+        <where>
+            <if test="studentId != null">AND r.student_id = #{studentId}</if>
+            <if test="ruleId != null">AND r.rule_id = #{ruleId}</if>
+            <if test="status != null and status != ''">AND r.status = #{status}</if>
+            <if test="level != null and level != ''">AND r.level = #{level}</if>
+            <if test="studentName != null and studentName != ''">AND s.student_name like concat('%', #{studentName,jdbcType=VARCHAR}, '%')</if>
+            <if test="studentNo != null and studentNo != ''">AND s.student_no like concat('%', #{studentNo,jdbcType=VARCHAR}, '%')</if>
+            <choose>
+                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
+                    AND s.dept_id in
+                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                </when>
+                <otherwise>${params.dataScope}</otherwise>
+            </choose>
+        </where>
+        order by r.create_time desc
+    </select>
+
+    <select id="selectSpasWarningRecordById" resultMap="SpasWarningRecordResult">
+        select r.warning_id, r.rule_id, r.student_id, r.subject_id, r.knowledge_id, r.paper_id,
+               r.level, r.title, r.content, r.metric_value, r.status, r.handle_by, r.handle_time,
+               r.handle_remark, r.create_time, s.student_name, s.student_no, wr.rule_name
+        from spas_warning_record r
+        left join spas_student s on s.student_id = r.student_id
+        left join spas_warning_rule wr on wr.rule_id = r.rule_id
+        where r.warning_id = #{warningId}
+    </select>
+
+    <select id="selectOpenRecord" resultMap="SpasWarningRecordResult">
+        select warning_id, rule_id, student_id, status from spas_warning_record
+        where student_id = #{studentId} and rule_id = #{ruleId} and status = '0' limit 1
+    </select>
+
+    <select id="selectOpenStudentIdsByRule" resultType="long">
+        select student_id from spas_warning_record
+        where rule_id = #{ruleId} and status = '0'
+    </select>
+
+    <select id="countOpenByStudent" resultType="int">
+        select count(*) from spas_warning_record where student_id = #{studentId} and status = '0'
+    </select>
+
+    <select id="selectOpenByStudent" resultMap="SpasWarningRecordResult">
+        select r.warning_id, r.rule_id, r.student_id, r.subject_id, r.level, r.title, r.content,
+               r.metric_value, r.status, r.create_time, wr.rule_name
+        from spas_warning_record r
+        left join spas_warning_rule wr on wr.rule_id = r.rule_id
+        where r.student_id = #{studentId} and r.status = '0'
+        order by r.create_time desc
+    </select>
+
+    <insert id="insertSpasWarningRecord" parameterType="SpasWarningRecord" useGeneratedKeys="true" keyProperty="warningId">
+        insert into spas_warning_record(
+            rule_id, student_id, subject_id, knowledge_id, paper_id, level, title, content,
+            metric_value, status, create_time
+        ) values (
+            #{ruleId}, #{studentId}, #{subjectId}, #{knowledgeId}, #{paperId}, #{level}, #{title}, #{content},
+            #{metricValue}, coalesce(#{status}, '0'), now()
+        )
+    </insert>
+
+    <update id="updateSpasWarningRecord" parameterType="SpasWarningRecord">
+        update spas_warning_record
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="handleBy != null">handle_by = #{handleBy},</if>
+            <if test="handleTime != null">handle_time = #{handleTime},</if>
+            <if test="handleRemark != null">handle_remark = #{handleRemark},</if>
+            <if test="metricValue != null">metric_value = #{metricValue},</if>
+            <if test="content != null">content = #{content},</if>
+        </set>
+        where warning_id = #{warningId}
+    </update>
+</mapper>

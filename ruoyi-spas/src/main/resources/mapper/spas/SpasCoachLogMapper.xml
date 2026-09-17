@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasCoachLogMapper">
+    <resultMap type="SpasCoachLog" id="SpasCoachLogResult">
+        <id property="logId" column="log_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="warningId" column="warning_id"/>
+        <result property="interveneId" column="intervene_id"/>
+        <result property="knowledgeId" column="knowledge_id"/>
+        <result property="content" column="content"/>
+        <result property="nextPlan" column="next_plan"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="studentName" column="student_name"/>
+    </resultMap>
+
+    <select id="selectSpasCoachLogList" parameterType="SpasCoachLog" resultMap="SpasCoachLogResult">
+        select c.log_id, c.student_id, c.warning_id, c.intervene_id, c.knowledge_id,
+               c.content, c.next_plan, c.create_by, c.create_time, s.student_name
+        from spas_coach_log c
+        left join spas_student s on s.student_id = c.student_id
+        left join sys_dept d on s.dept_id = d.dept_id
+        <where>
+            <if test="studentId != null">AND c.student_id = #{studentId}</if>
+            <if test="warningId != null">AND c.warning_id = #{warningId}</if>
+            <if test="interveneId != null">AND c.intervene_id = #{interveneId}</if>
+            <choose>
+                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
+                    AND s.dept_id in
+                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                </when>
+                <otherwise>${params.dataScope}</otherwise>
+            </choose>
+        </where>
+        order by c.create_time desc
+    </select>
+
+    <insert id="insertSpasCoachLog" parameterType="SpasCoachLog" useGeneratedKeys="true" keyProperty="logId">
+        insert into spas_coach_log(student_id, warning_id, intervene_id, knowledge_id, content, next_plan, create_by, create_time)
+        values (#{studentId}, #{warningId}, #{interveneId}, #{knowledgeId}, #{content}, #{nextPlan}, #{createBy}, now())
+    </insert>
+
+    <delete id="deleteSpasCoachLogByIds">
+        delete from spas_coach_log where log_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+</mapper>

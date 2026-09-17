@@ -1,0 +1,4 @@
+-- Physics RJB BX1 knowledge seed
+-- source: http://www.dzkbw.com/books/rjb/wuli/pgzd1c/
+-- python sql/import_physics_rjb_bx1.py
+-- codes: PHY-RJ-BX1-CHxx / PHY-RJ-BX1-CHxx-Syy

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasDashboardMapper">
+
+    <!-- All statements use @Param("scope"); never reference bare "params". -->
+    <sql id="scopeStudentDeptFilter">
+        <choose>
+            <when test="scope != null and scope.params != null and scope.params.teacherDeptIds != null and scope.params.teacherDeptIds.size() &gt; 0">
+                AND s.dept_id in
+                <foreach collection="scope.params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+            </when>
+            <when test="scope != null and scope.params != null and scope.params.dataScope != null">
+                ${scope.params.dataScope}
+            </when>
+        </choose>
+    </sql>
+
+    <sql id="scopePaperDeptFilter">
+        <choose>
+            <when test="scope != null and scope.params != null and scope.params.teacherDeptIds != null and scope.params.teacherDeptIds.size() &gt; 0">
+                AND p.dept_id in
+                <foreach collection="scope.params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+            </when>
+            <when test="scope != null and scope.params != null and scope.params.dataScope != null">
+                ${scope.params.dataScope}
+            </when>
+        </choose>
+    </sql>
+
+    <select id="countActiveStudents" resultType="int">
+        select count(*)
+        from spas_student s
+        left join sys_dept d on s.dept_id = d.dept_id
+        where s.del_flag = '0' and s.status = '0'
+        <include refid="scopeStudentDeptFilter"/>
+    </select>
+
+    <select id="countOpenWarnings" resultType="int">
+        select count(*)
+        from spas_warning_record r
+        join spas_student s on s.student_id = r.student_id
+        left join sys_dept d on s.dept_id = d.dept_id
+        where r.status = '0'
+        <include refid="scopeStudentDeptFilter"/>
+    </select>
+
+    <select id="countPublishedPapers" resultType="int">
+        select count(*)
+        from spas_paper p
+        left join sys_dept d on p.dept_id = d.dept_id
+        where p.status = '1'
+        <include refid="scopePaperDeptFilter"/>
+    </select>
+
+    <select id="selectRecentBatches" resultType="java.util.HashMap">
+        select b.batch_id as "batchId",
+               b.paper_id as "paperId",
+               p.paper_name as "paperName",
+               b.file_name as "fileName",
+               b.success_rows as "successRows",
+               b.fail_rows as "failRows",
+               b.create_by as "createBy",
+               b.create_time as "createTime"
+        from spas_score_batch b
+        left join spas_paper p on p.paper_id = b.paper_id
+        where (
+            exists (
+                select 1 from spas_score_detail sd
+                join spas_student s on s.student_id = sd.student_id
+                left join sys_dept d on s.dept_id = d.dept_id
+                where sd.batch_id = b.batch_id
+                <include refid="scopeStudentDeptFilter"/>
+            )
+            or exists (
+                select 1 from spas_paper p2
+                left join sys_dept d on p2.dept_id = d.dept_id
+                where p2.paper_id = b.paper_id
+                <choose>
+                    <when test="scope != null and scope.params != null and scope.params.teacherDeptIds != null and scope.params.teacherDeptIds.size() &gt; 0">
+                        AND p2.dept_id in
+                        <foreach collection="scope.params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                    </when>
+                    <when test="scope != null and scope.params != null and scope.params.dataScope != null">
+                        ${scope.params.dataScope}
+                    </when>
+                </choose>
+            )
+        )
+        order by b.batch_id desc
+        limit #{limit}
+    </select>
+
+    <select id="selectWeakKnowledgeTop" resultType="java.util.HashMap">
+        select k.knowledge_id as "knowledgeId",
+               k.subject_id as "subjectId",
+               k.knowledge_name as name,
+               avg(sks.weighted_rate) as rate,
+               count(distinct sks.student_id) as "studentCount"
+        from spas_student_knowledge_stat sks
+        join spas_knowledge k on k.knowledge_id = sks.knowledge_id
+        join spas_student s on s.student_id = sks.student_id
+        left join sys_dept d on s.dept_id = d.dept_id
+        where sks.weak_level in ('1', '2', '3')
+        <include refid="scopeStudentDeptFilter"/>
+        group by k.knowledge_id, k.subject_id, k.knowledge_name, k.order_num
+        order by avg(sks.weighted_rate) asc, k.order_num asc
+        limit #{limit}
+    </select>
+
+
+    <select id="countOpenIntervenes" resultType="int">
+        select count(*)
+        from spas_intervene_task t
+        join spas_student s on s.student_id = t.student_id
+        left join sys_dept d on s.dept_id = d.dept_id
+        where t.status = '0'
+          and s.del_flag = '0'
+        <include refid="scopeStudentDeptFilter"/>
+    </select>
+
+    <select id="countQualityAlerts" resultType="int">
+        select (
+          (select count(*) from spas_paper_question q
+             join spas_paper p on p.paper_id = q.paper_id
+             left join sys_dept d on p.dept_id = d.dept_id
+            where not exists (select 1 from spas_question_knowledge qk where qk.question_id = q.question_id)
+            <include refid="scopePaperDeptFilter"/>
+          )
+          +
+          (select count(*) from spas_paper p
+             left join sys_dept d on p.dept_id = d.dept_id
+            where p.exam_date is null
+            <include refid="scopePaperDeptFilter"/>
+          )
+        )
+    </select>
+
+</mapper>

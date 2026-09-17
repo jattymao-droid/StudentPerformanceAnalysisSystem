@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasTeacherMapper">
+
+    <resultMap type="SpasTeacher" id="SpasTeacherResult">
+        <id property="teacherId" column="teacher_id"/>
+        <result property="teacherNo" column="teacher_no"/>
+        <result property="teacherName" column="teacher_name"/>
+        <result property="teacherType" column="teacher_type"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="mobile" column="mobile"/>
+        <result property="gender" column="gender"/>
+        <result property="status" column="status"/>
+        <result property="delFlag" column="del_flag"/>
+        <result property="deptName" column="dept_name"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+    </resultMap>
+
+    <sql id="selectSpasTeacherVo">
+        select t.teacher_id, t.teacher_no, t.teacher_name, t.teacher_type, t.dept_id, t.user_id,
+               t.mobile, t.gender, t.status, t.del_flag, t.create_by, t.create_time, t.update_by, t.update_time, t.remark,
+               d.dept_name
+        from spas_teacher t
+        left join sys_dept d on t.dept_id = d.dept_id
+    </sql>
+
+    <select id="selectSpasTeacherList" parameterType="SpasTeacher" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.del_flag = '0'
+        <if test="teacherNo != null and teacherNo != ''">
+            AND t.teacher_no like concat('%', #{teacherNo,jdbcType=VARCHAR}, '%')
+        </if>
+        <if test="teacherName != null and teacherName != ''">
+            AND t.teacher_name like concat('%', #{teacherName,jdbcType=VARCHAR}, '%')
+        </if>
+        <if test="teacherType != null and teacherType != ''">
+            AND t.teacher_type = #{teacherType}
+        </if>
+        <if test="status != null and status != ''">
+            AND t.status = #{status}
+        </if>
+        <if test="deptId != null and deptId != 0">
+            AND (t.dept_id = #{deptId} OR t.dept_id IN (
+                SELECT x.dept_id FROM sys_dept x
+                WHERE cast(#{deptId} as varchar) = any(string_to_array(x.ancestors, ','))
+            ))
+        </if>
+        ${params.dataScope}
+        order by t.teacher_type asc, t.teacher_id desc
+    </select>
+
+    <select id="selectSpasTeacherById" parameterType="Long" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.teacher_id = #{teacherId} and t.del_flag = '0'
+    </select>
+
+    <select id="selectSpasTeacherByUserId" parameterType="Long" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.user_id = #{userId} and t.del_flag = '0' limit 1
+    </select>
+
+    <select id="checkTeacherNoUnique" parameterType="String" resultMap="SpasTeacherResult">
+        select teacher_id, teacher_no from spas_teacher where teacher_no = #{teacherNo} and del_flag = '0' limit 1
+    </select>
+
+    <insert id="insertSpasTeacher" parameterType="SpasTeacher" useGeneratedKeys="true" keyProperty="teacherId">
+        insert into spas_teacher(
+            teacher_no, teacher_name, teacher_type, dept_id, user_id, mobile, gender, status, del_flag, create_by, create_time, remark
+        ) values (
+            #{teacherNo}, #{teacherName}, #{teacherType}, #{deptId}, #{userId}, #{mobile}, #{gender},
+            coalesce(#{status}, '0'), '0', #{createBy}, now(), #{remark}
+        )
+    </insert>
+
+    <update id="updateSpasTeacher" parameterType="SpasTeacher">
+        update spas_teacher
+        <set>
+            <if test="teacherName != null and teacherName != ''">teacher_name = #{teacherName},</if>
+            <if test="teacherType != null and teacherType != ''">teacher_type = #{teacherType},</if>
+            <if test="deptId != null">dept_id = #{deptId},</if>
+            <if test="mobile != null">mobile = #{mobile},</if>
+            <if test="gender != null">gender = #{gender},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where teacher_id = #{teacherId}
+    </update>
+
+    <update id="deleteSpasTeacherByIds">
+        update spas_teacher set del_flag = '2', update_time = now()
+        where teacher_id in
+        <foreach collection="array" item="teacherId" open="(" separator="," close=")">#{teacherId}</foreach>
+    </update>
+</mapper>

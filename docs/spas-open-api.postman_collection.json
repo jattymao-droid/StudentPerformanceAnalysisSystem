@@ -1,0 +1,86 @@
+{
+  "info": {
+    "name": "SPAS Parent OpenAPI",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "accessToken", "value": "" },
+    { "key": "studentId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "OAuth Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json.data && json.data.accessToken) {",
+              "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"appId\": \"parent-demo\",\n  \"appSecret\": \"spas-open-demo-secret\",\n  \"mobile\": \"13800138000\"\n}"
+        },
+        "url": "{{baseUrl}}/open/v1/oauth/token"
+      }
+    },
+    {
+      "name": "List Students",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/open/v1/students"
+      }
+    },
+    {
+      "name": "Portfolio",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/open/v1/students/{{studentId}}/portfolio"
+      }
+    },
+    {
+      "name": "Warnings",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/open/v1/students/{{studentId}}/warnings"
+      }
+    },
+    {
+      "name": "Radar",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/open/v1/students/{{studentId}}/radar"
+      }
+    },
+    {
+      "name": "Trend",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/open/v1/students/{{studentId}}/trend"
+      }
+    },
+    {
+      "name": "Weak Top",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/open/v1/students/{{studentId}}/weak-top?limit=10"
+      }
+    }
+  ]
+}

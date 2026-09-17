@@ -1,0 +1,10 @@
+spas-cjk.otf
+============
+Bundled Chinese font for SPAS PDF reports.
+
+Source: Adobe Source Han Sans SC Regular (OTF)
+License: SIL Open Font License 1.1
+Upstream: https://github.com/adobe-fonts/source-han-sans
+
+Rename/replace this file only if you keep the path
+classpath:/fonts/spas-cjk.otf, or set spas.report.pdf-font-path.

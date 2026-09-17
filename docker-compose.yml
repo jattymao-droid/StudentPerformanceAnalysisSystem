@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  spas-postgres:
+    image: postgres:16-alpine
+    container_name: spas-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: spas-sql
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mm5621528
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/ry_postgresql.sql:/docker-entrypoint-initdb.d/01_ry.sql
+      - ./sql/quartz_postgresql.sql:/docker-entrypoint-initdb.d/02_quartz.sql
+      - ./sql/spas_schema.sql:/docker-entrypoint-initdb.d/03_spas_schema.sql
+      - ./sql/spas_menu.sql:/docker-entrypoint-initdb.d/04_spas_menu.sql
+    networks:
+      - spas-net
+
+  spas-redis:
+    image: redis:7-alpine
+    container_name: spas-redis
+    restart: always
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - spas-net
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  spas-net:
+    driver: bridge
