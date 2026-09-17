@@ -1,169 +1,134 @@
-<p align="center">
-  <img src="https://oscimg.oschina.net/oscnet/up-d3d0a9303e11d522a06cd263f3079027715.png" alt="RuoYi Logo" width="120">
-</p>
+# 学生学情分析系统（SPAS）
 
-<h1 align="center">RuoYi-Vue PostgreSQL Version</h1>
+基于 **RuoYi-Vue 3.9.2 + PostgreSQL** 的中学学情分析平台：覆盖作业/考试管理、知识点标注、成绩导入、多维薄弱点分析、学情预警与「一生一册」，并预留家长端开放接口。
 
-<p align="center">
-  <b>基于 RuoYi-Vue v3.9.2 · 前后端分离 · PostgreSQL 适配版</b>
-</p>
-
-<p align="center">
-  <a href="https://gitee.com/jatty01/ruoyi-vue-postgresql-version"><img src="https://gitee.com/jatty01/ruoyi-vue-postgresql-version/badge/star.svg?theme=dark" alt="Gitee star"></a>
-  <img src="https://img.shields.io/badge/RuoYi-v3.9.2-brightgreen" alt="RuoYi">
-  <img src="https://img.shields.io/badge/Spring%20Boot-4.x-6DB33F?logo=springboot&logoColor=white" alt="Spring Boot">
-  <img src="https://img.shields.io/badge/PostgreSQL-14%2B-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL">
-  <img src="https://img.shields.io/badge/Vue-2.x-42B883?logo=vue.js&logoColor=white" alt="Vue">
-  <img src="https://img.shields.io/badge/JDK-17%2B-orange?logo=openjdk&logoColor=white" alt="JDK">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue" alt="License"></a>
-</p>
-
-<p align="center">
-  <a href="#-快速开始">快速开始</a> ·
-  <a href="#-技术栈">技术栈</a> ·
-  <a href="#-主要改动">主要改动</a> ·
-  <a href="#-内置功能">内置功能</a> ·
-  <a href="#-常见问题">常见问题</a>
-</p>
-
----
-
-## ✨ 项目简介
-
-本仓库是在官方 [RuoYi-Vue](https://gitee.com/y_project/RuoYi-Vue) 基础上改造的版本，将默认 **MySQL** 替换为 **PostgreSQL**，保留若依完整的权限、代码生成与系统管理能力，适合本地开发与二次扩展。
-
-| 项目 | 说明 |
+| 项 | 说明 |
 | :--- | :--- |
-| 仓库地址 | https://gitee.com/jatty01/ruoyi-vue-postgresql-version |
-| 上游项目 | [RuoYi-Vue v3.9.2](https://gitee.com/y_project/RuoYi-Vue) |
-| 架构模式 | 前后端分离（Spring Boot + Vue） |
+| 仓库 | https://github.com/jattymao-droid/StudentPerformanceAnalysisSystem |
+| 上游 | [RuoYi-Vue v3.9.2](https://gitee.com/y_project/RuoYi-Vue)（MySQL → PostgreSQL 适配） |
+| 架构 | 前后端分离 · Spring Boot + Vue |
 | 默认端口 | 后端 `8080` · 前端 `1024` |
+| 数据库 | PostgreSQL · 默认库名 `spas-sql` |
+
+[开发方案](./docs/学生学情分析系统-开发方案.md) · [部署说明](./docs/spas-deploy.md) · [OpenAPI](./docs/spas-open-api.md) · [验收要点](./docs/spas-acceptance.md)
 
 ---
 
-## 🛠 技术栈
+## 业务闭环
 
-<table>
-  <tr>
-    <td width="25%"><b>后端</b></td>
-    <td>Spring Boot 4.x · Spring Security · JWT · MyBatis · Druid · Redis · PageHelper</td>
-  </tr>
-  <tr>
-    <td><b>前端</b></td>
-    <td>Vue 2 · Element UI · Vuex · Vue Router · Axios</td>
-  </tr>
-  <tr>
-    <td><b>数据库</b></td>
-    <td><b>PostgreSQL 14+</b>（推荐 16 / 18）</td>
-  </tr>
-  <tr>
-    <td><b>环境</b></td>
-    <td>JDK 17+ · Maven 3.8+ · Node.js 16+ · Redis</td>
-  </tr>
-</table>
+```text
+学科 / 知识点树  →  试卷出题与知识点标注  →  小题成绩导入
+        ↓                    ↓                    ↓
+   组织与角色权限      一题多知识点（权重）      得分率分摊统计
+        ↓                    ↓                    ↓
+   学生 / 班级 / 年级分析看板  →  规则预警  →  一生一册 / 干预记录
+```
+
+本期明确不做：在线答题阅卷、自适应组卷、家长端 App（仅预留 `/open/v1/**` 契约）。
 
 ---
 
-## 🔄 主要改动
-
-相对官方 MySQL 版，本仓库完成了以下适配：
-
-- ✅ 数据源驱动与 JDBC 连接串切换为 PostgreSQL
-- ✅ PageHelper 方言改为 `postgresql`
-- ✅ Mapper / 数据权限 SQL 语法适配  
-  `sysdate()` → `now()` · `ifnull` → `coalesce` · `find_in_set` → `string_to_array`
-- ✅ 代码生成器元数据查询改为读取 `pg_catalog`
-- ✅ 提供完整 PostgreSQL 初始化脚本与一键导入工具
-
----
-
-## 📦 内置功能
-
-<details open>
-<summary><b>点击展开 / 收起功能清单</b></summary>
-
-<br>
+## 功能概览
 
 | 模块 | 说明 |
 | :--- | :--- |
-| 用户管理 | 系统用户配置与维护 |
-| 部门管理 | 组织机构树，支持数据权限 |
-| 岗位管理 | 职务配置 |
-| 菜单管理 | 菜单、操作权限、按钮权限标识 |
-| 角色管理 | 菜单权限 + 数据范围权限 |
-| 字典 / 参数 | 系统字典与动态参数配置 |
-| 通知公告 | 公告发布与已读记录 |
-| 日志审计 | 操作日志、登录日志 |
-| 在线用户 | 活跃会话监控 |
-| 定时任务 | 任务调度与执行日志 |
-| 代码生成 | 一键生成前后端 CRUD 代码 |
-| 系统接口 | SpringDoc API 文档 |
-| 监控中心 | 服务监控、缓存监控、连接池监视 |
+| 学科管理 | 学科基础数据、题型配置 |
+| 知识点 | 版本 → 章节 → 知识点树；支持人教版物理等 TOC 导入 |
+| 学生 / 教师 | 组织树（学校→年级→班级）；学生绑定独立登录账号；教师可挂多班 |
+| 试卷 / 作业 | 题目结构、难度；一题可绑定多个知识点并设权重 |
+| 成绩导入 | Excel 按小题导入；支持班级路径预填 |
+| 学情分析 | 学生 / 班级 / 知识点多维统计与趋势 |
+| 学情预警 | 规则配置、触发记录与处理 |
+| 一生一册 | 学生档案；学生本人登录只读查看 |
+| 命题质量 / 干预 | 试卷质量相关分析、辅导干预记录 |
+| 开放接口 | 家长端 Stub（`/open/v1/**`） |
+| 系统管理 | 沿用若依：用户、角色、部门、菜单、字典、任务、监控等 |
 
-</details>
+### 角色（节选）
+
+| 角色 | role_key | 能力概要 |
+| :--- | :--- | :--- |
+| 管理员 | `admin` | 全模块 |
+| 教务 | `spas_jw` | 学科、知识点、教师、成绩、分析、预警 |
+| 任课教师 | `spas_teacher` | 本班/多班试卷、成绩、分析、预警处理 |
+| 班主任 | `spas_bzr` | 本班学生、成绩、一生一册、预警 |
+| 年级 / 校级 | `spas_grade_leader` / `spas_school_leader` | 范围学情；校级默认只读 |
+| 学生 | `spas_student` | 仅本人学情 / 一生一册 |
 
 ---
 
-## 🚀 快速开始
+## 技术栈
 
-> **前置条件**：本机已安装并启动 PostgreSQL、Redis；已安装 JDK 17+、Maven、Node.js。
+| 层 | 技术 |
+| :--- | :--- |
+| 后端 | Spring Boot 4.x · Spring Security · JWT · MyBatis · Druid · Redis · PageHelper |
+| 业务模块 | `ruoyi-spas`（学情核心） |
+| 前端 | Vue 2 · Element UI · ECharts · Vuex · Axios |
+| 数据库 | PostgreSQL 14+（推荐 16） |
+| 环境 | JDK 17+ · Maven 3.8+ · Node.js 16+ · Redis · Python 3（可选，用于初始化脚本） |
 
-### ① 初始化数据库
+---
 
-默认库名：`ry_vue`
+## 快速开始
+
+**前置**：本机已启动 PostgreSQL、Redis；已安装 JDK 17+、Maven、Node.js。
+
+### 1. 克隆与配置
 
 ```bash
-# 推荐：读取 application-druid.yml 自动建库导入
-python3 sql/init_postgresql.py
-
-# 或手动导入
-# createdb -U postgres ry_vue
-psql -U postgres -d ry_vue -f sql/ry_postgresql.sql
-psql -U postgres -d ry_vue -f sql/quartz_postgresql.sql
+git clone https://github.com/jattymao-droid/StudentPerformanceAnalysisSystem.git
+cd StudentPerformanceAnalysisSystem
 ```
 
-| 文件 | 用途 |
-| :--- | :--- |
-| `sql/ry_postgresql.sql` | 业务表 + 初始数据 |
-| `sql/quartz_postgresql.sql` | Quartz 表（可选） |
-| `sql/init_postgresql.py` | 一键建库导入 |
-| `sql/convert_mysql_to_pg.py` | MySQL 脚本 → PG 脚本转换 |
-
-### ② 修改配置
-
-编辑 `ruoyi-admin/src/main/resources/application-druid.yml`：
+编辑 `ruoyi-admin/src/main/resources/application-druid.yml`，将数据库密码改为本机值：
 
 ```yaml
 spring:
   datasource:
-    driverClassName: org.postgresql.Driver
     druid:
       master:
-        url: jdbc:postgresql://localhost:5432/ry_vue?stringtype=unspecified&TimeZone=Asia/Shanghai
+        url: jdbc:postgresql://localhost:5432/spas-sql?stringtype=unspecified&TimeZone=Asia/Shanghai
         username: postgres
         password: your_password
 ```
 
-同时按需修改：
+按需修改 `application.yml` 中的 `ruoyi.profile`（上传目录）与 Redis 连接。
 
-| 配置项 | 文件 | 说明 |
-| :--- | :--- | :--- |
-| `ruoyi.profile` | `application.yml` | 上传文件目录 |
-| `log.path` | `logback.xml` | 日志目录 |
-| Redis | `application.yml` | 默认 `localhost:6379` |
+### 2. 初始化数据库
 
-### ③ 启动后端
+脚本会读取 `application-druid.yml` 中的库名（默认 `spas-sql`），创建库并导入若依基础表：
+
+```bash
+python sql/init_postgresql.py
+```
+
+再导入学情业务表与菜单（按需追加演示数据）：
+
+```bash
+# Windows PowerShell 示例；将密码换成你的
+$env:PGPASSWORD = "your_password"
+psql -U postgres -d "spas-sql" -v ON_ERROR_STOP=1 -f sql/spas_schema.sql
+psql -U postgres -d "spas-sql" -v ON_ERROR_STOP=1 -f sql/spas_menu.sql
+psql -U postgres -d "spas-sql" -v ON_ERROR_STOP=1 -f sql/spas_menu_buttons.sql
+# 可选：学科题型、组织/演示账号、知识点等
+psql -U postgres -d "spas-sql" -v ON_ERROR_STOP=1 -f sql/spas_subject_question_type.sql
+psql -U postgres -d "spas-sql" -v ON_ERROR_STOP=1 -f sql/spas_demo_seed.sql
+```
+
+更多脚本说明见 `sql/` 目录与 [开发方案](./docs/学生学情分析系统-开发方案.md)。
+
+### 3. 启动后端
 
 ```bash
 mvn clean package -DskipTests
 java -jar ruoyi-admin/target/ruoyi-admin.jar
 ```
 
-🌐 后端地址：http://localhost:8080  
+或在 IDE 中运行 `com.ruoyi.RuoYiApplication`。
 
-也可在 IDE 中直接运行 `com.ruoyi.RuoYiApplication`。
+后端：http://localhost:8080
 
-### ④ 启动前端
+### 4. 启动前端
 
 ```bash
 cd ruoyi-ui
@@ -171,96 +136,88 @@ npm install
 npm run dev
 ```
 
-🌐 前端地址：http://localhost:1024
+前端：http://localhost:1024
 
 ---
 
-## 🔑 默认账号
+## 默认账号
 
-| 账号 | 密码 | 角色 |
+| 账号 | 密码 | 说明 |
 | :---: | :---: | :--- |
 | `admin` | `admin123` | 超级管理员 |
-| `ry` | `admin123` | 普通角色示例用户 |
+| `teacher001` / `bzr001` / `grade001` / `school001` | `123456` | 演示教师与管理角色（需导入对应 seed） |
+| `demo001` 等 | `123456` | 演示学生（需导入对应 seed） |
 
-> ⚠️ 生产环境请务必修改默认密码，勿将真实数据库口令提交到仓库。
+生产环境请修改默认密码；**勿将真实数据库口令提交到仓库**。
 
 ---
 
-## 📁 目录结构
+## 目录结构
 
 ```text
-ruoyi-vue-postgresql-version
-├── ruoyi-admin          # Web 启动入口
-├── ruoyi-common         # 通用工具与常量
-├── ruoyi-framework      # 安全、数据源、AOP 等框架层
-├── ruoyi-system         # 系统业务模块
+StudentPerformanceAnalysisSystem
+├── ruoyi-admin          # 启动入口
+├── ruoyi-spas           # 学情业务（分析 / 预警 / 开放接口等）
+├── ruoyi-system         # 若依系统模块
+├── ruoyi-framework      # 安全、数据源、AOP
+├── ruoyi-common         # 公共工具
 ├── ruoyi-quartz         # 定时任务
 ├── ruoyi-generator      # 代码生成
-├── ruoyi-ui             # Vue 前端工程
-└── sql                  # PostgreSQL 脚本与工具
-    ├── ry_postgresql.sql
-    ├── quartz_postgresql.sql
-    ├── init_postgresql.py
-    └── convert_mysql_to_pg.py
+├── ruoyi-ui             # Vue 管理端（含 views/spas、api/spas）
+├── sql                  # PostgreSQL 脚本与导入工具
+├── docs                 # 方案、部署、OpenAPI、验收
+├── docker / Dockerfile  # 容器相关
+└── scripts              # 辅助脚本
 ```
 
 ---
 
-## ❓ 常见问题
+## 文档索引
+
+| 文档 | 内容 |
+| :--- | :--- |
+| [学生学情分析系统-开发方案.md](./docs/学生学情分析系统-开发方案.md) | 目标、角色、领域模型、阶段计划 |
+| [spas-deploy.md](./docs/spas-deploy.md) | 部署与演示账号提示 |
+| [spas-open-api.md](./docs/spas-open-api.md) | 家长端开放接口说明 |
+| [spas-acceptance.md](./docs/spas-acceptance.md) | 验收清单 |
+| [spas-open-api.postman_collection.json](./docs/spas-open-api.postman_collection.json) | Postman 集合 |
+
+---
+
+## 常见问题
 
 <details>
-<summary><b>1. 报错 character = integer</b></summary>
+<summary>PostgreSQL：character = integer</summary>
 
-<br>
-
-PostgreSQL 类型校验更严格。`char` 字段请与字符串比较：
+PG 对类型更严格，`char` / 状态字段请用字符串比较：
 
 ```sql
--- ❌ 错误
-status = 0
-
--- ✅ 正确
-status = '0'
+-- 错误: status = 0
+-- 正确: status = '0'
 ```
 
 </details>
 
 <details>
-<summary><b>2. 启动失败：日志目录不存在</b></summary>
+<summary>数据库名含连字符（spas-sql）</summary>
 
-<br>
-
-检查 `logback.xml` 中的 `log.path`，确保目录已创建且进程可写。
+`psql -d` 与 JDBC URL 可直接使用；在 SQL 中引用库名时需双引号：`"spas-sql"`。
 
 </details>
 
 <details>
-<summary><b>3. 代码生成“导入表”为空</b></summary>
+<summary>登录后没有学情菜单</summary>
 
-<br>
-
-确认表注释已写入（脚本末尾包含 `COMMENT ON`），且当前连接用户默认 schema 为 `public`。
+确认已执行 `sql/spas_menu.sql`（及按钮脚本），并为角色分配对应菜单权限。
 
 </details>
 
 ---
 
-## 🙏 致谢
+## 致谢
 
-本项目基于若依开源框架 [RuoYi-Vue](https://gitee.com/y_project/RuoYi-Vue) 二次开发，感谢原作者与社区贡献者。
+本项目基于 [RuoYi-Vue](https://gitee.com/y_project/RuoYi-Vue) 二次开发，感谢原作者与社区。官方文档：http://doc.ruoyi.vip
 
-| 资源 | 链接 |
-| :--- | :--- |
-| 官方文档 | http://doc.ruoyi.vip |
-| 官方演示 | http://vue.ruoyi.vip |
-| 上游仓库 | https://gitee.com/y_project/RuoYi-Vue |
+## License
 
----
-
-## 📄 License
-
-沿用若依开源协议，详见 [LICENSE](./LICENSE)。
-
-<p align="center">
-  <sub>If this project helps you, please give it a ⭐ on Gitee.</sub>
-</p>
+详见 [LICENSE](./LICENSE)。
