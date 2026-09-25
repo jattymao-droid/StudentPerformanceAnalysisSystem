@@ -24,6 +24,16 @@
             where not exists (select 1 from spas_question_knowledge qk where qk.question_id = q.question_id)
               <include refid="paperFilter"/>
           ) as "noKnowledge",
+          (select count(*) from spas_paper_question q
+             join spas_paper p on p.paper_id = q.paper_id
+            where nullif(trim(q.question_type), '') is null
+              <include refid="paperFilter"/>
+          ) as "noQuestionType",
+          (select count(*) from spas_paper_question q
+             join spas_paper p on p.paper_id = q.paper_id
+            where nullif(trim(q.bloom_level), '') is null
+              <include refid="paperFilter"/>
+          ) as "noBloom",
           (select count(*) from (
               select q.question_id
               from spas_paper_question q
@@ -41,6 +51,14 @@
               <include refid="studentDeptFilter"/>
               <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
           ) as "lowAttempt",
+          (select count(*) from spas_student_knowledge_stat st
+             join spas_student s on s.student_id = st.student_id
+            where st.attempt_count &lt; #{minAttempts}
+              and st.weak_level in ('1', '2', '3')
+              and s.del_flag = '0'
+              <include refid="studentDeptFilter"/>
+              <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
+          ) as "weakLowEvidence",
           (select count(*) from spas_paper p
             where p.exam_date is null
               <include refid="paperFilter"/>
@@ -88,7 +106,39 @@
             where 1=1
               <include refid="paperFilter"/>
               <include refid="studentDeptFilter"/>
-          ) as "scoreTotal"
+          ) as "scoreTotal",
+          (select count(*) from spas_paper p where 1=1 <include refid="paperFilter"/>) as "paperCount",
+          (select count(*) from spas_paper_question q
+             join spas_paper p on p.paper_id = q.paper_id
+            where 1=1 <include refid="paperFilter"/>) as "questionCount",
+          (select count(*) from spas_paper_question q
+             join spas_paper p on p.paper_id = q.paper_id
+            where exists (select 1 from spas_question_knowledge qk where qk.question_id = q.question_id)
+              <include refid="paperFilter"/>) as "boundQuestionCount",
+          (select count(*) from (
+              select f.knowledge_id
+              from (
+                  select k.knowledge_id
+                  from spas_knowledge k
+                  join spas_question_knowledge qk on qk.knowledge_id = k.knowledge_id
+                  join spas_paper_question q on q.question_id = qk.question_id
+                  join spas_paper p on p.paper_id = q.paper_id
+                  where coalesce(k.node_type, '2') = '2'
+                  <include refid="paperFilter"/>
+                  group by k.knowledge_id
+                  having count(distinct q.question_id) &gt;= #{questionMin}
+              ) f
+              join (
+                  select st.knowledge_id
+                  from spas_student_knowledge_stat st
+                  join spas_student s on s.student_id = st.student_id and s.del_flag = '0'
+                  where 1=1
+                    <include refid="studentDeptFilter"/>
+                    <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
+                  group by st.knowledge_id
+                  having avg(st.weighted_rate) &lt; #{weakRate}
+              ) m on m.knowledge_id = f.knowledge_id
+          ) hf) as "highFreqLowMastery"
     </select>
 
     <select id="selectNoKnowledge" resultType="java.util.HashMap">
@@ -97,6 +147,28 @@
         from spas_paper_question q
         join spas_paper p on p.paper_id = q.paper_id
         where not exists (select 1 from spas_question_knowledge qk where qk.question_id = q.question_id)
+        <include refid="paperFilter"/>
+        order by p.paper_id, q.question_order
+        limit 200
+    </select>
+
+    <select id="selectNoQuestionType" resultType="java.util.HashMap">
+        select p.paper_id as "paperId", p.paper_name as "paperName", q.question_id as "questionId",
+               q.question_no as "questionNo", q.full_score as "fullScore"
+        from spas_paper_question q
+        join spas_paper p on p.paper_id = q.paper_id
+        where nullif(trim(q.question_type), '') is null
+        <include refid="paperFilter"/>
+        order by p.paper_id, q.question_order
+        limit 200
+    </select>
+
+    <select id="selectNoBloom" resultType="java.util.HashMap">
+        select p.paper_id as "paperId", p.paper_name as "paperName", q.question_id as "questionId",
+               q.question_no as "questionNo", q.full_score as "fullScore"
+        from spas_paper_question q
+        join spas_paper p on p.paper_id = q.paper_id
+        where nullif(trim(q.bloom_level), '') is null
         <include refid="paperFilter"/>
         order by p.paper_id, q.question_order
         limit 200
@@ -127,6 +199,21 @@
         <include refid="studentDeptFilter"/>
         <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
         order by st.attempt_count asc, s.student_no
+        limit 200
+    </select>
+
+    <select id="selectWeakLowEvidence" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               st.knowledge_id as "knowledgeId", k.knowledge_name as "knowledgeName",
+               st.attempt_count as "attemptCount", st.weighted_rate as "weightedRate", st.weak_level as "weakLevel"
+        from spas_student_knowledge_stat st
+        join spas_student s on s.student_id = st.student_id and s.del_flag = '0'
+        left join spas_knowledge k on k.knowledge_id = st.knowledge_id
+        where st.attempt_count &lt; #{minAttempts}
+          and st.weak_level in ('1', '2', '3')
+        <include refid="studentDeptFilter"/>
+        <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
+        order by st.weak_level desc, st.attempt_count asc, s.student_no
         limit 200
     </select>
 
@@ -181,14 +268,56 @@
         join spas_paper p on p.paper_id = d.paper_id
         join spas_student s on s.student_id = d.student_id and s.del_flag = '0'
         left join spas_paper_question q on q.question_id = d.question_id
-        where d.score = 0
-          and exists (
-            select 1 from spas_score_detail d2
-            where d2.paper_id = d.paper_id and d2.student_id = d.student_id and d2.score &gt; 0
+        where (
+            d.score_source = '3'
+            or (
+              coalesce(d.score_source, '2') &lt;&gt; '3'
+              and d.score = 0
+              and exists (
+                select 1 from spas_score_detail d2
+                where d2.paper_id = d.paper_id and d2.student_id = d.student_id and d2.score &gt; 0
+              )
+            )
           )
         <include refid="paperFilter"/>
         <include refid="studentDeptFilter"/>
         order by d.paper_id desc, s.student_no
+        limit 200
+    </select>
+
+    <select id="selectHighFreqLowMastery" resultType="java.util.HashMap">
+        select f.knowledge_id as "knowledgeId",
+               k.knowledge_name as "knowledgeName",
+               f.question_count as "questionCount",
+               m.avg_rate as "avgRate",
+               m.student_count as "studentCount",
+               m.attempt_avg as "attemptAvg"
+        from (
+            select k.knowledge_id, count(distinct q.question_id)::int as question_count
+            from spas_knowledge k
+            join spas_question_knowledge qk on qk.knowledge_id = k.knowledge_id
+            join spas_paper_question q on q.question_id = qk.question_id
+            join spas_paper p on p.paper_id = q.paper_id
+            where coalesce(k.node_type, '2') = '2'
+            <include refid="paperFilter"/>
+            group by k.knowledge_id
+            having count(distinct q.question_id) &gt;= #{questionMin}
+        ) f
+        join spas_knowledge k on k.knowledge_id = f.knowledge_id
+        join (
+            select st.knowledge_id,
+                   avg(st.weighted_rate) as avg_rate,
+                   count(distinct st.student_id)::int as student_count,
+                   avg(st.attempt_count::numeric) as attempt_avg
+            from spas_student_knowledge_stat st
+            join spas_student s on s.student_id = st.student_id and s.del_flag = '0'
+            where 1=1
+              <include refid="studentDeptFilter"/>
+              <if test="subjectId != null">and st.subject_id = #{subjectId}</if>
+            group by st.knowledge_id
+            having avg(st.weighted_rate) &lt; #{weakRate}
+        ) m on m.knowledge_id = f.knowledge_id
+        order by f.question_count desc, m.avg_rate asc
         limit 200
     </select>
 </mapper>

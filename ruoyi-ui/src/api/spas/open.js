@@ -51,3 +51,7 @@ export function bindParentStudent(parentId, studentId) {
 export function unbindParentStudent(parentId, studentId) {
   return request({ url: '/spas/open/parent/' + parentId + '/bind/' + studentId, method: 'delete' })
 }
+
+export function getOpenStatus() {
+  return request({ url: '/spas/open/status', method: 'get' })
+}

@@ -57,3 +57,11 @@ tmp_*.py
 !*/build/*.xml
 
 ruoyi-vue-postgresql-version/
+
+# Local / recovery / logs
+_recover/
+_gen_*.py
+logs/
+sql/__pycache__/
+**/__pycache__/
+*.pyc

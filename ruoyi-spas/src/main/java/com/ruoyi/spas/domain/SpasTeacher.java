@@ -33,6 +33,9 @@ public class SpasTeacher extends BaseEntity
     @Excel(name = "\u90e8\u95e8ID")
     private Long deptId;
 
+    /** Class dept where this teacher is the homeroom (nullable; one class max). */
+    private Long homeroomDeptId;
+
     private Long userId;
 
     @Excel(name = "\u624b\u673a")
@@ -55,6 +58,9 @@ public class SpasTeacher extends BaseEntity
 
     private String extraDeptNames;
 
+    /** Display name of the class where this teacher is (homeroom). */
+    private String homeroomDeptName;
+
     public Long getTeacherId() { return teacherId; }
     public void setTeacherId(Long teacherId) { this.teacherId = teacherId; }
     public String getTeacherNo() { return teacherNo; }
@@ -65,6 +71,8 @@ public class SpasTeacher extends BaseEntity
     public void setTeacherType(String teacherType) { this.teacherType = teacherType; }
     public Long getDeptId() { return deptId; }
     public void setDeptId(Long deptId) { this.deptId = deptId; }
+    public Long getHomeroomDeptId() { return homeroomDeptId; }
+    public void setHomeroomDeptId(Long homeroomDeptId) { this.homeroomDeptId = homeroomDeptId; }
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
     public String getMobile() { return mobile; }
@@ -83,6 +91,8 @@ public class SpasTeacher extends BaseEntity
     public void setExtraDeptIds(List<Long> extraDeptIds) { this.extraDeptIds = extraDeptIds; }
     public String getExtraDeptNames() { return extraDeptNames; }
     public void setExtraDeptNames(String extraDeptNames) { this.extraDeptNames = extraDeptNames; }
+    public String getHomeroomDeptName() { return homeroomDeptName; }
+    public void setHomeroomDeptName(String homeroomDeptName) { this.homeroomDeptName = homeroomDeptName; }
 
     @Override
     public String toString()
@@ -93,6 +103,7 @@ public class SpasTeacher extends BaseEntity
             .append("teacherName", getTeacherName())
             .append("teacherType", getTeacherType())
             .append("deptId", getDeptId())
+            .append("homeroomDeptId", getHomeroomDeptId())
             .append("userId", getUserId())
             .append("mobile", getMobile())
             .append("gender", getGender())

@@ -35,7 +35,7 @@
       :closable="false"
       show-icon
       style="margin-bottom: 12px"
-      title="从预警创建干预后，在此跟踪基线/目标得分率与辅导记录；导入成绩重算后可自动评估效果。"
+      title="从预警创建干预后，在此跟踪基线/目标得分率与辅导记录；创建时必须挂接知识点，导入成绩重算后可自动评估 Δrate。"
     />
 
     <el-table v-loading="loading" :data="taskList">
@@ -132,7 +132,7 @@
             filterable
             clearable
             collapse-tags
-            placeholder="可选，留空则取当前薄弱点"
+            placeholder="必选：至少挂接一个知识点"
             style="width: 100%"
             :disabled="!form.subjectId"
           >
@@ -187,6 +187,32 @@
         <el-table-column label="等级" prop="weakLevel" width="70" align="center" />
       </el-table>
 
+      <div style="margin-top: 16px; font-weight: 600">复测明细（按知识点 Δ）</div>
+      <el-alert
+        v-if="effectMeta && effectMeta.windowDesc"
+        class="mb8"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-top: 8px"
+        :title="effectExplainTitle"
+      />
+      <el-table :data="effectRows" size="mini" empty-text="尚未评估" style="margin-top: 8px">
+        <el-table-column label="知识点" prop="knowledgeName" min-width="140" />
+        <el-table-column label="基线" width="90" align="center">
+          <template slot-scope="scope">{{ formatRate(scope.row.baselineRate) }}</template>
+        </el-table-column>
+        <el-table-column label="复测" width="90" align="center">
+          <template slot-scope="scope">{{ formatRate(scope.row.effectRate) }}</template>
+        </el-table-column>
+        <el-table-column label="Δrate" width="100" align="center">
+          <template slot-scope="scope">
+            <span :style="{ color: deltaColor(scope.row.delta) }">{{ formatGap(scope.row.delta) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="练习" prop="attemptCount" width="70" align="center" />
+      </el-table>
+
       <div style="margin-top: 16px; font-weight: 600">辅导记录</div>
       <el-table :data="(current && current.coachLogs) || []" size="mini" empty-text="暂无辅导" style="margin-top: 8px">
         <el-table-column label="时间" width="160">
@@ -233,6 +259,9 @@ export default {
   data() {
     return {
       loading: true,
+      pendingKnowledgeId: null,
+      pendingKnowledgeName: '',
+      pendingSubjectId: null,
       showSearch: true,
       total: 0,
       taskList: [],
@@ -242,6 +271,8 @@ export default {
       coachOpen: false,
       current: {},
       baselineRows: [],
+      effectRows: [],
+      effectMeta: null,
       studentOptions: [],
       subjectOptions: [],
       knowledgeOptions: [],
@@ -257,12 +288,26 @@ export default {
       form: {},
       rules: {
         studentId: [{ required: true, message: '请选择学生', trigger: 'change' }],
-        title: [{ required: true, message: '标题不能为空', trigger: 'blur' }]
+        subjectId: [{ required: true, message: '请选择学科', trigger: 'change' }],
+        title: [{ required: true, message: '标题不能为空', trigger: 'blur' }],
+        knowledgeIdList: [{ type: 'array', required: true, min: 1, message: '请至少挂接一个知识点', trigger: 'change' }]
       },
       coachForm: {},
       coachRules: {
         content: [{ required: true, message: '辅导内容不能为空', trigger: 'blur' }]
       }
+    }
+  },
+  computed: {
+    effectExplainTitle() {
+      const m = this.effectMeta || {}
+      const parts = []
+      if (m.windowDesc) parts.push('对照口径：' + m.windowDesc)
+      if (m.windowFrom) parts.push('起算 ' + this.parseTime(m.windowFrom))
+      if (m.formula) parts.push(m.formula)
+      if (m.mode === 'after_create') parts.push('优先用干预后作答')
+      else if (m.mode === 'snapshot') parts.push('回退全量快照')
+      return parts.join(' · ') || '效果说明'
     }
   },
   created() {
@@ -273,10 +318,19 @@ export default {
     if (q.status !== undefined) {
       this.queryParams.status = q.status
     }
+    if (q.knowledgeId) {
+      this.pendingKnowledgeId = Number(q.knowledgeId) || q.knowledgeId
+      this.pendingKnowledgeName = q.knowledgeName || ''
+    }
+    if (q.subjectId) {
+      this.pendingSubjectId = Number(q.subjectId) || q.subjectId
+    }
     this.loadSubjects()
     this.getList()
     if (q.warningId) {
       this.$nextTick(() => this.promptFromWarning(q.warningId))
+    } else if (q.openAdd === '1' || q.openAdd === 1) {
+      this.$nextTick(() => this.handleAdd())
     }
   },
   methods: {
@@ -297,9 +351,9 @@ export default {
     deltaColor(gap) {
       const n = Number(gap)
       if (isNaN(n)) return undefined
-      if (n > 0.01) return '#67C23A'
-      if (n < -0.01) return '#F56C6C'
-      return '#909399'
+      if (n > 0.01) return '#10B981'
+      if (n < -0.01) return '#FF5A5F'
+      return '#64748B'
     },
     formatStudentLabel(item) {
       const no = item.studentNo || ''
@@ -400,17 +454,30 @@ export default {
       this.reset()
       this.open = true
       this.title = '新增干预任务'
+      if (!this.pendingKnowledgeId) return
+      const applyKp = () => {
+        this.form.knowledgeIdList = [this.pendingKnowledgeId]
+        if (this.pendingKnowledgeName) {
+          this.$modal.msgSuccess('已预填知识点：' + this.pendingKnowledgeName)
+        }
+      }
+      if (this.pendingSubjectId) {
+        this.form.subjectId = this.pendingSubjectId
+        this.loadKnowledge().then(applyKp)
+      } else {
+        applyKp()
+      }
     },
     submitForm() {
       this.$refs['form'].validate(valid => {
         if (!valid) return
         const payload = Object.assign({}, this.form)
         const list = payload.knowledgeIdList
-        if (list && list.length) {
-          payload.knowledgeIds = list.join(',')
-        } else {
-          payload.knowledgeIds = undefined
+        if (!list || !list.length) {
+          this.$modal.msgWarning('请至少挂接一个知识点')
+          return
         }
+        payload.knowledgeIds = list.join(',')
         delete payload.knowledgeIdList
         addIntervene(payload).then(() => {
           this.$modal.msgSuccess('新增成功，已拍摄基线')
@@ -431,16 +498,35 @@ export default {
         } catch (e) {
           this.baselineRows = []
         }
+        try {
+          const raw = data.effectJson ? JSON.parse(data.effectJson) : null
+          if (Array.isArray(raw)) {
+            this.effectRows = raw
+            this.effectMeta = null
+          } else if (raw && typeof raw === 'object') {
+            this.effectMeta = raw
+            this.effectRows = Array.isArray(raw.knowledges) ? raw.knowledges : []
+          } else {
+            this.effectRows = []
+            this.effectMeta = null
+          }
+        } catch (e) {
+          this.effectRows = []
+          this.effectMeta = null
+        }
         this.viewOpen = true
       })
     },
     handleEvaluate(row) {
-      this.$modal.confirm('将按当前知识点快照重新评估效果？').then(() => {
+      this.$modal.confirm('将按「干预后作答优先，否则全量快照」重新评估各知识点 Δ？').then(() => {
         return evaluateIntervene(row.interveneId)
       }).then(res => {
         const d = res.data || {}
         this.$modal.msgSuccess('评估完成：当前 ' + this.formatRate(d.effectRate) + '，增益 ' + this.formatGap(d.effectDelta))
         this.getList()
+        if (this.viewOpen && this.current && this.current.interveneId === row.interveneId) {
+          this.handleView(row)
+        }
       }).catch(() => {})
     },
     handleClose(row) {

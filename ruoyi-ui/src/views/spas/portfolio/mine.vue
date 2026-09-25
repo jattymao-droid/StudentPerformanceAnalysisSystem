@@ -13,18 +13,40 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="el-icon-refresh" size="mini" @click="loadMine">刷新</el-button>
+        <el-button
+          type="success"
+          plain
+          icon="el-icon-download"
+          size="mini"
+          :disabled="!(portfolio.student && portfolio.student.studentId)"
+          :loading="exportLoading"
+          @click="exportMine"
+        >导出学情 PDF</el-button>
       </el-form-item>
     </el-form>
+
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      class="mb8"
+      title="解读说明：雷达为知识点加权掌握；薄弱列表按得分率从低到高；预警仅展示未关闭项。数据随教师导入与重算更新。"
+    />
 
     <div v-loading="loading">
       <el-card shadow="never">
         <div slot="header" class="card-header">我的学情</div>
-        <el-descriptions :column="3" border size="small" v-if="portfolio.student">
+        <el-descriptions :column="4" border size="small" v-if="portfolio.student">
           <el-descriptions-item label="学号">{{ portfolio.student.studentNo }}</el-descriptions-item>
           <el-descriptions-item label="姓名">{{ portfolio.student.studentName }}</el-descriptions-item>
           <el-descriptions-item label="当前预警">
             <el-tag :type="(portfolio.openWarningCount || 0) > 0 ? 'danger' : 'success'" size="mini">
               {{ portfolio.openWarningCount || 0 }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="进行中干预">
+            <el-tag :type="(portfolio.openInterveneCount || 0) > 0 ? 'warning' : 'success'" size="mini">
+              {{ portfolio.openInterveneCount || 0 }}
             </el-tag>
           </el-descriptions-item>
         </el-descriptions>
@@ -47,6 +69,34 @@
           show-icon
           style="margin-top: 12px"
         />
+        <el-card shadow="never" style="margin-top: 12px">
+          <div slot="header" class="card-header">实考校次进退</div>
+          <el-alert
+            v-if="rankSummary && rankSummary.headline"
+            class="mb8"
+            type="info"
+            :closable="false"
+            show-icon
+            :title="rankSummary.headline"
+          />
+          <el-table :data="rankSubjects" size="small" empty-text="暂无实考校次数据">
+            <el-table-column label="科目" prop="subjectName" width="90" />
+            <el-table-column label="校次轨迹" prop="track" min-width="160" :show-overflow-tooltip="true" />
+            <el-table-column label="最近校次" width="90" align="center">
+              <template slot-scope="scope">{{ scope.row.latestRank == null ? '-' : scope.row.latestRank }}</template>
+            </el-table-column>
+            <el-table-column label="较上次" width="100" align="center">
+              <template slot-scope="scope">
+                <span :style="{ color: rankColor(scope.row.trend) }">{{ deltaText(scope.row.stepDelta) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="结论" width="90" align="center">
+              <template slot-scope="scope">
+                <el-tag size="mini" :type="rankTag(scope.row.trend)">{{ scope.row.trendLabel || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
         <el-card shadow="never" style="margin-top: 12px" v-if="interveneTimeline.length">
           <div slot="header" class="card-header">我的干预进度</div>
           <el-timeline>
@@ -103,6 +153,36 @@
           </el-table>
         </el-card>
 
+        <el-card shadow="never" style="margin-top: 16px" v-if="errorCauseSummary.length">
+          <div slot="header" class="card-header">错因分布</div>
+          <el-table :data="errorCauseSummary" size="small">
+            <el-table-column label="错因大类" min-width="120">
+              <template slot-scope="scope">{{ scope.row.errorCategoryLabel || scope.row.errorLabel || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="题数" prop="tagCount" width="90" align="center" />
+          </el-table>
+        </el-card>
+
+        <el-card shadow="never" style="margin-top: 16px">
+          <div slot="header" class="card-header">本学期反复薄弱</div>
+          <el-table :data="persistentWeak" empty-text="暂无反复薄弱">
+            <el-table-column label="知识点" align="center" min-width="160">
+              <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName }}</template>
+            </el-table-column>
+            <el-table-column label="加权得分率" align="center" width="120">
+              <template slot-scope="scope">{{ formatRate(scope.row.rate != null ? scope.row.rate : scope.row.weightedRate) }}</template>
+            </el-table-column>
+            <el-table-column label="偏低场次" align="center" width="110">
+              <template slot-scope="scope">{{ scope.row.lowPapers || 0 }}/{{ scope.row.validPapers || 0 }}</template>
+            </el-table-column>
+            <el-table-column label="标签" align="center" width="110">
+              <template slot-scope="scope">
+                <el-tag size="mini" type="danger">{{ scope.row.persistTag || '反复薄弱' }}</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
         <el-card shadow="never" style="margin-top: 16px">
           <div slot="header" class="card-header">教师辅导反馈</div>
           <el-table :data="coachLogs" empty-text="暂无辅导记录">
@@ -147,13 +227,18 @@ export default {
   data() {
     return {
       loading: false,
+      exportLoading: false,
       subjectOptions: [],
       portfolio: {},
       summary: {},
       interveneTimeline: [],
       weakList: [],
+      persistentWeak: [],
+      errorCauseSummary: [],
       coachLogs: [],
       openWarnings: [],
+      rankSubjects: [],
+      rankSummary: {},
       radarOption: {},
       trendOption: {},
       queryParams: {
@@ -187,6 +272,24 @@ export default {
       const pct = (Math.abs(n) <= 1 ? n * 100 : n)
       return (pct > 0 ? '+' : '') + pct.toFixed(2) + '%'
     },
+    deltaText(v) {
+      if (v == null || v === '') return '-'
+      const n = Number(v)
+      if (Number.isNaN(n)) return '-'
+      if (n > 0) return '进步 ' + n
+      if (n < 0) return '退步 ' + Math.abs(n)
+      return '持平'
+    },
+    rankColor(trend) {
+      if (trend === 'up') return '#16a34a'
+      if (trend === 'down') return '#dc2626'
+      return '#64748b'
+    },
+    rankTag(trend) {
+      if (trend === 'up') return 'success'
+      if (trend === 'down') return 'danger'
+      return 'info'
+    },
     timelineTitle(item) {
       if (item.type === 'intervene_create') return '创建干预：' + (item.title || '')
       if (item.type === 'coach') return '教师辅导'
@@ -197,6 +300,19 @@ export default {
       if (!val) return []
       if (Array.isArray(val)) return val
       return []
+    },
+    exportMine() {
+      const sid = this.portfolio.student && this.portfolio.student.studentId
+      if (!sid) {
+        this.$modal.msgWarning('未绑定学生档案')
+        return
+      }
+      this.exportLoading = true
+      this.download(
+        'spas/report/student/' + sid,
+        { subjectId: this.queryParams.subjectId, format: 'pdf' },
+        'my_portfolio_' + sid + '.pdf'
+      ).finally(() => { this.exportLoading = false })
     },
     loadSubjects() {
       return optionselectSubject().then(res => {
@@ -216,15 +332,24 @@ export default {
         this.summary = data.summary || {}
         this.interveneTimeline = this.unwrapList(data.interveneTimeline)
         this.weakList = this.unwrapList(data.weakTop)
+        this.persistentWeak = this.unwrapList(data.persistentWeak)
+        this.errorCauseSummary = this.unwrapList(data.errorCauseSummary)
         this.coachLogs = this.unwrapList(data.coachLogs)
         this.openWarnings = this.unwrapList(data.openWarnings)
+        const examRank = data.examRank || {}
+        this.rankSubjects = this.unwrapList(examRank.subjects)
+        this.rankSummary = examRank.summary || {}
         this.buildRadar(this.unwrapList(data.radar))
         this.buildTrend(this.unwrapList(data.trend))
       }).catch(() => {
         this.portfolio = {}
         this.weakList = []
+        this.persistentWeak = []
+        this.errorCauseSummary = []
         this.coachLogs = []
         this.openWarnings = []
+        this.rankSubjects = []
+        this.rankSummary = {}
         this.radarOption = {}
         this.trendOption = {}
       }).finally(() => {
@@ -233,7 +358,7 @@ export default {
     },
     buildRadar(list) {
       if (!list.length) {
-        this.radarOption = { title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#909399', fontSize: 14 } } }
+        this.radarOption = { title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#64748B', fontSize: 14 } } }
         return
       }
       const values = list.map(i => this.toPercent(i.rate != null ? i.rate : i.weightedRate))
@@ -247,7 +372,7 @@ export default {
         seriesData.push({ value: classValues.map(v => (v == null ? 0 : v)), name: '班级均值', lineStyle: { type: 'dashed' }, areaStyle: { opacity: 0.08 } })
       }
       this.radarOption = {
-        color: ['#7B6CF6', '#A8A3BD'],
+        color: ['#2442ED', '#94A3B8'],
         tooltip: {},
         legend: hasClass ? { data: ['本人', '班级均值'], bottom: 0 } : undefined,
         radar: { indicator: list.map(i => ({ name: i.name || i.knowledgeName || '-', max: 100 })), radius: '62%', center: ['50%', '48%'] },
@@ -256,7 +381,7 @@ export default {
     },
     buildTrend(list) {
       if (!list.length) {
-        this.trendOption = { title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#909399', fontSize: 14 } } }
+        this.trendOption = { title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#64748B', fontSize: 14 } } }
         return
       }
       const sorted = list.slice().sort((a, b) => String(a.examDate || '').localeCompare(String(b.examDate || '')))
@@ -267,9 +392,9 @@ export default {
         type: 'line',
         smooth: true,
         data: sorted.map(i => this.toPercent(i.totalRate != null ? i.totalRate : i.avgRate != null ? i.avgRate : i.rate)),
-        itemStyle: { color: '#7B6CF6' },
-        lineStyle: { color: '#7B6CF6' },
-        areaStyle: { opacity: 0.12, color: 'rgba(123, 108, 246, 0.18)' },
+        itemStyle: { color: '#2442ED' },
+        lineStyle: { color: '#2442ED' },
+        areaStyle: { opacity: 0.12, color: 'rgba(36, 66, 237, 0.18)' },
         markLine: { silent: true, data: [{ yAxis: 60, name: '60%' }] }
       }]
       if (hasClass) {
@@ -278,8 +403,8 @@ export default {
           type: 'line',
           smooth: true,
           data: classData,
-          itemStyle: { color: '#A8A3BD' },
-          lineStyle: { color: '#A8A3BD', type: 'dashed' }
+          itemStyle: { color: '#94A3B8' },
+          lineStyle: { color: '#94A3B8', type: 'dashed' }
         })
       }
       this.trendOption = {
@@ -294,4 +419,10 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.mb8 {
+  margin-bottom: 8px;
+}
+</style>
 

@@ -13,13 +13,15 @@ import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.spas.domain.SpasWarningRule;
 import com.ruoyi.spas.mapper.SpasWarningRuleMapper;
 import com.ruoyi.spas.service.ISpasWarningRuleService;
+import com.ruoyi.spas.support.SpasOperatorNormalize;
 import com.ruoyi.spas.warning.WarningEngine;
 
 @Service
 public class SpasWarningRuleServiceImpl implements ISpasWarningRuleService
 {
     private static final Set<String> METRICS = new HashSet<>(Arrays.asList(
-            "AVG_RATE", "WEAK_COUNT", "BELOW_CLASS_AVG", "CONTINUOUS_DROP"));
+            "AVG_RATE", "WEAK_COUNT", "BELOW_CLASS_AVG", "CONTINUOUS_DROP", "PERSISTENT_WEAK",
+            "KNOWLEDGE_CONTINUOUS_DROP"));
     private static final Set<String> OPERATORS = new HashSet<>(Arrays.asList("<", "<=", ">", ">=", "="));
 
     @Autowired
@@ -91,6 +93,10 @@ public class SpasWarningRuleServiceImpl implements ISpasWarningRuleService
                 rule.setOperator(">");
             }
         }
+        else
+        {
+            rule.setOperator(SpasOperatorNormalize.normalize(rule.getOperator()));
+        }
         if (!OPERATORS.contains(rule.getOperator()))
         {
             throw new ServiceException("运算符仅支持 < <= > >= =");
@@ -116,11 +122,12 @@ public class SpasWarningRuleServiceImpl implements ISpasWarningRuleService
                 throw new ServiceException(metricLabel(metric) + "阈值请填写 0~1（如 0.6 表示 60%）");
             }
         }
-        else if ("WEAK_COUNT".equals(metric))
+        else if ("WEAK_COUNT".equals(metric) || "PERSISTENT_WEAK".equals(metric)
+            || "KNOWLEDGE_CONTINUOUS_DROP".equals(metric))
         {
             if (threshold.compareTo(BigDecimal.ZERO) < 0)
             {
-                throw new ServiceException("薄弱知识点数量阈值不能为负数");
+                throw new ServiceException(metricLabel(metric) + "阈值不能为负数");
             }
         }
         int window = rule.getWindowDays() == null ? 3 : rule.getWindowDays();
@@ -128,7 +135,7 @@ public class SpasWarningRuleServiceImpl implements ISpasWarningRuleService
         {
             throw new ServiceException("考试场次需在 1~30 之间");
         }
-        if ("CONTINUOUS_DROP".equals(metric) && window < 2)
+        if (("CONTINUOUS_DROP".equals(metric) || "KNOWLEDGE_CONTINUOUS_DROP".equals(metric)) && window < 2)
         {
             throw new ServiceException("连续下滑至少需要 2 场考试");
         }
@@ -139,15 +146,27 @@ public class SpasWarningRuleServiceImpl implements ISpasWarningRuleService
     {
         if ("AVG_RATE".equals(metric))
         {
-            return "平均得分率";
+            return "\u5e73\u5747\u5f97\u5206\u7387";
         }
         if ("BELOW_CLASS_AVG".equals(metric))
         {
-            return "低于班级均分差值";
+            return "\u4f4e\u4e8e\u73ed\u7ea7\u5747\u5206\u5dee\u503c";
         }
         if ("CONTINUOUS_DROP".equals(metric))
         {
-            return "连续下滑幅度";
+            return "\u8fde\u7eed\u4e0b\u6ed1\u5e45\u5ea6";
+        }
+        if ("WEAK_COUNT".equals(metric))
+        {
+            return "\u8584\u5f31\u77e5\u8bc6\u70b9\u6570\u91cf";
+        }
+        if ("PERSISTENT_WEAK".equals(metric))
+        {
+            return "\u53cd\u590d\u8584\u5f31\u77e5\u8bc6\u70b9\u6570";
+        }
+        if ("KNOWLEDGE_CONTINUOUS_DROP".equals(metric))
+        {
+            return "\u77e5\u8bc6\u70b9\u8fde\u7eed\u4e0b\u6ed1\u6570";
         }
         return metric;
     }
@@ -161,6 +180,12 @@ public class SpasWarningRuleServiceImpl implements ISpasWarningRuleService
     @Override
     public int runEngine()
     {
-        return warningEngine.evaluateAllEnabled();
+        return runEngine(null);
+    }
+
+    @Override
+    public int runEngine(String window)
+    {
+        return warningEngine.evaluateAllEnabled(window);
     }
 }

@@ -1,12 +1,15 @@
 package com.ruoyi.spas.service;
 
 import java.util.List;
+import java.util.Map;
 import com.ruoyi.spas.domain.SpasOpenClient;
 import com.ruoyi.spas.domain.SpasParent;
 import com.ruoyi.spas.domain.SpasStudent;
 
 public interface ISpasOpenAdminService
 {
+    Map<String, Object> openRuntimeStatus();
+
     List<SpasOpenClient> selectClientList(SpasOpenClient query);
 
     SpasOpenClient selectClientById(Long clientId);

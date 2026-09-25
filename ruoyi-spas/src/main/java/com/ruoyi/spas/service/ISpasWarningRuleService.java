@@ -18,4 +18,6 @@ public interface ISpasWarningRuleService
     int deleteSpasWarningRuleByIds(Long[] ruleIds);
 
     int runEngine();
+
+    int runEngine(String window);
 }

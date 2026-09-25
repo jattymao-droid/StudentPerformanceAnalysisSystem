@@ -2,6 +2,7 @@ package com.ruoyi.spas.service;
 
 import java.util.List;
 import java.util.Map;
+import com.ruoyi.spas.domain.SpasClassTeacherBind;
 import com.ruoyi.spas.domain.SpasTeacher;
 
 public interface ISpasTeacherService
@@ -24,4 +25,8 @@ public interface ISpasTeacherService
 
     /** Current login user's teaching depts (primary + extras). */
     List<Map<String, Object>> listMyTeachingDepts();
+
+    Map<String, Object> getClassBinding(Long deptId);
+
+    String saveClassBinding(SpasClassTeacherBind bind, String operator);
 }

@@ -40,6 +40,113 @@ public final class SpasReportPdfWriter
     {
     }
 
+    public static void writeRankTrend(OutputStream out, Map<String, Object> data) throws Exception
+    {
+        Font title = font(16, Font.BOLD);
+        Font h2 = font(12, Font.BOLD);
+        Font body = font(10, Font.NORMAL);
+        Font small = font(8, Font.NORMAL);
+
+        Document doc = new Document(PageSize.A4, 36, 36, 42, 42);
+        PdfWriter.getInstance(doc, out);
+        doc.open();
+
+        Map<String, Object> student = asMap(data.get("student"));
+        Map<String, Object> summary = asMap(data.get("summary"));
+
+        Paragraph p = new Paragraph("\u5b9e\u8003\u6821\u6b21\u8fdb\u9000\u62a5\u544a", title);
+        p.setAlignment(Element.ALIGN_CENTER);
+        doc.add(p);
+        doc.add(spacer(8));
+        doc.add(line(body, "\u5b66\u53f7\uff1a" + str(student.get("studentNo"), "-")
+            + "    \u59d3\u540d\uff1a" + str(student.get("studentName"), "-")
+            + "    \u73ed\u7ea7\uff1a" + str(student.get("deptName"), "-")));
+        doc.add(line(small, "\u53e3\u5f84\uff1a\u4ee5\u5404\u79d1\u6821\u6b21\u4e3a\u4e3b\uff08\u6570\u5b57\u53d8\u5c0f=\u8fdb\u6b65\uff09\uff1b\u8584\u5f31\u77e5\u8bc6\u70b9\u6765\u81ea\u5c0f\u9898\u638c\u63e1\u5ea6\u5206\u6790\uff0c\u7528\u4e8e\u89e3\u91ca\u6821\u6b21\u53d8\u5316\u3002"));
+        doc.add(spacer(8));
+        addHeading(doc, h2, "\u7efc\u5408\u5224\u65ad");
+        doc.add(line(body, str(summary.get("headline"), "\u6682\u65e0")));
+        doc.add(spacer(8));
+
+        addHeading(doc, h2, "\u5404\u79d1\u6821\u6b21\u8fdb\u9000\u4e0e\u8865\u5f31\u89e3\u91ca");
+        PdfPTable table = table(5);
+        for (String h : new String[] {"\u79d1\u76ee", "\u6821\u6b21\u8f68\u8ff9", "\u8f83\u4e0a\u6b21", "\u7ed3\u8bba", "\u8584\u5f31\u89e3\u91ca"})
+        {
+            addCell(table, body, h, true);
+        }
+        List<Map<String, Object>> subjects = castList(data.get("subjects"));
+        if (subjects.isEmpty())
+        {
+            addCell(table, body, "\u6682\u65e0\u5b9e\u8003\u6821\u6b21\u6570\u636e", false);
+            addCell(table, body, "-", false);
+            addCell(table, body, "-", false);
+            addCell(table, body, "-", false);
+            addCell(table, body, "-", false);
+        }
+        else
+        {
+            for (Map<String, Object> row : subjects)
+            {
+                addCell(table, body, str(row.get("subjectName"), "-"), false);
+                addCell(table, body, str(row.get("track"), "-"), false);
+                addCell(table, body, deltaText(row.get("stepDelta")), false);
+                addCell(table, body, str(row.get("trendLabel"), "-"), false);
+                addCell(table, small, str(row.get("explain"), "-"), false);
+            }
+        }
+        doc.add(table);
+        doc.add(spacer(10));
+
+        addHeading(doc, h2, "\u5404\u6b21\u8003\u8bd5");
+        PdfPTable exams = table(3);
+        addCell(exams, body, "\u8003\u8bd5", true);
+        addCell(exams, body, "\u65e5\u671f", true);
+        addCell(exams, body, "\u8bf4\u660e", true);
+        List<Map<String, Object>> examList = castList(data.get("exams"));
+        if (examList.isEmpty())
+        {
+            addCell(exams, body, "\u6682\u65e0", false);
+            addCell(exams, body, "-", false);
+            addCell(exams, body, "-", false);
+        }
+        else
+        {
+            for (Map<String, Object> exam : examList)
+            {
+                addCell(exams, body, str(exam.get("examName"), "-"), false);
+                addCell(exams, body, str(exam.get("examDate"), "-"), false);
+                addCell(exams, body, "\u5b9e\u8003\u6821\u6b21\u5bfc\u5165", false);
+            }
+        }
+        doc.add(exams);
+        doc.close();
+    }
+
+    private static String deltaText(Object delta)
+    {
+        if (delta == null || "".equals(String.valueOf(delta)) || "null".equals(String.valueOf(delta)))
+        {
+            return "-";
+        }
+        int n;
+        try
+        {
+            n = Integer.parseInt(String.valueOf(delta));
+        }
+        catch (Exception e)
+        {
+            return "-";
+        }
+        if (n > 0)
+        {
+            return "\u8fdb\u6b65 " + n;
+        }
+        if (n < 0)
+        {
+            return "\u9000\u6b65 " + Math.abs(n);
+        }
+        return "\u6301\u5e73";
+    }
+
     public static void writeStudent(OutputStream out, Map<String, Object> data) throws Exception
     {
         Font title = font(16, Font.BOLD);
@@ -54,13 +161,27 @@ public final class SpasReportPdfWriter
         Map<String, Object> student = asMap(data.get("student"));
         Map<String, Object> summary = asMap(data.get("summary"));
 
-        Paragraph p = new Paragraph("\u5b66\u60c5\u5206\u6790\u62a5\u544a", title);
+        Paragraph p = new Paragraph(
+            Boolean.TRUE.equals(data.get("allSubjects")) ? "\u5168\u79d1\u5b66\u60c5\u5206\u6790\u62a5\u544a" : "\u5b66\u60c5\u5206\u6790\u62a5\u544a",
+            title);
         p.setAlignment(Element.ALIGN_CENTER);
         doc.add(p);
         doc.add(spacer(8));
         doc.add(line(body, "\u5b66\u53f7\uff1a" + str(student.get("studentNo"), "-")
             + "    \u59d3\u540d\uff1a" + str(student.get("studentName"), "-")));
         doc.add(line(body, "\u751f\u6210\u65f6\u95f4\uff1a" + str(data.get("generatedAt"), "-")));
+        if (data.get("scopeLabel") != null)
+        {
+            doc.add(line(body, "\u5206\u6790\u53e3\u5f84\uff1a" + str(data.get("scopeLabel"), "-")));
+        }
+        if (data.get("portfolioScopeNote") != null)
+        {
+            doc.add(line(body, str(data.get("portfolioScopeNote"), "")));
+        }
+        if (data.get("dimensionRateNote") != null)
+        {
+            doc.add(line(body, str(data.get("dimensionRateNote"), "")));
+        }
         doc.add(spacer(10));
 
         addHeading(doc, h2, "\u7efc\u5408\u6458\u8981");
@@ -76,7 +197,7 @@ public final class SpasReportPdfWriter
         addCell(kpi, body, "\u4e0e\u73ed\u5dee", true);
         addCell(kpi, body, fmtGap(summary.get("gap")), false);
         addCell(kpi, body, "\u7f6e\u4fe1\u5ea6", true);
-        addCell(kpi, body, str(summary.get("confidence"), "-"), false);
+        addCell(kpi, body, str(first(summary, "confidenceLabel", "confidence"), "-"), false);
         addCell(kpi, body, "\u4e25\u91cd", true);
         addCell(kpi, body, str(summary.get("severeCount"), "0"), false);
         addCell(kpi, body, "\u8584\u5f31", true);
@@ -88,9 +209,36 @@ public final class SpasReportPdfWriter
         doc.add(kpi);
         doc.add(spacer(10));
 
+        List<Map<String, Object>> subjectBreakdown = castList(data.get("subjectBreakdown"));
+        if (subjectBreakdown.isEmpty())
+        {
+            subjectBreakdown = castList(summary.get("subjectBreakdown"));
+        }
+        if (!subjectBreakdown.isEmpty())
+        {
+            addHeading(doc, h2, "\u5206\u79d1\u5f97\u5206\u6982\u89c8");
+            PdfPTable sub = table(5);
+            for (String h : new String[] {"\u5b66\u79d1", "\u5f97\u5206\u7387", "\u73ed\u5747", "\u8584\u5f31", "\u4e25\u91cd"})
+            {
+                addCell(sub, body, h, true);
+            }
+            int sn = Math.min(20, subjectBreakdown.size());
+            for (int i = 0; i < sn; i++)
+            {
+                Map<String, Object> row = subjectBreakdown.get(i);
+                addCell(sub, body, str(row.get("subjectName"), "-"), false);
+                addCell(sub, body, fmtRate(row.get("overallRate")), false);
+                addCell(sub, body, fmtRate(row.get("classAvgRate")), false);
+                addCell(sub, body, str(row.get("weakCount"), "0"), false);
+                addCell(sub, body, str(row.get("severeCount"), "0"), false);
+            }
+            doc.add(sub);
+            doc.add(spacer(10));
+        }
+
         addHeading(doc, h2, "\u8584\u5f31\u77e5\u8bc6\u70b9");
-        PdfPTable weak = table(6);
-        for (String h : new String[] {"\u77e5\u8bc6\u70b9", "\u5f97\u5206\u7387", "\u73ed\u5747", "\u4e0e\u73ed\u5dee", "\u6b21\u6570", "\u7b49\u7ea7"})
+        PdfPTable weak = table(7);
+        for (String h : new String[] {"\u77e5\u8bc6\u70b9", "\u5f97\u5206\u7387", "\u73ed\u5747", "\u4e0e\u73ed\u5dee", "\u6b21\u6570", "\u7b49\u7ea7", "\u6839\u56e0"})
         {
             addCell(weak, body, h, true);
         }
@@ -98,6 +246,7 @@ public final class SpasReportPdfWriter
         if (weakList.isEmpty())
         {
             addCell(weak, body, "\u6682\u65e0", false);
+            addCell(weak, body, "-", false);
             addCell(weak, body, "-", false);
             addCell(weak, body, "-", false);
             addCell(weak, body, "-", false);
@@ -115,7 +264,8 @@ public final class SpasReportPdfWriter
                 addCell(weak, body, fmtRate(row.get("classAvgRate")), false);
                 addCell(weak, body, fmtGap(row.get("gap")), false);
                 addCell(weak, body, str(first(row, "attemptCount", "attempts"), "0"), false);
-                addCell(weak, body, str(first(row, "level", "masteryLevel"), "-"), false);
+                addCell(weak, body, fmtWeakLevel(first(row, "weakLevel", "level", "masteryLevel")), false);
+                addCell(weak, body, str(row.get("rootHint"), "-"), false);
             }
         }
         doc.add(weak);
@@ -169,7 +319,187 @@ public final class SpasReportPdfWriter
             addCell(iv, body, str(first(row, "content", "status"), "-"), false);
         }
         doc.add(iv);
-        doc.add(spacer(14));
+        doc.add(spacer(10));
+
+        List<Map<String, Object>> persist = castList(data.get("persistentWeak"));
+        if (!persist.isEmpty())
+        {
+            addHeading(doc, h2, "\u53cd\u590d\u8584\u5f31");
+            PdfPTable pw = table(4);
+            for (String h : new String[] {"\u77e5\u8bc6\u70b9", "\u5f97\u5206\u7387", "\u4f4e\u5206\u573a\u6b21", "\u6807\u7b7e"})
+            {
+                addCell(pw, body, h, true);
+            }
+            int pn = Math.min(15, persist.size());
+            for (int i = 0; i < pn; i++)
+            {
+                Map<String, Object> row = persist.get(i);
+                addCell(pw, body, firstStr(row, "name", "knowledgeName"), false);
+                addCell(pw, body, fmtRate(first(row, "rate", "weightedRate")), false);
+                addCell(pw, body, str(row.get("lowPapers"), "0") + "/" + str(row.get("validPapers"), "0"), false);
+                addCell(pw, body, str(row.get("persistTag"), "-"), false);
+            }
+            doc.add(pw);
+            doc.add(spacer(10));
+        }
+
+        List<Map<String, Object>> causes = castList(data.get("errorCauseSummary"));
+        if (!causes.isEmpty())
+        {
+            addHeading(doc, h2, "\u9519\u56e0\u5206\u5e03");
+            doc.add(line(body, "\u8bf4\u660e\uff1a\u9519\u56e0\u4e3a\u5168\u91cf\u6807\u7b7e\u8ba1\u6570\uff0c\u4e0d\u968f\u5206\u6790\u65f6\u95f4\u7a97/\u9009\u5377\u53d8\u5316"));
+            doc.add(spacer(4));
+            PdfPTable ct = table(2);
+            addCell(ct, body, "\u9519\u56e0\u5927\u7c7b", true);
+            addCell(ct, body, "\u9898\u6570", true);
+            int cn = Math.min(20, causes.size());
+            for (int i = 0; i < cn; i++)
+            {
+                Map<String, Object> row = causes.get(i);
+                addCell(ct, body, firstStr(row, "errorCategoryLabel", "errorLabel", "causeLabel"), false);
+                addCell(ct, body, str(first(row, "tagCount", "count"), "0"), false);
+            }
+            doc.add(ct);
+            doc.add(spacer(10));
+        }
+
+        Map<String, Object> qtype = asMap(data.get("questionType"));
+        List<Map<String, Object>> qtypeItems = castList(qtype.get("items"));
+        if (!qtypeItems.isEmpty())
+        {
+            addHeading(doc, h2, "\u9898\u578b\u8868\u73b0");
+            doc.add(line(body, "\u53e3\u5f84\uff1a\u5377\u9762 sum(\u5f97\u5206)/sum(\u6ee1\u5206)\uff0c\u975e\u77e5\u8bc6\u70b9\u52a0\u6743\u638c\u63e1\u5ea6"));
+            doc.add(spacer(4));
+            PdfPTable qt = table(4);
+            addCell(qt, body, "\u9898\u578b", true);
+            addCell(qt, body, "\u9898\u91cf", true);
+            addCell(qt, body, "\u5f97\u5206\u7387", true);
+            addCell(qt, body, "\u6837\u672c", true);
+            int qn = Math.min(15, qtypeItems.size());
+            for (int i = 0; i < qn; i++)
+            {
+                Map<String, Object> row = qtypeItems.get(i);
+                addCell(qt, body, firstStr(row, "typeName", "typeCode"), false);
+                addCell(qt, body, str(row.get("questionCount"), "0"), false);
+                addCell(qt, body, fmtRate(row.get("avgRate")), false);
+                addCell(qt, body, str(row.get("attemptCount"), "0"), false);
+            }
+            doc.add(qt);
+            doc.add(spacer(10));
+        }
+
+        Map<String, Object> bloom = asMap(data.get("bloom"));
+        List<Map<String, Object>> bloomItems = castList(bloom.get("items"));
+        if (!bloomItems.isEmpty())
+        {
+            addHeading(doc, h2, "\u80fd\u529b\u5c42\u7ea7");
+            doc.add(line(body, "\u53e3\u5f84\uff1a\u5377\u9762 sum(\u5f97\u5206)/sum(\u6ee1\u5206)\uff0c\u975e\u77e5\u8bc6\u70b9\u52a0\u6743\u638c\u63e1\u5ea6"));
+            doc.add(spacer(4));
+            if (bloom.get("insight") != null)
+            {
+                Paragraph bloomInsight = new Paragraph(String.valueOf(bloom.get("insight")), body);
+                doc.add(bloomInsight);
+                doc.add(spacer(6));
+            }
+            PdfPTable bt = table(4);
+            addCell(bt, body, "\u5c42\u7ea7", true);
+            addCell(bt, body, "\u9898\u91cf", true);
+            addCell(bt, body, "\u5f97\u5206\u7387", true);
+            addCell(bt, body, "\u6837\u672c", true);
+            int bn = Math.min(10, bloomItems.size());
+            for (int i = 0; i < bn; i++)
+            {
+                Map<String, Object> row = bloomItems.get(i);
+                addCell(bt, body, firstStr(row, "bloomLabel", "bloomLevel"), false);
+                addCell(bt, body, str(row.get("questionCount"), "0"), false);
+                addCell(bt, body, fmtRate(row.get("avgRate")), false);
+                addCell(bt, body, str(row.get("attemptCount"), "0"), false);
+            }
+            doc.add(bt);
+            doc.add(spacer(10));
+        }
+
+        Map<String, Object> chapterDelta = asMap(data.get("chapterDelta"));
+        List<Map<String, Object>> improved = castList(chapterDelta.get("improved"));
+        List<Map<String, Object>> declined = castList(chapterDelta.get("declined"));
+        if (!improved.isEmpty() || !declined.isEmpty())
+        {
+            addHeading(doc, h2, "\u7ae0\u8282\u8fdb\u9000");
+            if (chapterDelta.get("headline") != null)
+            {
+                Paragraph headlinePara = new Paragraph(String.valueOf(chapterDelta.get("headline")), body);
+                doc.add(headlinePara);
+                doc.add(spacer(6));
+            }
+            PdfPTable cdt = table(3);
+            addCell(cdt, body, "\u7c7b\u578b", true);
+            addCell(cdt, body, "\u7ae0\u8282", true);
+            addCell(cdt, body, "\u53d8\u5316", true);
+            for (Map<String, Object> row : improved)
+            {
+                addCell(cdt, body, "\u8fdb\u6b65", false);
+                addCell(cdt, body, str(row.get("chapterName"), "-"), false);
+                addCell(cdt, body, fmtRate(row.get("deltaRate")), false);
+            }
+            for (Map<String, Object> row : declined)
+            {
+                addCell(cdt, body, "\u9000\u6b65", false);
+                addCell(cdt, body, str(row.get("chapterName"), "-"), false);
+                addCell(cdt, body, fmtRate(row.get("deltaRate")), false);
+            }
+            doc.add(cdt);
+            doc.add(spacer(10));
+        }
+
+        Map<String, Object> examRank = asMap(data.get("examRank"));
+        List<Map<String, Object>> rankSubjects = castList(examRank.get("subjects"));
+        if (!rankSubjects.isEmpty())
+        {
+            addHeading(doc, h2, "\u5b9e\u8003\u6821\u6b21\u8fdb\u9000");
+            Map<String, Object> rankSummary = asMap(examRank.get("summary"));
+            if (StringUtils.isNotEmpty(str(rankSummary.get("headline"), "")))
+            {
+                doc.add(line(body, str(rankSummary.get("headline"), "")));
+                doc.add(spacer(4));
+            }
+            PdfPTable rt = table(5);
+            for (String h : new String[] {"\u79d1\u76ee", "\u6821\u6b21\u8f68\u8ff9", "\u8f83\u4e0a\u6b21", "\u7ed3\u8bba", "\u8584\u5f31\u89e3\u91ca"})
+            {
+                addCell(rt, body, h, true);
+            }
+            int rn = Math.min(12, rankSubjects.size());
+            for (int i = 0; i < rn; i++)
+            {
+                Map<String, Object> row = rankSubjects.get(i);
+                addCell(rt, body, str(row.get("subjectName"), "-"), false);
+                addCell(rt, body, str(row.get("track"), "-"), false);
+                addCell(rt, body, deltaText(row.get("stepDelta")), false);
+                addCell(rt, body, str(row.get("trendLabel"), "-"), false);
+                addCell(rt, small, str(row.get("explain"), "-"), false);
+            }
+            doc.add(rt);
+            doc.add(spacer(10));
+        }
+
+        List<Map<String, Object>> papers = castList(data.get("examPapers"));
+        if (!papers.isEmpty())
+        {
+            addHeading(doc, h2, "\u8003\u8bd5\u6e05\u5355\uff08\u9009\u5377\u8bca\u65ad\uff09");
+            PdfPTable ep = table(3);
+            for (String h : new String[] {"\u8bd5\u5377", "\u8003\u8bd5\u65e5", "\u7f16\u53f7"})
+            {
+                addCell(ep, body, h, true);
+            }
+            for (Map<String, Object> row : papers)
+            {
+                addCell(ep, body, firstStr(row, "paperName", "name"), false);
+                addCell(ep, body, str(row.get("examDate"), "-"), false);
+                addCell(ep, body, str(first(row, "paperId", "id"), "-"), false);
+            }
+            doc.add(ep);
+            doc.add(spacer(10));
+        }
+
         Paragraph foot = new Paragraph(
             "\u7b97\u6cd5\uff1a\u52a0\u6743\u5f97\u5206\u7387 = \u03a3(\u5f97\u5206\u7387\u00d7\u6743\u91cd\u00d7\u96be\u5ea6\u00d7\u8fd1\u56e0) / \u03a3(\u6743\u91cd\u00d7\u96be\u5ea6\u00d7\u8fd1\u56e0)",
             small);
@@ -194,6 +524,14 @@ public final class SpasReportPdfWriter
         doc.add(p);
         doc.add(spacer(8));
         doc.add(line(body, "\u751f\u6210\u65f6\u95f4\uff1a" + str(data.get("generatedAt"), "-")));
+        if (data.get("scopeLabel") != null)
+        {
+            doc.add(line(body, "\u5206\u6790\u53e3\u5f84\uff1a" + str(data.get("scopeLabel"), "-")));
+        }
+        if (data.get("dimensionRateNote") != null)
+        {
+            doc.add(line(body, str(data.get("dimensionRateNote"), "")));
+        }
         doc.add(spacer(8));
 
         addHeading(doc, h2, "\u7efc\u5408\u6458\u8981");
@@ -239,8 +577,8 @@ public final class SpasReportPdfWriter
         doc.add(spacer(10));
 
         addHeading(doc, h2, "\u8584\u5f31\u77e5\u8bc6\u70b9 Top");
-        PdfPTable weak = table(3);
-        for (String h : new String[] {"\u77e5\u8bc6\u70b9", "\u73ed\u5747", "\u8584\u5f31\u5b66\u751f"})
+        PdfPTable weak = table(4);
+        for (String h : new String[] {"\u77e5\u8bc6\u70b9", "\u73ed\u5747", "\u8584\u5f31\u5b66\u751f", "\u6839\u56e0"})
         {
             addCell(weak, body, h, true);
         }
@@ -251,6 +589,7 @@ public final class SpasReportPdfWriter
             addCell(weak, body, "\u6682\u65e0", false);
             addCell(weak, body, "-", false);
             addCell(weak, body, "-", false);
+            addCell(weak, body, "-", false);
         }
         for (int i = 0; i < wn; i++)
         {
@@ -258,8 +597,92 @@ public final class SpasReportPdfWriter
             addCell(weak, body, firstStr(row, "name", "knowledgeName"), false);
             addCell(weak, body, fmtRate(first(row, "avgRate", "classAvgRate", "rate")), false);
             addCell(weak, body, str(first(row, "weakStudentCount", "studentCount"), "0"), false);
+            addCell(weak, body, str(row.get("rootHint"), "-"), false);
         }
         doc.add(weak);
+        doc.add(spacer(10));
+
+        Map<String, Object> qtype = asMap(data.get("questionType"));
+        List<Map<String, Object>> qtypeItems = castList(qtype.get("items"));
+        if (!qtypeItems.isEmpty())
+        {
+            addHeading(doc, h2, "\u9898\u578b\u8868\u73b0");
+            doc.add(line(body, "\u53e3\u5f84\uff1a\u5377\u9762 sum(\u5f97\u5206)/sum(\u6ee1\u5206)\uff0c\u975e\u77e5\u8bc6\u70b9\u52a0\u6743\u638c\u63e1\u5ea6"));
+            doc.add(spacer(4));
+            PdfPTable qt = table(3);
+            addCell(qt, body, "\u9898\u578b", true);
+            addCell(qt, body, "\u5f97\u5206\u7387", true);
+            addCell(qt, body, "\u6837\u672c", true);
+            int qn = Math.min(12, qtypeItems.size());
+            for (int i = 0; i < qn; i++)
+            {
+                Map<String, Object> row = qtypeItems.get(i);
+                addCell(qt, body, firstStr(row, "typeName", "typeCode"), false);
+                addCell(qt, body, fmtRate(row.get("avgRate")), false);
+                addCell(qt, body, str(row.get("attemptCount"), "0"), false);
+            }
+            doc.add(qt);
+            doc.add(spacer(10));
+        }
+
+        Map<String, Object> bloom = asMap(data.get("bloom"));
+        List<Map<String, Object>> bloomItems = castList(bloom.get("items"));
+        if (!bloomItems.isEmpty())
+        {
+            addHeading(doc, h2, "\u80fd\u529b\u5c42\u7ea7");
+            doc.add(line(body, "\u53e3\u5f84\uff1a\u5377\u9762 sum(\u5f97\u5206)/sum(\u6ee1\u5206)\uff0c\u975e\u77e5\u8bc6\u70b9\u52a0\u6743\u638c\u63e1\u5ea6"));
+            doc.add(spacer(4));
+            if (bloom.get("insight") != null)
+            {
+                doc.add(line(body, String.valueOf(bloom.get("insight"))));
+                doc.add(spacer(4));
+            }
+            PdfPTable bt = table(3);
+            addCell(bt, body, "\u5c42\u7ea7", true);
+            addCell(bt, body, "\u5f97\u5206\u7387", true);
+            addCell(bt, body, "\u6837\u672c", true);
+            int bn = Math.min(8, bloomItems.size());
+            for (int i = 0; i < bn; i++)
+            {
+                Map<String, Object> row = bloomItems.get(i);
+                addCell(bt, body, firstStr(row, "bloomLabel", "bloomLevel"), false);
+                addCell(bt, body, fmtRate(row.get("avgRate")), false);
+                addCell(bt, body, str(row.get("attemptCount"), "0"), false);
+            }
+            doc.add(bt);
+            doc.add(spacer(10));
+        }
+
+        Map<String, Object> chapterDelta = asMap(data.get("chapterDelta"));
+        List<Map<String, Object>> improved = castList(chapterDelta.get("improved"));
+        List<Map<String, Object>> declined = castList(chapterDelta.get("declined"));
+        if (!improved.isEmpty() || !declined.isEmpty())
+        {
+            addHeading(doc, h2, "\u7ae0\u8282\u8fdb\u9000");
+            if (chapterDelta.get("headline") != null)
+            {
+                doc.add(line(body, String.valueOf(chapterDelta.get("headline"))));
+                doc.add(spacer(4));
+            }
+            PdfPTable cdt = table(3);
+            addCell(cdt, body, "\u7c7b\u578b", true);
+            addCell(cdt, body, "\u7ae0\u8282", true);
+            addCell(cdt, body, "\u53d8\u5316", true);
+            for (Map<String, Object> row : improved)
+            {
+                addCell(cdt, body, "\u8fdb\u6b65", false);
+                addCell(cdt, body, str(row.get("chapterName"), "-"), false);
+                addCell(cdt, body, fmtRate(row.get("deltaRate")), false);
+            }
+            for (Map<String, Object> row : declined)
+            {
+                addCell(cdt, body, "\u9000\u6b65", false);
+                addCell(cdt, body, str(row.get("chapterName"), "-"), false);
+                addCell(cdt, body, fmtRate(row.get("deltaRate")), false);
+            }
+            doc.add(cdt);
+        }
+
         doc.close();
     }
 
@@ -516,5 +939,31 @@ public final class SpasReportPdfWriter
         {
             return String.valueOf(v);
         }
+    }
+
+    private static String fmtWeakLevel(Object v)
+    {
+        if (v == null)
+        {
+            return "-";
+        }
+        String s = String.valueOf(v).trim();
+        if ("3".equals(s))
+        {
+            return "\u4e25\u91cd";
+        }
+        if ("2".equals(s))
+        {
+            return "\u8584\u5f31";
+        }
+        if ("1".equals(s))
+        {
+            return "\u5173\u6ce8";
+        }
+        if ("0".equals(s))
+        {
+            return "\u6b63\u5e38";
+        }
+        return s;
     }
 }

@@ -1,5 +1,5 @@
 <template>
-  <div class="sidebar-logo-container" :class="{'collapse':collapse}" :style="{ backgroundColor: brandBar }">
+  <div class="sidebar-logo-container" :class="{'collapse':collapse}" :style="{ background: brandBar }">
     <transition name="sidebarLogoFade">
       <router-link v-if="collapse" key="collapse" class="sidebar-logo-link" to="/">
         <img v-if="logo" :src="logo" class="sidebar-logo" />
@@ -30,12 +30,12 @@ export default {
       return variables
     },
     brandBar() {
-      return '#7B6CF6'
+      return 'linear-gradient(160deg, #4F6BFF 0%, #2442ED 55%, #1A33C7 100%)'
     }
   },
   data() {
     return {
-      title: '学情分析',
+      title: '知脉',
       logo: logoImg
     }
   }
@@ -56,7 +56,7 @@ export default {
   position: relative;
   height: 50px;
   line-height: 50px;
-  background: #7B6CF6;
+  background: #2442ED;
   text-align: center;
   overflow: hidden;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);

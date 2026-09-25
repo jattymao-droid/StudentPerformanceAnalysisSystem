@@ -105,7 +105,7 @@ export default {
     },
     chromeVars() {
       if (this.tagsViewStyle !== 'chrome') return {}
-      const primary = this.theme || '#7B6CF6'
+      const primary = this.theme || '#2442ED'
       return {
         '--chrome-tab-active-bg': this.mixHexWithWhite(primary, 0.15),
         '--chrome-tab-text-active': primary,
@@ -458,9 +458,9 @@ $tags-bar-height: 34px;
     }
   }
   &:not(.tags-view-container--chrome) .tags-view-wrapper .tags-view-item.active {
-    background-color: #7B6CF6;
+    background-color: #2442ED;
     color: #fff;
-    border-color: #7B6CF6;
+    border-color: #2442ED;
     &::before {
       content: '';
       background: #fff;

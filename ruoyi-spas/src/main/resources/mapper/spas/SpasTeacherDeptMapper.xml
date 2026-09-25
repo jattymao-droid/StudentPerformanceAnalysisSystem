@@ -14,4 +14,8 @@
         insert into spas_teacher_dept(teacher_id, dept_id) values (#{teacherId}, #{deptId})
     </insert>
 
+    <delete id="deleteTeacherDept">
+        delete from spas_teacher_dept where teacher_id = #{teacherId} and dept_id = #{deptId}
+    </delete>
+
 </mapper>

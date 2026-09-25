@@ -102,7 +102,7 @@ export default {
   line-height: 28px;
 }
 .read-stat strong {
-  color: #7B6CF6;
+  color: #2442ED;
   font-size: 15px;
   margin: 0 2px;
 }

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasErrorTagMapper">
+
+    <resultMap id="SpasErrorTagResult" type="com.ruoyi.spas.domain.SpasErrorTag">
+        <id property="tagId" column="tag_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="paperId" column="paper_id"/>
+        <result property="questionId" column="question_id"/>
+        <result property="errorCode" column="error_code"/>
+        <result property="remark" column="remark"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="errorLabel" column="error_label"/>
+        <result property="studentName" column="student_name"/>
+        <result property="questionNo" column="question_no"/>
+        <result property="paperName" column="paper_name"/>
+    </resultMap>
+
+    <select id="selectByStudentAndQuestion" resultMap="SpasErrorTagResult">
+        select t.tag_id, t.student_id, t.paper_id, t.question_id, t.error_code, t.remark,
+               t.create_by, t.create_time, t.update_by, t.update_time,
+               d.dict_label as error_label
+        from spas_error_tag t
+        left join sys_dict_data d on d.dict_type = 'spas_error_cause' and d.dict_value = t.error_code and d.status = '0'
+        where t.student_id = #{studentId} and t.question_id = #{questionId}
+        limit 1
+    </select>
+
+    <select id="selectByStudentId" resultMap="SpasErrorTagResult">
+        select t.tag_id, t.student_id, t.paper_id, t.question_id, t.error_code, t.remark,
+               t.create_by, t.create_time, t.update_by, t.update_time,
+               d.dict_label as error_label,
+               st.student_name, q.question_no, p.paper_name
+        from spas_error_tag t
+        left join sys_dict_data d on d.dict_type = 'spas_error_cause' and d.dict_value = t.error_code and d.status = '0'
+        left join spas_student st on st.student_id = t.student_id
+        left join spas_paper_question q on q.question_id = t.question_id
+        left join spas_paper p on p.paper_id = t.paper_id
+        where t.student_id = #{studentId}
+        order by t.update_time desc nulls last, t.tag_id desc
+    </select>
+
+    <insert id="insertSpasErrorTag" parameterType="com.ruoyi.spas.domain.SpasErrorTag" useGeneratedKeys="true" keyProperty="tagId">
+        insert into spas_error_tag(student_id, paper_id, question_id, error_code, remark, create_by, create_time)
+        values (#{studentId}, #{paperId}, #{questionId}, #{errorCode}, #{remark}, #{createBy}, now())
+    </insert>
+
+    <update id="updateSpasErrorTag" parameterType="com.ruoyi.spas.domain.SpasErrorTag">
+        update spas_error_tag
+        <set>
+            <if test="paperId != null">paper_id = #{paperId},</if>
+            <if test="errorCode != null and errorCode != ''">error_code = #{errorCode},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where tag_id = #{tagId}
+    </update>
+
+    <delete id="deleteByStudentAndQuestion">
+        delete from spas_error_tag where student_id = #{studentId} and question_id = #{questionId}
+    </delete>
+
+    <select id="selectCauseSummary" resultType="java.util.HashMap">
+        select t.error_code as "errorCode",
+               coalesce(d.dict_label, t.error_code) as "errorLabel",
+               count(1) as "tagCount"
+        from spas_error_tag t
+        left join sys_dict_data d on d.dict_type = 'spas_error_cause' and d.dict_value = t.error_code and d.status = '0'
+        where t.student_id = #{studentId}
+        group by t.error_code, d.dict_label
+        order by count(1) desc
+    </select>
+</mapper>

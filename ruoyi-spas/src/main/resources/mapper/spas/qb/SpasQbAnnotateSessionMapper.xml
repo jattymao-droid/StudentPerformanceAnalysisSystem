@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.qb.mapper.SpasQbAnnotateSessionMapper">
+
+    <resultMap type="com.ruoyi.spas.qb.domain.SpasQbAnnotateSession" id="SessionResult">
+        <id     property="sessionId"  column="session_id"  />
+        <result property="subjectId"  column="subject_id"  />
+        <result property="fileName"   column="file_name"   />
+        <result property="filePath"   column="file_path"   />
+        <result property="pageCount"  column="page_count"  />
+        <result property="status"     column="status"      />
+        <result property="createBy"   column="create_by"   />
+    </resultMap>
+
+    <insert id="insertSession" parameterType="com.ruoyi.spas.qb.domain.SpasQbAnnotateSession">
+        insert into spas_qb_annotate_session(
+            session_id, subject_id, file_name, file_path, page_count, status, create_by, create_time
+        ) values (
+            #{sessionId}, #{subjectId}, #{fileName}, #{filePath}, #{pageCount},
+            <choose><when test="status != null and status != ''">#{status}</when><otherwise>'0'</otherwise></choose>,
+            #{createBy}, now()
+        )
+    </insert>
+
+    <select id="selectById" parameterType="String" resultMap="SessionResult">
+        select session_id, subject_id, file_name, file_path, page_count, status, create_by
+        from spas_qb_annotate_session
+        where session_id = #{sessionId}
+    </select>
+
+    <update id="updateStatus" parameterType="com.ruoyi.spas.qb.domain.SpasQbAnnotateSession">
+        update spas_qb_annotate_session
+        set status = #{status}
+        where session_id = #{sessionId}
+    </update>
+</mapper>

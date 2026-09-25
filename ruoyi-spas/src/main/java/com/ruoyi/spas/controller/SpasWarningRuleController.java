@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
@@ -87,10 +88,11 @@ public class SpasWarningRuleController extends BaseController
     @PreAuthorize("@ss.hasPermi('spas:warning:rule:run')")
     @Log(title = "预警引擎", businessType = BusinessType.OTHER)
     @PostMapping("/run")
-    public AjaxResult run()
+    public AjaxResult run(@RequestParam(required = false) String window)
     {
         accessService.assertCanWrite();
-        int created = ruleService.runEngine();
-        return success("新增 " + created + " 条预警");
+        int created = ruleService.runEngine(window);
+        String w = (window == null || window.isEmpty()) ? "默认时间窗" : window;
+        return success("按口径「" + w + "」新增 " + created + " 条预警");
     }
 }

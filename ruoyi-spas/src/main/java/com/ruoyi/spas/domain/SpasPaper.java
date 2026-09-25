@@ -67,6 +67,9 @@ public class SpasPaper extends BaseEntity
     /** Whether knowledge links can change after scores (from config, not persisted) */
     private Boolean allowChangeKnowledgeAfterScore;
 
+    /** Source bank paper id (spas_qb_paper), nullable */
+    private Long bankPaperId;
+
     public Long getPaperId()
     {
         return paperId;
@@ -205,6 +208,16 @@ public class SpasPaper extends BaseEntity
     public void setAllowChangeKnowledgeAfterScore(Boolean allowChangeKnowledgeAfterScore)
     {
         this.allowChangeKnowledgeAfterScore = allowChangeKnowledgeAfterScore;
+    }
+
+    public Long getBankPaperId()
+    {
+        return bankPaperId;
+    }
+
+    public void setBankPaperId(Long bankPaperId)
+    {
+        this.bankPaperId = bankPaperId;
     }
 
     @Override

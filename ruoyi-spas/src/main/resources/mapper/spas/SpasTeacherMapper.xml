@@ -8,6 +8,7 @@
         <result property="teacherName" column="teacher_name"/>
         <result property="teacherType" column="teacher_type"/>
         <result property="deptId" column="dept_id"/>
+        <result property="homeroomDeptId" column="homeroom_dept_id"/>
         <result property="userId" column="user_id"/>
         <result property="mobile" column="mobile"/>
         <result property="gender" column="gender"/>
@@ -22,7 +23,7 @@
     </resultMap>
 
     <sql id="selectSpasTeacherVo">
-        select t.teacher_id, t.teacher_no, t.teacher_name, t.teacher_type, t.dept_id, t.user_id,
+        select t.teacher_id, t.teacher_no, t.teacher_name, t.teacher_type, t.dept_id, t.homeroom_dept_id, t.user_id,
                t.mobile, t.gender, t.status, t.del_flag, t.create_by, t.create_time, t.update_by, t.update_time, t.remark,
                d.dept_name
         from spas_teacher t
@@ -45,10 +46,18 @@
             AND t.status = #{status}
         </if>
         <if test="deptId != null and deptId != 0">
-            AND (t.dept_id = #{deptId} OR t.dept_id IN (
-                SELECT x.dept_id FROM sys_dept x
-                WHERE cast(#{deptId} as varchar) = any(string_to_array(x.ancestors, ','))
-            ))
+            AND (
+                t.dept_id = #{deptId} OR t.dept_id IN (
+                    SELECT x.dept_id FROM sys_dept x
+                    WHERE cast(#{deptId} as varchar) = any(string_to_array(x.ancestors, ','))
+                )
+                OR t.teacher_id IN (
+                    SELECT td.teacher_id FROM spas_teacher_dept td
+                    JOIN sys_dept xd ON xd.dept_id = td.dept_id
+                    WHERE td.dept_id = #{deptId}
+                       OR cast(#{deptId} as varchar) = any(string_to_array(xd.ancestors, ','))
+                )
+            )
         </if>
         ${params.dataScope}
         order by t.teacher_type asc, t.teacher_id desc
@@ -61,18 +70,67 @@
 
     <select id="selectSpasTeacherByUserId" parameterType="Long" resultMap="SpasTeacherResult">
         <include refid="selectSpasTeacherVo"/>
-        where t.user_id = #{userId} and t.del_flag = '0' limit 1
+        where t.user_id = #{userId} and t.del_flag = '0'
     </select>
 
     <select id="checkTeacherNoUnique" parameterType="String" resultMap="SpasTeacherResult">
-        select teacher_id, teacher_no from spas_teacher where teacher_no = #{teacherNo} and del_flag = '0' limit 1
+        select teacher_id, teacher_no from spas_teacher where teacher_no = #{teacherNo,jdbcType=VARCHAR} and del_flag = '0'
     </select>
+
+    <select id="selectSpasTeacherByType" parameterType="String" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.del_flag = '0' and t.status = '0' and t.teacher_type = #{teacherType}
+        order by t.teacher_name asc, t.teacher_id asc
+    </select>
+
+    <select id="selectByTypeAndDept" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.del_flag = '0' and t.teacher_type = #{teacherType} and t.dept_id = #{deptId}
+        order by t.teacher_id asc
+    </select>
+
+    <select id="selectSubjectBoundToDept" parameterType="Long" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.del_flag = '0'
+          and (
+            (t.teacher_type = '1' and t.dept_id = #{deptId})
+            or exists (
+                select 1 from spas_teacher_dept td
+                where td.teacher_id = t.teacher_id and td.dept_id = #{deptId}
+            )
+          )
+        order by t.teacher_name asc, t.teacher_id asc
+    </select>
+
+    <select id="selectHomeroomByDept" parameterType="Long" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.del_flag = '0'
+          and (
+            t.homeroom_dept_id = #{deptId}
+            or (t.teacher_type = '2' and t.dept_id = #{deptId} and t.homeroom_dept_id is null)
+          )
+        order by case when t.homeroom_dept_id = #{deptId} then 0 else 1 end, t.teacher_id asc
+        limit 1
+    </select>
+
+    <select id="selectClassroomTeachers" resultMap="SpasTeacherResult">
+        <include refid="selectSpasTeacherVo"/>
+        where t.del_flag = '0' and t.status = '0' and t.teacher_type in ('1', '2')
+        order by t.teacher_name asc, t.teacher_id asc
+    </select>
+
+    <update id="updateHomeroomDeptId">
+        update spas_teacher
+        set homeroom_dept_id = #{homeroomDeptId},
+            update_time = now()
+        where teacher_id = #{teacherId}
+    </update>
 
     <insert id="insertSpasTeacher" parameterType="SpasTeacher" useGeneratedKeys="true" keyProperty="teacherId">
         insert into spas_teacher(
-            teacher_no, teacher_name, teacher_type, dept_id, user_id, mobile, gender, status, del_flag, create_by, create_time, remark
+            teacher_no, teacher_name, teacher_type, dept_id, homeroom_dept_id, user_id, mobile, gender, status, del_flag, create_by, create_time, remark
         ) values (
-            #{teacherNo}, #{teacherName}, #{teacherType}, #{deptId}, #{userId}, #{mobile}, #{gender},
+            #{teacherNo}, #{teacherName}, #{teacherType}, #{deptId}, #{homeroomDeptId}, #{userId}, #{mobile}, #{gender},
             coalesce(#{status}, '0'), '0', #{createBy}, now(), #{remark}
         )
     </insert>

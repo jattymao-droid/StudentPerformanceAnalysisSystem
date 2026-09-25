@@ -20,8 +20,8 @@ export function delWarningRule(ruleId) {
   return request({ url: '/spas/warning/rule/' + ruleId, method: 'delete' })
 }
 
-export function runWarningEngine() {
-  return request({ url: '/spas/warning/rule/run', method: 'post' })
+export function runWarningEngine(window) {
+  return request({ url: '/spas/warning/rule/run', method: 'post', params: window ? { window } : {} })
 }
 
 export function listWarningRecord(query) {

@@ -85,7 +85,7 @@ export default {
 }
 .tree-panel-title {
   font-weight: 600;
-  color: #2C2940;
+  color: #0F172A;
 }
 .custom-tree-node {
   flex: 1;

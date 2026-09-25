@@ -25,6 +25,8 @@ public class SpasWarningRecord extends BaseEntity
     private String title;
     @Excel(name = "内容")
     private String content;
+    /** Structured trigger reason JSON */
+    private String reasonJson;
     @Excel(name = "指标值")
     private BigDecimal metricValue;
     @Excel(name = "状态", readConverterExp = "0=待处理,1=已处理,2=已关闭")
@@ -61,6 +63,8 @@ public class SpasWarningRecord extends BaseEntity
     public void setTitle(String title) { this.title = title; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+    public String getReasonJson() { return reasonJson; }
+    public void setReasonJson(String reasonJson) { this.reasonJson = reasonJson; }
     public BigDecimal getMetricValue() { return metricValue; }
     public void setMetricValue(BigDecimal metricValue) { this.metricValue = metricValue; }
     public String getStatus() { return status; }

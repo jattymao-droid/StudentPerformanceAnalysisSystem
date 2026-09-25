@@ -39,6 +39,13 @@ export default {
       handler(val) {
         this.setOption(val)
       }
+    },
+    height() {
+      this.$nextTick(() => {
+        if (this.chart) {
+          this.chart.resize()
+        }
+      })
     }
   },
   mounted() {
@@ -70,6 +77,11 @@ export default {
       if (option && Object.keys(option).length) {
         this.chart.setOption(option, true)
       }
+      this.$nextTick(() => {
+        if (this.chart) {
+          this.chart.resize()
+        }
+      })
     }
   }
 }

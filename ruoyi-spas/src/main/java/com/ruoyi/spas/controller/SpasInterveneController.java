@@ -87,4 +87,29 @@ public class SpasInterveneController extends BaseController
         List<Map<String, Object>> list = interveneService.studentTimeline(studentId);
         return success(list);
     }
+
+    @PreAuthorize("@ss.hasPermi('spas:intervene:list')")
+    @GetMapping("/class/{deptId}/summary")
+    public AjaxResult classSummary(@PathVariable Long deptId,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) Long subjectId)
+    {
+        return success(interveneService.classSummary(deptId, subjectId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:intervene:add')")
+    @Log(title = "批量薄弱干预", businessType = BusinessType.INSERT)
+    @PostMapping("/batch-weak")
+    public AjaxResult batchWeak(@RequestBody Map<String, Object> body)
+    {
+        Long deptId = body.get("deptId") == null ? null : Long.valueOf(body.get("deptId").toString());
+        Long subjectId = body.get("subjectId") == null ? null : Long.valueOf(body.get("subjectId").toString());
+        Long knowledgeId = body.get("knowledgeId") == null ? null : Long.valueOf(body.get("knowledgeId").toString());
+        String title = body.get("title") == null ? null : body.get("title").toString();
+        java.math.BigDecimal target = null;
+        if (body.get("targetRate") != null)
+        {
+            target = new java.math.BigDecimal(body.get("targetRate").toString());
+        }
+        return success(interveneService.batchCreateForWeak(deptId, subjectId, knowledgeId, title, target));
+    }
 }

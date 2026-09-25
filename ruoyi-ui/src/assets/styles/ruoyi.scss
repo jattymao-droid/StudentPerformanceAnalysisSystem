@@ -97,7 +97,7 @@
     th {
       word-break: break-word;
       background-color: #F6F3FF;
-      color: #6B6685;
+      color: #64748B;
       height: 42px;
       font-size: 13px;
     }
@@ -113,8 +113,8 @@
 /** 表单布局 **/
 .form-header {
   font-size: 15px;
-  color: #7B6CF6;
-  border-bottom: 1px solid #E8E4F5;
+  color: #2442ED;
+  border-bottom: 1px solid #E2E8F0;
   margin: 8px 10px 25px 10px;
   padding-bottom: 5px
 }
@@ -129,7 +129,7 @@
 /* tree border */
 .tree-border {
   margin-top: 5px;
-  border: 1px solid #E8E4F5;
+  border: 1px solid #E2E8F0;
   background: #FFFFFF none;
   border-radius: 10px;
 }
@@ -238,13 +238,13 @@
     margin-bottom: 6px;
     padding: 8px 12px 6px;
     font-size: 15px;
-    color: #2C2940;
+    color: #0F172A;
     background: #F6F3FF;
   }
   .section-header {
     font-size: 15px;
-    color: #7B6CF6;
-    border-bottom: 1px solid #E8E4F5;
+    color: #2442ED;
+    border-bottom: 1px solid #E2E8F0;
     margin: 12px 0 16px 0;
     padding-bottom: 8px;
   }
@@ -285,11 +285,11 @@
 .detail-wrap { padding: 0 4px; }
 
 .detail-card {
-  border: 1px solid #E8E4F5;
+  border: 1px solid #E2E8F0;
   border-radius: 12px;
   margin-bottom: 14px;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(91, 75, 219, 0.04);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
 }
 
 .detail-card-title {
@@ -297,10 +297,10 @@
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 600;
-  color: #2C2940;
-  border-bottom: 1px solid #E8E4F5;
+  color: #0F172A;
+  border-bottom: 1px solid #E2E8F0;
 }
-.detail-card-title i { margin-right: 5px; color: #7B6CF6; }
+.detail-card-title i { margin-right: 5px; color: #2442ED; }
 
 .detail-row { padding: 0 8px; }
 
@@ -335,7 +335,7 @@
 .code-body { padding: 14px; }
 .code-wrap {
   background: #F6F3FF;
-  border: 1px solid #E8E4F5;
+  border: 1px solid #E2E8F0;
   border-radius: 10px;
   overflow: hidden;
   max-height: 260px;
@@ -358,7 +358,7 @@
 }
 .code-action .el-button:hover { 
   background: #ffffff;
-  border-color: #7B6CF6;
+  border-color: #2442ED;
 }
 .code-pre {
   margin: 0;
@@ -476,7 +476,7 @@
 .sortable-ghost {
   opacity: .8;
   color: #fff !important;
-  background: #7B6CF6 !important;
+  background: #2442ED !important;
 }
 
 .top-right-btn {

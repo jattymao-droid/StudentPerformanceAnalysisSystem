@@ -11,6 +11,7 @@
         <result property="level" column="level"/>
         <result property="title" column="title"/>
         <result property="content" column="content"/>
+        <result property="reasonJson" column="reason_json"/>
         <result property="metricValue" column="metric_value"/>
         <result property="status" column="status"/>
         <result property="handleBy" column="handle_by"/>
@@ -24,7 +25,7 @@
 
     <select id="selectSpasWarningRecordList" parameterType="SpasWarningRecord" resultMap="SpasWarningRecordResult">
         select r.warning_id, r.rule_id, r.student_id, r.subject_id, r.knowledge_id, r.paper_id,
-               r.level, r.title, r.content, r.metric_value, r.status, r.handle_by, r.handle_time,
+               r.level, r.title, r.content, r.reason_json, r.metric_value, r.status, r.handle_by, r.handle_time,
                r.handle_remark, r.create_time, s.student_name, s.student_no, wr.rule_name
         from spas_warning_record r
         left join spas_student s on s.student_id = r.student_id
@@ -49,7 +50,7 @@
 
     <select id="selectSpasWarningRecordById" resultMap="SpasWarningRecordResult">
         select r.warning_id, r.rule_id, r.student_id, r.subject_id, r.knowledge_id, r.paper_id,
-               r.level, r.title, r.content, r.metric_value, r.status, r.handle_by, r.handle_time,
+               r.level, r.title, r.content, r.reason_json, r.metric_value, r.status, r.handle_by, r.handle_time,
                r.handle_remark, r.create_time, s.student_name, s.student_no, wr.rule_name
         from spas_warning_record r
         left join spas_student s on s.student_id = r.student_id
@@ -72,7 +73,7 @@
     </select>
 
     <select id="selectOpenByStudent" resultMap="SpasWarningRecordResult">
-        select r.warning_id, r.rule_id, r.student_id, r.subject_id, r.level, r.title, r.content,
+        select r.warning_id, r.rule_id, r.student_id, r.subject_id, r.level, r.title, r.content, r.reason_json,
                r.metric_value, r.status, r.create_time, wr.rule_name
         from spas_warning_record r
         left join spas_warning_rule wr on wr.rule_id = r.rule_id
@@ -82,10 +83,10 @@
 
     <insert id="insertSpasWarningRecord" parameterType="SpasWarningRecord" useGeneratedKeys="true" keyProperty="warningId">
         insert into spas_warning_record(
-            rule_id, student_id, subject_id, knowledge_id, paper_id, level, title, content,
+            rule_id, student_id, subject_id, knowledge_id, paper_id, level, title, content, reason_json,
             metric_value, status, create_time
         ) values (
-            #{ruleId}, #{studentId}, #{subjectId}, #{knowledgeId}, #{paperId}, #{level}, #{title}, #{content},
+            #{ruleId}, #{studentId}, #{subjectId}, #{knowledgeId}, #{paperId}, #{level}, #{title}, #{content}, #{reasonJson},
             #{metricValue}, coalesce(#{status}, '0'), now()
         )
     </insert>
@@ -99,6 +100,8 @@
             <if test="handleRemark != null">handle_remark = #{handleRemark},</if>
             <if test="metricValue != null">metric_value = #{metricValue},</if>
             <if test="content != null">content = #{content},</if>
+            <if test="reasonJson != null">reason_json = #{reasonJson},</if>
+            <if test="knowledgeId != null">knowledge_id = #{knowledgeId},</if>
         </set>
         where warning_id = #{warningId}
     </update>

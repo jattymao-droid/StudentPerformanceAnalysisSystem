@@ -20,6 +20,7 @@
         <result property="effectRate" column="effect_rate"/>
         <result property="effectDelta" column="effect_delta"/>
         <result property="effectPassed" column="effect_passed"/>
+        <result property="effectJson" column="effect_json"/>
         <result property="createBy" column="create_by"/>
         <result property="createTime" column="create_time"/>
         <result property="updateBy" column="update_by"/>
@@ -35,7 +36,7 @@
     <sql id="selectVo">
         select t.intervene_id, t.student_id, t.subject_id, t.source_type, t.source_id, t.knowledge_ids,
                t.title, t.target_rate, t.baseline_rate, t.baseline_json, t.status, t.owner_by,
-               t.due_date, t.close_time, t.effect_rate, t.effect_delta, t.effect_passed,
+               t.due_date, t.close_time, t.effect_rate, t.effect_delta, t.effect_passed, t.effect_json,
                t.create_by, t.create_time, t.update_by, t.update_time, t.remark,
                s.student_name, s.student_no, s.dept_id, d.dept_name, sub.subject_name
         from spas_intervene_task t
@@ -119,10 +120,43 @@
             <if test="effectRate != null">effect_rate = #{effectRate},</if>
             <if test="effectDelta != null">effect_delta = #{effectDelta},</if>
             <if test="effectPassed != null">effect_passed = #{effectPassed},</if>
+            <if test="effectJson != null">effect_json = #{effectJson},</if>
             <if test="remark != null">remark = #{remark},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             update_time = now()
         </set>
         where intervene_id = #{interveneId}
     </update>
+
+    <delete id="deleteInterveneKnowledge">
+        delete from spas_intervene_knowledge where intervene_id = #{interveneId}
+    </delete>
+
+    <insert id="insertInterveneKnowledge">
+        insert into spas_intervene_knowledge(intervene_id, knowledge_id, create_time)
+        values (#{interveneId}, #{knowledgeId}, now())
+        on conflict (intervene_id, knowledge_id) do nothing
+    </insert>
+
+    <select id="selectInterveneKnowledgeIds" resultType="java.lang.Long">
+        select knowledge_id from spas_intervene_knowledge
+        where intervene_id = #{interveneId}
+        order by knowledge_id
+    </select>
+
+    <select id="selectDeptSummary" resultType="java.util.HashMap">
+        select count(*) filter (where t.status = '0') as "openCount",
+               count(*) filter (where t.status = '1') as "passedCount",
+               count(*) filter (where t.status = '3') as "overdueCount",
+               avg(t.effect_delta) filter (where t.effect_delta is not null) as "avgDelta"
+        from spas_intervene_task t
+        join spas_student s on s.student_id = t.student_id and s.del_flag = '0'
+        where (s.dept_id = #{deptId} or s.dept_id in (
+            select x.dept_id from sys_dept x
+            where cast(#{deptId} as varchar) = any(string_to_array(x.ancestors, ','))
+        ))
+        <if test="subjectId != null">
+            and t.subject_id = #{subjectId}
+        </if>
+    </select>
 </mapper>

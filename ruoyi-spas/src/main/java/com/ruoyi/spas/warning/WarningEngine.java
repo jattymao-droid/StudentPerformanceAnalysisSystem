@@ -2,7 +2,9 @@ package com.ruoyi.spas.warning;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -10,12 +12,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import com.alibaba.fastjson2.JSON;
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.spas.analysis.KnowledgeStatQueryService;
+import com.ruoyi.spas.domain.SpasSubject;
 import com.ruoyi.spas.domain.SpasWarningRecord;
 import com.ruoyi.spas.domain.SpasWarningRule;
+import com.ruoyi.spas.domain.SpasExamRankPoint;
+import com.ruoyi.spas.mapper.SpasExamScoreMapper;
+import com.ruoyi.spas.mapper.SpasSubjectMapper;
 import com.ruoyi.spas.mapper.SpasWarningMetricMapper;
 import com.ruoyi.spas.mapper.SpasWarningRecordMapper;
 import com.ruoyi.spas.mapper.SpasWarningRuleMapper;
+import com.ruoyi.spas.support.SpasAnalysisWindowHelper;
 import com.ruoyi.system.domain.SysNotice;
 import com.ruoyi.system.service.ISysNoticeService;
 
@@ -37,21 +46,61 @@ public class WarningEngine
     private SpasWarningMetricMapper metricMapper;
 
     @Autowired
+    private SpasExamScoreMapper examScoreMapper;
+
+    @Autowired
+    private SpasSubjectMapper subjectMapper;
+
+    @Autowired
+    private KnowledgeStatQueryService knowledgeStatQueryService;
+
+    @Autowired
+    private SpasAnalysisWindowHelper windowHelper;
+
+    @Autowired
     private ISysNoticeService noticeService;
+
+    /** Current analysis window label written into reason_json (e.g. semester / all). */
+    private String activeAnalysisWindow = "all";
+
+    /** Optional override for evaluateAllEnabled / evaluateAfterPaper (null = default-window). */
+    private final ThreadLocal<String> windowOverride = new ThreadLocal<>();
 
     public int evaluateAllEnabled()
     {
-        List<SpasWarningRule> rules = ruleMapper.selectEnabledRules();
-        int created = 0;
-        for (SpasWarningRule rule : rules)
+        return evaluateAllEnabled(null);
+    }
+
+    public int evaluateAllEnabled(String window)
+    {
+        try
         {
-            created += evaluateRule(rule, null);
+            if (StringUtils.isNotEmpty(window))
+            {
+                windowOverride.set(window);
+            }
+            List<SpasWarningRule> rules = ruleMapper.selectEnabledRules();
+            int created = 0;
+            for (SpasWarningRule rule : rules)
+            {
+                created += evaluateRule(rule, null);
+            }
+            log.info("WarningEngine evaluateAllEnabled window={} created={}",
+                windowOverride.get() != null ? windowOverride.get() : windowHelper.getDefaultWindow(), created);
+            return created;
         }
-        log.info("WarningEngine evaluateAllEnabled created={}", created);
-        return created;
+        finally
+        {
+            windowOverride.remove();
+        }
     }
 
     public int evaluateAfterPaper(Long paperId)
+    {
+        return evaluateAfterPaper(paperId, null);
+    }
+
+    public int evaluateAfterPaper(Long paperId, String window)
     {
         if (paperId == null)
         {
@@ -63,12 +112,46 @@ public class WarningEngine
             return 0;
         }
         Set<Long> focus = new HashSet<>(studentIds);
+        try
+        {
+            if (StringUtils.isNotEmpty(window))
+            {
+                windowOverride.set(window);
+            }
+            List<SpasWarningRule> rules = ruleMapper.selectEnabledRules();
+            int created = 0;
+            for (SpasWarningRule rule : rules)
+            {
+                created += evaluateRule(rule, focus);
+            }
+            log.info("WarningEngine evaluateAfterPaper paperId={} window={} created={}", paperId,
+                windowOverride.get() != null ? windowOverride.get() : windowHelper.getDefaultWindow(), created);
+            return created;
+        }
+        finally
+        {
+            windowOverride.remove();
+        }
+    }
+
+    /** Re-evaluate only school-rank rules after an exam roster import. */
+    public int evaluateExamRankRules()
+    {
         List<SpasWarningRule> rules = ruleMapper.selectEnabledRules();
         int created = 0;
+        if (rules == null)
+        {
+            return 0;
+        }
         for (SpasWarningRule rule : rules)
         {
-            created += evaluateRule(rule, focus);
+            String metric = rule.getMetric();
+            if ("RANK_DROP".equals(metric) || "SUBJECT_IMBALANCE".equals(metric))
+            {
+                created += evaluateRule(rule, null);
+            }
         }
+        log.info("WarningEngine evaluateExamRankRules created={}", created);
         return created;
     }
 
@@ -86,23 +169,47 @@ public class WarningEngine
             deptId = rule.getScopeId();
         }
 
+        String window = windowOverride.get();
+        if (StringUtils.isEmpty(window))
+        {
+            window = windowHelper.getDefaultWindow();
+        }
+        Date examDateFrom = windowHelper.resolveExamDateFrom(window);
+        activeAnalysisWindow = examDateFrom == null ? "all" : windowHelper.normalize(window);
+
         List<Map<String, Object>> rows;
         String metric = rule.getMetric();
         if ("WEAK_COUNT".equals(metric))
         {
-            rows = metricMapper.selectStudentWeakCount(subjectId, deptId);
+            rows = loadMetricRows("WEAK_COUNT", subjectId, deptId, examDateFrom);
         }
         else if ("BELOW_CLASS_AVG".equals(metric))
         {
-            rows = metricMapper.selectStudentVsClassGap(subjectId, deptId);
+            rows = loadMetricRows("BELOW_CLASS_AVG", subjectId, deptId, examDateFrom);
         }
         else if ("CONTINUOUS_DROP".equals(metric))
         {
-            return evaluateContinuousDrop(rule, focusStudentIds, subjectId, deptId);
+            return evaluateContinuousDrop(rule, focusStudentIds, subjectId, deptId, examDateFrom);
+        }
+        else if ("PERSISTENT_WEAK".equals(metric))
+        {
+            return evaluatePersistentWeak(rule, focusStudentIds, subjectId, deptId, examDateFrom);
+        }
+        else if ("KNOWLEDGE_CONTINUOUS_DROP".equals(metric))
+        {
+            return evaluateKnowledgeContinuousDrop(rule, focusStudentIds, subjectId, deptId, examDateFrom);
+        }
+        else if ("RANK_DROP".equals(metric))
+        {
+            return evaluateRankDrop(rule, focusStudentIds, deptId);
+        }
+        else if ("SUBJECT_IMBALANCE".equals(metric))
+        {
+            return evaluateSubjectImbalance(rule, focusStudentIds, subjectId, deptId);
         }
         else
         {
-            rows = metricMapper.selectStudentAvgRate(subjectId, deptId);
+            rows = loadMetricRows("AVG_RATE", subjectId, deptId, examDateFrom);
         }
 
         Set<Long> matched = new HashSet<>();
@@ -128,7 +235,8 @@ public class WarningEngine
                 continue;
             }
             matched.add(studentId);
-            if (createIfAbsent(rule, studentId, toLong(row.get("subjectId")), value, row.get("studentName")))
+            if (createIfAbsent(rule, studentId, toLong(row.get("subjectId")), value, row.get("studentName"),
+                resolvePrimaryWeakKnowledgeId(studentId, toLong(row.get("subjectId")))))
             {
                 created++;
             }
@@ -150,9 +258,27 @@ public class WarningEngine
         return created;
     }
 
-    private int evaluateContinuousDrop(SpasWarningRule rule, Set<Long> focusStudentIds, Long subjectId, Long deptId)
+    private List<Map<String, Object>> loadMetricRows(String metric, Long subjectId, Long deptId, Date examDateFrom)
     {
-        List<Map<String, Object>> students = metricMapper.selectStudentAvgRate(subjectId, deptId);
+        if (examDateFrom != null)
+        {
+            return knowledgeStatQueryService.warningStudentMetrics(metric, subjectId, deptId, examDateFrom);
+        }
+        if ("WEAK_COUNT".equals(metric))
+        {
+            return metricMapper.selectStudentWeakCount(subjectId, deptId);
+        }
+        if ("BELOW_CLASS_AVG".equals(metric))
+        {
+            return metricMapper.selectStudentVsClassGap(subjectId, deptId);
+        }
+        return metricMapper.selectStudentAvgRate(subjectId, deptId);
+    }
+
+    private int evaluateContinuousDrop(SpasWarningRule rule, Set<Long> focusStudentIds, Long subjectId, Long deptId,
+        Date examDateFrom)
+    {
+        List<Map<String, Object>> students = loadMetricRows("AVG_RATE", subjectId, deptId, examDateFrom);
         int n = rule.getWindowDays() != null && rule.getWindowDays() > 0 ? Math.min(rule.getWindowDays(), 30) : 3;
         Set<Long> matched = new HashSet<>();
         int created = 0;
@@ -167,7 +293,8 @@ public class WarningEngine
             {
                 continue;
             }
-            List<Map<String, Object>> rates = metricMapper.selectStudentPaperRates(studentId, subjectId, n);
+            List<Map<String, Object>> rates = metricMapper.selectStudentPaperRates(studentId, subjectId, n,
+                examDateFrom);
             if (rates == null || rates.size() < n)
             {
                 continue;
@@ -199,7 +326,8 @@ public class WarningEngine
                 continue;
             }
             matched.add(studentId);
-            if (createIfAbsent(rule, studentId, subjectId, dropSpan, stu.get("studentName")))
+            if (createIfAbsent(rule, studentId, subjectId, dropSpan, stu.get("studentName"),
+                resolvePrimaryWeakKnowledgeId(studentId, subjectId)))
             {
                 created++;
             }
@@ -221,9 +349,228 @@ public class WarningEngine
     }
 
     /**
+     * PERSISTENT_WEAK: metricValue = count of knowledges tagged as persistent weak.
+     * windowDays = minPapers (default from config via query service).
+     */
+    private int evaluatePersistentWeak(SpasWarningRule rule, Set<Long> focusStudentIds, Long subjectId, Long deptId,
+        Date examDateFrom)
+    {
+        List<Map<String, Object>> students = loadMetricRows("AVG_RATE", subjectId, deptId, examDateFrom);
+        int minPapers = rule.getWindowDays() != null && rule.getWindowDays() > 0
+            ? Math.min(rule.getWindowDays(), 30) : knowledgeStatQueryService.getPersistMinPapers();
+        Set<Long> matched = new HashSet<>();
+        int created = 0;
+        for (Map<String, Object> stu : students)
+        {
+            Long studentId = toLong(stu.get("studentId"));
+            if (studentId == null)
+            {
+                continue;
+            }
+            if (focusStudentIds != null && !focusStudentIds.contains(studentId))
+            {
+                continue;
+            }
+            List<Map<String, Object>> tags = knowledgeStatQueryService.persistentWeak(studentId, subjectId, null,
+                examDateFrom, Integer.valueOf(minPapers), null, null);
+            int persistCount = 0;
+            Long primaryKid = null;
+            if (tags != null)
+            {
+                for (Map<String, Object> t : tags)
+                {
+                    if ("\u53cd\u590d\u8584\u5f31".equals(String.valueOf(t.get("persistTag"))))
+                    {
+                        persistCount++;
+                        if (primaryKid == null)
+                        {
+                            primaryKid = toLong(t.get("knowledgeId"));
+                        }
+                    }
+                }
+            }
+            BigDecimal value = BigDecimal.valueOf(persistCount);
+            String op = resolveOperator("PERSISTENT_WEAK", rule.getOperator());
+            if (!match(value, op, rule.getThreshold()))
+            {
+                continue;
+            }
+            matched.add(studentId);
+            if (primaryKid == null)
+            {
+                primaryKid = resolvePrimaryWeakKnowledgeId(studentId, subjectId);
+            }
+            if (createIfAbsent(rule, studentId, subjectId, value, stu.get("studentName"), primaryKid))
+            {
+                created++;
+            }
+        }
+        Set<Long> toCheck = focusStudentIds;
+        if (toCheck == null)
+        {
+            List<Long> openIds = recordMapper.selectOpenStudentIdsByRule(rule.getRuleId());
+            toCheck = openIds == null ? new HashSet<>() : new HashSet<>(openIds);
+        }
+        for (Long sid : toCheck)
+        {
+            if (!matched.contains(sid))
+            {
+                closeOpenRecord(sid, rule.getRuleId());
+            }
+        }
+        return created;
+    }
+
+    private int evaluateKnowledgeContinuousDrop(SpasWarningRule rule, Set<Long> focusStudentIds, Long subjectId,
+        Long deptId, Date examDateFrom)
+    {
+        List<Map<String, Object>> students = loadMetricRows("AVG_RATE", subjectId, deptId, examDateFrom);
+        int n = rule.getWindowDays() != null && rule.getWindowDays() > 0 ? Math.min(rule.getWindowDays(), 30) : 3;
+        if (n < 2)
+        {
+            n = 2;
+        }
+        Set<Long> matched = new HashSet<>();
+        int created = 0;
+        for (Map<String, Object> stu : students)
+        {
+            Long studentId = toLong(stu.get("studentId"));
+            if (studentId == null)
+            {
+                continue;
+            }
+            if (focusStudentIds != null && !focusStudentIds.contains(studentId))
+            {
+                continue;
+            }
+            int dropCount = knowledgeStatQueryService.countKnowledgeContinuousDrop(studentId, subjectId, n,
+                examDateFrom);
+            BigDecimal value = BigDecimal.valueOf(dropCount);
+            String op = resolveOperator("KNOWLEDGE_CONTINUOUS_DROP", rule.getOperator());
+            if (!match(value, op, rule.getThreshold()))
+            {
+                continue;
+            }
+            matched.add(studentId);
+            if (createIfAbsent(rule, studentId, subjectId, value, stu.get("studentName"),
+                resolvePrimaryWeakKnowledgeId(studentId, subjectId)))
+            {
+                created++;
+            }
+        }
+        Set<Long> toCheck = focusStudentIds;
+        if (toCheck == null)
+        {
+            List<Long> openIds = recordMapper.selectOpenStudentIdsByRule(rule.getRuleId());
+            toCheck = openIds == null ? new HashSet<>() : new HashSet<>(openIds);
+        }
+        for (Long sid : toCheck)
+        {
+            if (!matched.contains(sid))
+            {
+                closeOpenRecord(sid, rule.getRuleId());
+            }
+        }
+        return created;
+    }
+
+    private int evaluateRankDrop(SpasWarningRule rule, Set<Long> focusStudentIds, Long deptId)
+    {
+        int window = rule.getWindowDays() == null || rule.getWindowDays().intValue() < 2 ? 3 : rule.getWindowDays().intValue();
+        List<ExamRankMetrics.Hit> hits = ExamRankMetrics.rankDrop(examScoreMapper.selectRankPoints(), deptId, window);
+        return applyRankHits(rule, focusStudentIds, null, hits);
+    }
+
+    private int evaluateSubjectImbalance(SpasWarningRule rule, Set<Long> focusStudentIds, Long subjectId, Long deptId)
+    {
+        String subjectName = null;
+        if (subjectId != null)
+        {
+            SpasSubject subject = subjectMapper.selectSpasSubjectById(subjectId);
+            if (subject != null)
+            {
+                subjectName = subject.getSubjectName();
+            }
+        }
+        List<ExamRankMetrics.Hit> hits = ExamRankMetrics.subjectImbalance(examScoreMapper.selectRankPoints(), deptId, subjectName);
+        return applyRankHits(rule, focusStudentIds, subjectId, hits);
+    }
+
+    private int applyRankHits(SpasWarningRule rule, Set<Long> focusStudentIds, Long subjectId, List<ExamRankMetrics.Hit> hits)
+    {
+        Set<Long> matched = new HashSet<>();
+        int created = 0;
+        if (hits != null)
+        {
+            for (ExamRankMetrics.Hit hit : hits)
+            {
+                if (hit.getStudentId() == null)
+                {
+                    continue;
+                }
+                if (focusStudentIds != null && !focusStudentIds.contains(hit.getStudentId()))
+                {
+                    continue;
+                }
+                if (hit.getMetricValue() == null)
+                {
+                    continue;
+                }
+                if (!match(hit.getMetricValue(), resolveOperator(rule.getMetric(), rule.getOperator()), rule.getThreshold()))
+                {
+                    continue;
+                }
+                matched.add(hit.getStudentId());
+                Long boundSubjectId = resolveSubjectIdByName(hit.getSubjectName(), subjectId);
+                Long knowledgeId = resolvePrimaryWeakKnowledgeId(hit.getStudentId(), boundSubjectId);
+                if (createIfAbsent(rule, hit.getStudentId(), boundSubjectId, hit.getMetricValue(), hit.getStudentName(), knowledgeId,
+                    hit.getDetail()))
+                {
+                    created++;
+                }
+            }
+        }
+        Set<Long> toCheck = focusStudentIds;
+        if (toCheck == null)
+        {
+            List<Long> openIds = recordMapper.selectOpenStudentIdsByRule(rule.getRuleId());
+            toCheck = openIds == null ? new HashSet<>() : new HashSet<>(openIds);
+        }
+        for (Long sid : toCheck)
+        {
+            if (!matched.contains(sid))
+            {
+                closeOpenRecord(sid, rule.getRuleId());
+            }
+        }
+        return created;
+    }
+
+    private Long resolveSubjectIdByName(String excelName, Long fallback)
+    {
+        if (StringUtils.isEmpty(excelName))
+        {
+            return fallback;
+        }
+        List<com.ruoyi.spas.domain.SpasSubject> all = subjectMapper.selectSpasSubjectAll();
+        if (all == null)
+        {
+            return fallback;
+        }
+        for (com.ruoyi.spas.domain.SpasSubject subject : all)
+        {
+            if (subject != null && com.ruoyi.spas.support.SubjectAlias.same(excelName, subject.getSubjectName()))
+            {
+                return subject.getSubjectId();
+            }
+        }
+        return fallback;
+    }
+
+    /**
      * Default operators by metric:
      * AVG_RATE: rate below threshold -> &lt;
-     * WEAK_COUNT / BELOW_CLASS_AVG / CONTINUOUS_DROP: magnitude above threshold -> &gt;
+     * WEAK_COUNT / BELOW_CLASS_AVG / CONTINUOUS_DROP / PERSISTENT_WEAK: magnitude above threshold -> &gt;
      * BELOW_CLASS_AVG metricValue = class_rate - stu_rate (larger = more below class)
      */
     private String resolveOperator(String metric, String configured)
@@ -238,7 +585,9 @@ public class WarningEngine
             }
             return op;
         }
-        if ("WEAK_COUNT".equals(metric) || "BELOW_CLASS_AVG".equals(metric) || "CONTINUOUS_DROP".equals(metric))
+        if ("WEAK_COUNT".equals(metric) || "BELOW_CLASS_AVG".equals(metric) || "CONTINUOUS_DROP".equals(metric)
+            || "PERSISTENT_WEAK".equals(metric) || "KNOWLEDGE_CONTINUOUS_DROP".equals(metric)
+            || "RANK_DROP".equals(metric) || "SUBJECT_IMBALANCE".equals(metric))
         {
             return ">";
         }
@@ -259,13 +608,31 @@ public class WarningEngine
         recordMapper.updateSpasWarningRecord(open);
     }
 
-    private boolean createIfAbsent(SpasWarningRule rule, Long studentId, Long subjectId, BigDecimal value, Object studentName)
+    private boolean createIfAbsent(SpasWarningRule rule, Long studentId, Long subjectId, BigDecimal value,
+        Object studentName)
+    {
+        return createIfAbsent(rule, studentId, subjectId, value, studentName, null);
+    }
+
+    private boolean createIfAbsent(SpasWarningRule rule, Long studentId, Long subjectId, BigDecimal value,
+        Object studentName, Long knowledgeId)
+    {
+        return createIfAbsent(rule, studentId, subjectId, value, studentName, knowledgeId, null);
+    }
+
+    private boolean createIfAbsent(SpasWarningRule rule, Long studentId, Long subjectId, BigDecimal value,
+        Object studentName, Long knowledgeId, String detail)
     {
         SpasWarningRecord open = recordMapper.selectOpenRecord(studentId, rule.getRuleId());
         if (open != null)
         {
             open.setMetricValue(value);
-            open.setContent(buildContent(rule, value, studentName));
+            open.setContent(buildContent(rule, value, studentName, detail));
+            open.setReasonJson(buildReasonJson(rule, value, studentName, knowledgeId, detail));
+            if (open.getKnowledgeId() == null && knowledgeId != null)
+            {
+                open.setKnowledgeId(knowledgeId);
+            }
             recordMapper.updateSpasWarningRecord(open);
             return false;
         }
@@ -273,14 +640,40 @@ public class WarningEngine
         rec.setRuleId(rule.getRuleId());
         rec.setStudentId(studentId);
         rec.setSubjectId(subjectId);
+        rec.setKnowledgeId(knowledgeId);
         rec.setLevel(StringUtils.isNotEmpty(rule.getLevel()) ? rule.getLevel() : "1");
         rec.setTitle(rule.getRuleName());
-        rec.setContent(buildContent(rule, value, studentName));
+        rec.setContent(buildContent(rule, value, studentName, detail));
+        rec.setReasonJson(buildReasonJson(rule, value, studentName, knowledgeId, detail));
         rec.setMetricValue(value);
         rec.setStatus("0");
         recordMapper.insertSpasWarningRecord(rec);
         dispatchNotice(rule, rec);
         return true;
+    }
+
+    /** Worst weak knowledge for intervene binding; null if none. */
+    private Long resolvePrimaryWeakKnowledgeId(Long studentId, Long subjectId)
+    {
+        if (studentId == null)
+        {
+            return null;
+        }
+        try
+        {
+            List<Map<String, Object>> weak = knowledgeStatQueryService.studentWeakTop(studentId, subjectId, 1, null,
+                null);
+            if (weak == null || weak.isEmpty())
+            {
+                return null;
+            }
+            return toLong(weak.get(0).get("knowledgeId") != null ? weak.get(0).get("knowledgeId") : weak.get(0).get("id"));
+        }
+        catch (Exception e)
+        {
+            log.debug("resolvePrimaryWeakKnowledgeId failed studentId={}: {}", studentId, e.getMessage());
+            return null;
+        }
     }
 
     private void dispatchNotice(SpasWarningRule rule, SpasWarningRecord rec)
@@ -308,10 +701,107 @@ public class WarningEngine
 
     private String buildContent(SpasWarningRule rule, BigDecimal value, Object studentName)
     {
-        return String.format("学生%s触发规则[%s/%s]，当前值=%s，条件=%s %s",
-            studentName == null ? "-" : studentName.toString(),
-            rule.getRuleCode(), rule.getMetric(),
-            value, resolveOperator(rule.getMetric(), rule.getOperator()), rule.getThreshold());
+        return buildContent(rule, value, studentName, null);
+    }
+
+    private String buildContent(SpasWarningRule rule, BigDecimal value, Object studentName, String detail)
+    {
+        String name = studentName == null ? "-" : studentName.toString();
+        String metric = rule.getMetric();
+        String op = resolveOperator(metric, rule.getOperator());
+        String metricLabel = metricLabel(metric);
+        String valueText = formatMetricDisplay(metric, value);
+        String thresholdText = formatMetricDisplay(metric, rule.getThreshold());
+        String extra = StringUtils.isEmpty(detail) ? "" : "。" + detail;
+        return String.format("学生%s触发「%s」：%s 当前=%s，条件 %s %s（规则码 %s，口径 %s）%s",
+            name, rule.getRuleName(), metricLabel, valueText, op, thresholdText, rule.getRuleCode(),
+            activeAnalysisWindow, extra);
+    }
+
+    private String buildReasonJson(SpasWarningRule rule, BigDecimal value, Object studentName)
+    {
+        return buildReasonJson(rule, value, studentName, null);
+    }
+
+    private String buildReasonJson(SpasWarningRule rule, BigDecimal value, Object studentName, Long knowledgeId)
+    {
+        return buildReasonJson(rule, value, studentName, knowledgeId, null);
+    }
+
+    private String buildReasonJson(SpasWarningRule rule, BigDecimal value, Object studentName, Long knowledgeId, String detail)
+    {
+        Map<String, Object> reason = new LinkedHashMap<String, Object>();
+        reason.put("studentName", studentName == null ? "-" : studentName.toString());
+        reason.put("ruleId", rule.getRuleId());
+        reason.put("ruleCode", rule.getRuleCode());
+        reason.put("ruleName", rule.getRuleName());
+        reason.put("metric", rule.getMetric());
+        reason.put("metricLabel", metricLabel(rule.getMetric()));
+        reason.put("operator", resolveOperator(rule.getMetric(), rule.getOperator()));
+        reason.put("threshold", rule.getThreshold());
+        reason.put("metricValue", value);
+        reason.put("windowDays", rule.getWindowDays());
+        reason.put("analysisWindow", activeAnalysisWindow);
+        reason.put("level", rule.getLevel());
+        if (knowledgeId != null)
+        {
+            reason.put("knowledgeId", knowledgeId);
+        }
+        if (StringUtils.isNotEmpty(detail))
+        {
+            reason.put("detail", detail);
+        }
+        return JSON.toJSONString(reason);
+    }
+
+    private String metricLabel(String metric)
+    {
+        if ("AVG_RATE".equals(metric))
+        {
+            return "综合得分率";
+        }
+        if ("WEAK_COUNT".equals(metric))
+        {
+            return "薄弱知识点数";
+        }
+        if ("BELOW_CLASS_AVG".equals(metric))
+        {
+            return "低于班均幅度";
+        }
+        if ("CONTINUOUS_DROP".equals(metric))
+        {
+            return "连续考试得分率降幅";
+        }
+        if ("PERSISTENT_WEAK".equals(metric))
+        {
+            return "\u53cd\u590d\u8584\u5f31\u77e5\u8bc6\u70b9\u6570";
+        }
+        if ("KNOWLEDGE_CONTINUOUS_DROP".equals(metric))
+        {
+            return "知识点连续下滑数";
+        }
+        if ("RANK_DROP".equals(metric))
+        {
+            return "总分校次退步名次";
+        }
+        if ("SUBJECT_IMBALANCE".equals(metric))
+        {
+            return "单科落后总分名次";
+        }
+        return metric == null ? "-" : metric;
+    }
+
+    private String formatMetricDisplay(String metric, BigDecimal value)
+    {
+        if (value == null)
+        {
+            return "-";
+        }
+        if ("AVG_RATE".equals(metric) || "BELOW_CLASS_AVG".equals(metric) || "CONTINUOUS_DROP".equals(metric))
+        {
+            return value.multiply(new BigDecimal("100")).setScale(1, java.math.RoundingMode.HALF_UP) + "%";
+        }
+        return value.stripTrailingZeros().toPlainString();
     }
 
     private boolean match(BigDecimal value, String operator, BigDecimal threshold)

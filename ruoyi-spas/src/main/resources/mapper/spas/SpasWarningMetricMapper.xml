@@ -73,7 +73,9 @@
         from spas_score_detail d
         join spas_paper p on p.paper_id = d.paper_id
         where d.student_id = #{studentId}
+          and coalesce(d.score_source, '2') not in ('4', '5')
         <if test="subjectId != null">AND p.subject_id = #{subjectId}</if>
+        <if test="examDateFrom != null">AND p.exam_date &gt;= #{examDateFrom}</if>
         group by d.paper_id, p.paper_name, p.exam_date
         order by p.exam_date desc nulls last, d.paper_id desc
         <if test="limit != null">limit #{limit}</if>

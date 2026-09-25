@@ -16,7 +16,9 @@ public interface SpasWarningMetricMapper
 
     List<Map<String, Object>> selectStudentVsClassGap(@Param("subjectId") Long subjectId, @Param("deptId") Long deptId);
 
-    List<Map<String, Object>> selectStudentPaperRates(@Param("studentId") Long studentId, @Param("subjectId") Long subjectId, @Param("limit") Integer limit);
+    List<Map<String, Object>> selectStudentPaperRates(@Param("studentId") Long studentId,
+        @Param("subjectId") Long subjectId, @Param("limit") Integer limit,
+        @Param("examDateFrom") java.util.Date examDateFrom);
 
     List<Long> selectStudentIdsByPaper(@Param("paperId") Long paperId);
 }

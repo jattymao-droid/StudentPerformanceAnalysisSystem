@@ -3,8 +3,9 @@
     <el-row :gutter="16">
       <el-col :span="24">
         <el-card shadow="never" class="hero-card">
-          <div class="hero-title">学生学情分析系统</div>
-          <div class="hero-sub">采集成绩、知识点分析、预警处理与一生一册，形成学情闭环。</div>
+          <div class="hero-eyebrow">知脉 · 学情工作台</div>
+          <div class="hero-title">知脉</div>
+          <div class="hero-sub">学生学情分析系统：成绩采集、知识点诊断、预警干预与一生一册，串联完整教学闭环。</div>
           <div class="hero-actions">
             <el-button
               v-if="isStudent"
@@ -23,7 +24,6 @@
               >成绩导入</el-button>
               <el-button
                 v-hasPermi="['spas:analysis:student']"
-                type="success"
                 plain
                 size="small"
                 icon="el-icon-data-analysis"
@@ -31,7 +31,6 @@
               >学生分析</el-button>
               <el-button
                 v-hasPermi="['spas:warning:record']"
-                type="warning"
                 plain
                 size="small"
                 icon="el-icon-bell"
@@ -50,77 +49,70 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="16" style="margin-top: 16px" v-if="!isStudent && dashboardLoaded">
-      <el-col :xs="12" :sm="6" v-for="card in kpiCards" :key="card.key">
-        <el-card shadow="hover" class="kpi-card" :class="'tone-' + card.tone" @click.native="goIfPerm(card)">
-          <div class="kpi-label">{{ card.label }}</div>
-          <div class="kpi-value">{{ card.value }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <template v-if="!isStudent && dashboardLoaded">
+      <div class="section-label">运行概览</div>
+      <el-row :gutter="14">
+        <el-col :xs="12" :sm="8" :md="4" v-for="card in kpiCards" :key="card.key">
+          <el-card shadow="hover" class="kpi-card" :class="'tone-' + card.tone" @click.native="goIfPerm(card)">
+            <div class="kpi-label">{{ card.label }}</div>
+            <div class="kpi-value">{{ card.value }}</div>
+            <div class="kpi-hint">点击进入</div>
+          </el-card>
+        </el-col>
+      </el-row>
 
-    <el-row :gutter="16" style="margin-top: 16px" v-if="!isStudent && dashboardLoaded">
-      <el-col :xs="24" :md="14">
-        <el-card shadow="never">
-          <div slot="header" class="card-header">最近成绩导入</div>
-          <el-table :data="recentBatches" size="small" empty-text="暂无导入记录">
-            <el-table-column label="试卷" prop="paperName" min-width="140" :show-overflow-tooltip="true" />
-            <el-table-column label="成功" prop="successRows" width="70" align="center" />
-            <el-table-column label="失败" prop="failRows" width="70" align="center" />
-            <el-table-column label="导入人" prop="createBy" width="90" align="center" />
-            <el-table-column label="时间" width="150" align="center">
-              <template slot-scope="scope">{{ parseTime(scope.row.createTime) }}</template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :md="10">
-        <el-card shadow="never">
-          <div slot="header" class="card-header">薄弱知识点 Top3</div>
-          <el-table :data="weakTop" size="small" empty-text="暂无数据" @row-click="goWeakKnowledge">
-            <el-table-column label="知识点" prop="name" min-width="120" :show-overflow-tooltip="true" />
-            <el-table-column label="平均得分率" width="110" align="center">
-              <template slot-scope="scope">
-                <span :style="{ color: rateColor(scope.row.rate), fontWeight: 600 }">{{ formatRate(scope.row.rate) }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
+      <div class="section-label">近期动态</div>
+      <el-row :gutter="16">
+        <el-col :xs="24" :md="14">
+          <el-card shadow="never" class="panel-card">
+            <div slot="header" class="card-header">
+              <span>最近成绩导入</span>
+              <span class="card-header-meta">点击行可跳转</span>
+            </div>
+            <el-table :data="recentBatches" size="small" empty-text="暂无导入记录" highlight-current-row @row-click="goRecentBatch" class="clickable-table">
+              <el-table-column label="试卷" prop="paperName" min-width="140" :show-overflow-tooltip="true" />
+              <el-table-column label="成功" prop="successRows" width="70" align="center" />
+              <el-table-column label="失败" prop="failRows" width="70" align="center" />
+              <el-table-column label="导入人" prop="createBy" width="90" align="center" />
+              <el-table-column label="时间" width="150" align="center">
+                <template slot-scope="scope">{{ parseTime(scope.row.createTime) }}</template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="10">
+          <el-card shadow="never" class="panel-card">
+            <div slot="header" class="card-header">
+              <span>薄弱知识点 Top3</span>
+              <span class="card-header-meta">按平均得分率</span>
+            </div>
+            <el-table :data="weakTop" size="small" empty-text="暂无数据" @row-click="goWeakKnowledge" class="clickable-table">
+              <el-table-column label="知识点" prop="name" min-width="120" :show-overflow-tooltip="true" />
+              <el-table-column label="平均得分率" width="110" align="center">
+                <template slot-scope="scope">
+                  <span :style="{ color: rateColor(scope.row.rate), fontWeight: 600 }">{{ formatRate(scope.row.rate) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+        </el-col>
+      </el-row>
+    </template>
 
-    <el-row :gutter="16" style="margin-top: 16px" v-if="!isStudent">
-      <el-col :xs="24" :md="8" v-for="item in guideCards" :key="item.title">
-        <el-card shadow="hover" class="guide-card" @click.native="goIfPerm(item)">
-          <div class="guide-icon"><i :class="item.icon"></i></div>
-          <div class="guide-title">{{ item.title }}</div>
-          <div class="guide-desc">{{ item.desc }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <template v-if="!isStudent">
+      <div class="section-label">常用入口</div>
+      <el-row :gutter="14">
+        <el-col :xs="24" :sm="12" :md="6" v-for="item in guideCards" :key="item.title">
+          <el-card shadow="hover" class="guide-card" @click.native="goIfPerm(item)">
+            <div class="guide-icon"><i :class="item.icon"></i></div>
+            <div class="guide-title">{{ item.title }}</div>
+            <div class="guide-desc">{{ item.desc }}</div>
+          </el-card>
+        </el-col>
+      </el-row>
+    </template>
 
-    <el-card shadow="never" style="margin-top: 16px" v-if="!isStudent">
-      <div slot="header" class="card-header">演示账号与验收提示</div>
-      <el-alert
-        title="可使用演示数据快速验收：先查看演示试卷成绩，再执行预警与分析。"
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb12"
-      />
-      <el-descriptions :column="1" border size="small">
-        <el-descriptions-item label="管理员">admin / admin123</el-descriptions-item>
-        <el-descriptions-item label="任课教师">teacher001 / 123456（初一1班+2班）</el-descriptions-item>
-        <el-descriptions-item label="班主任">bzr001 / 123456（本班学生管理）</el-descriptions-item>
-        <el-descriptions-item label="年级负责人">grade001 / 123456（2024级）</el-descriptions-item>
-        <el-descriptions-item label="校级领导">school001 / 123456（全校只读总览）</el-descriptions-item>
-        <el-descriptions-item label="学生">demo001 / 123456（1班）；demo002、demo003 / 123456（2班）</el-descriptions-item>
-        <el-descriptions-item label="演示数据">1班「演示单元测」；2班「演示单元测-(2)班」含薄弱对比</el-descriptions-item>
-        <el-descriptions-item label="建议路径">成绩导入 → 班级分析快捷切班 → 预警处理 → 一生一册</el-descriptions-item>
-      </el-descriptions>
-    </el-card>
-
-    <el-card shadow="never" style="margin-top: 16px" v-else>
+    <el-card shadow="never" class="panel-card student-tip" v-else>
       <div slot="header" class="card-header">使用说明</div>
       <p class="tip-text">登录后可查看本人知识点掌握、成绩趋势与预警信息。如页面无数据，请等待教师导入成绩。</p>
       <el-button type="primary" size="small" @click="go('/myspas/mine')">打开一生一册</el-button>
@@ -223,13 +215,17 @@ export default {
       const n = Number(rate)
       if (isNaN(n)) return undefined
       const p = n <= 1 ? n * 100 : n
-      if (p < 45) return '#F56C6C'
-      if (p < 60) return '#E6A23C'
-      if (p < 75) return '#E6A23C'
-      return '#67C23A'
+      if (p < 45) return '#FF5A5F'
+      if (p < 60) return '#D97706'
+      if (p < 75) return '#CA8A04'
+      return '#10B981'
     },
     goWeakKnowledge(row) {
       if (!row) return
+      if (!checkPermi(['spas:analysis:knowledge'])) {
+        this.$modal.msgWarning('暂无权限，请联系管理员')
+        return
+      }
       const knowledgeId = row.knowledgeId || row.id
       if (!knowledgeId) {
         this.go('/spas/analysis/knowledge')
@@ -239,6 +235,18 @@ export default {
         path: '/spas/analysis/knowledge',
         query: { knowledgeId, subjectId: row.subjectId }
       }).catch(() => {})
+    },
+    goRecentBatch(row) {
+      if (!row) return
+      if (!checkPermi(['spas:score:list'])) {
+        this.$modal.msgWarning('暂无权限，请联系管理员')
+        return
+      }
+      const paperId = row.paperId
+      const query = {}
+      if (paperId != null) query.paperId = paperId
+      if (row.batchId != null) query.batchId = row.batchId
+      this.$router.push({ path: '/spas/biz/score', query }).catch(() => {})
     },
     go(path) {
       this.$router.push(path).catch(() => {})
@@ -256,83 +264,139 @@ export default {
 
 <style scoped>
 .spas-home .hero-card {
-  background: linear-gradient(135deg, #F4F0FF 0%, #ffffff 55%, #F8F6FF 100%);
+  background: transparent;
+}
+.spas-home .hero-eyebrow {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #2442ED;
+  background: #F0F3FF;
+  border: 1px solid #99F6E4;
+  border-radius: 6px;
+  padding: 3px 10px;
+  margin-bottom: 12px;
 }
 .spas-home .hero-title {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #2C2940;
+  letter-spacing: -0.025em;
+  color: #0F172A;
+  line-height: 1.2;
 }
 .spas-home .hero-sub {
   margin-top: 10px;
-  max-width: 640px;
-  color: #6B6685;
+  max-width: 580px;
+  color: #64748B;
   line-height: 1.7;
   font-size: 14px;
 }
 .spas-home .hero-actions {
-  margin-top: 18px;
+  margin-top: 22px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
+.spas-home .section-label {
+  margin: 22px 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94A3B8;
+}
+.spas-home .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.spas-home .card-header-meta {
+  font-size: 12px;
+  font-weight: 500;
+  color: #94A3B8;
+  letter-spacing: 0;
+}
+.spas-home .clickable-table {
+  cursor: pointer;
+}
 .spas-home .guide-card {
   cursor: pointer;
-  min-height: 132px;
+  min-height: 140px;
   margin-bottom: 12px;
 }
 .spas-home .guide-icon {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #EDE7FF;
+  background: #F0F3FF;
+  border: 1px solid #99F6E4;
   font-size: 18px;
-  color: #7B6CF6;
-  margin-bottom: 12px;
+  color: #2442ED;
+  margin-bottom: 14px;
 }
 .spas-home .guide-title {
   font-weight: 600;
-  color: #2C2940;
+  color: #0F172A;
+  letter-spacing: 0.01em;
 }
 .spas-home .guide-desc {
   margin-top: 6px;
-  color: #6B6685;
+  color: #64748B;
   font-size: 13px;
-  line-height: 1.5;
-}
-.spas-home .card-header {
-  font-weight: 600;
-}
-.spas-home .mb12 {
-  margin-bottom: 12px;
+  line-height: 1.55;
 }
 .spas-home .tip-text {
-  color: #6B6685;
+  color: #64748B;
   line-height: 1.7;
   margin: 0 0 12px;
 }
 .spas-home .kpi-card {
   margin-bottom: 12px;
-  border-left: 3px solid #7B6CF6;
+  border-left: 3px solid #2442ED;
   cursor: pointer;
 }
-.spas-home .kpi-card.tone-orange { border-left-color: #e6a23c; }
-.spas-home .kpi-card.tone-green { border-left-color: #67c23a; }
-.spas-home .kpi-card.tone-blue { border-left-color: #7B6CF6; }
-.spas-home .kpi-card.tone-teal { border-left-color: #7B6CF6; }
+.spas-home .kpi-card.tone-orange { border-left-color: #D97706; }
+.spas-home .kpi-card.tone-green { border-left-color: #10B981; }
+.spas-home .kpi-card.tone-blue,
+.spas-home .kpi-card.tone-teal { border-left-color: #2442ED; }
 .spas-home .kpi-label {
-  color: #6B6685;
-  font-size: 13px;
+  color: #64748B;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  font-weight: 600;
 }
 .spas-home .kpi-value {
   margin-top: 8px;
   font-size: 28px;
   font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #2C2940;
+  color: #0F172A;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.spas-home .kpi-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #94A3B8;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.spas-home .kpi-card:hover .kpi-hint {
+  opacity: 1;
+}
+.spas-home .student-tip {
+  margin-top: 16px;
+}
+@media (max-width: 768px) {
+  .spas-home .hero-title { font-size: 22px; }
+  .spas-home .kpi-value { font-size: 24px; }
 }
 </style>

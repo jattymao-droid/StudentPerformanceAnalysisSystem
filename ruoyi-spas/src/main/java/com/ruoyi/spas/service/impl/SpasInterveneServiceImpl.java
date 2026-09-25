@@ -27,6 +27,7 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.spring.SpringUtils;
+import com.ruoyi.spas.analysis.KnowledgeStatQueryService;
 import com.ruoyi.spas.domain.SpasCoachLog;
 import com.ruoyi.spas.domain.SpasInterveneTask;
 import com.ruoyi.spas.domain.SpasStudentKnowledgeStat;
@@ -35,6 +36,7 @@ import com.ruoyi.spas.mapper.SpasAnalysisMapper;
 import com.ruoyi.spas.mapper.SpasCoachLogMapper;
 import com.ruoyi.spas.mapper.SpasInterveneMapper;
 import com.ruoyi.spas.mapper.SpasWarningRecordMapper;
+import com.ruoyi.spas.service.ISpasErrorTagService;
 import com.ruoyi.spas.service.ISpasInterveneService;
 import com.ruoyi.spas.support.SpasAccessService;
 import com.ruoyi.spas.support.SpasTeacherScopeService;
@@ -51,7 +53,13 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
     private SpasAnalysisMapper analysisMapper;
 
     @Autowired
+    private KnowledgeStatQueryService knowledgeStatQueryService;
+
+    @Autowired
     private SpasWarningRecordMapper warningRecordMapper;
+
+    @Autowired
+    private ISpasErrorTagService errorTagService;
 
     @Autowired
     private SpasCoachLogMapper coachLogMapper;
@@ -64,6 +72,12 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
 
     @Value("${spas.intervene.default-target-rate:0.60}")
     private double defaultTargetRate;
+
+    @Value("${spas.intervene.effect-after-create:true}")
+    private boolean effectAfterCreate;
+
+    @Value("${spas.intervene.close-warning-on-pass:true}")
+    private boolean closeWarningOnPass;
 
     @Override
     public List<SpasInterveneTask> selectSpasInterveneTaskList(SpasInterveneTask task)
@@ -88,7 +102,7 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         SpasInterveneTask task = interveneMapper.selectSpasInterveneTaskById(interveneId);
         if (task == null)
         {
-            throw new ServiceException("??????????");
+            throw new ServiceException("干预任务不存在");
         }
         accessService.checkStudentAccess(task.getStudentId());
         SpasCoachLog q = new SpasCoachLog();
@@ -112,13 +126,22 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         accessService.assertCanWrite();
         if (task.getStudentId() == null)
         {
-            throw new ServiceException("??????????");
+            throw new ServiceException("请选择学生");
         }
         accessService.checkStudentAccess(task.getStudentId());
+        List<Long> requireKids = resolveKnowledgeIds(task);
+        if (requireKids.isEmpty())
+        {
+            throw new ServiceException("请至少挂接一个知识点（干预必挂知识点）");
+        }
         prepareBaseline(task);
+        if (StringUtils.isEmpty(task.getKnowledgeIds()))
+        {
+            throw new ServiceException("请至少挂接一个知识点（干预必挂知识点）");
+        }
         if (StringUtils.isEmpty(task.getTitle()))
         {
-            task.setTitle("??????");
+            task.setTitle("干预任务");
         }
         if (StringUtils.isEmpty(task.getSourceType()))
         {
@@ -141,7 +164,9 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
             task.setCreateBy(SecurityUtils.getUsername());
         }
         task.setEffectPassed("0");
-        return interveneMapper.insertSpasInterveneTask(task);
+        int rows = interveneMapper.insertSpasInterveneTask(task);
+        syncInterveneKnowledge(task.getInterveneId(), parseKnowledgeIds(task.getKnowledgeIds()));
+        return rows;
     }
 
     @Override
@@ -152,7 +177,7 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         SpasInterveneTask db = interveneMapper.selectSpasInterveneTaskById(task.getInterveneId());
         if (db == null)
         {
-            throw new ServiceException("??????????");
+            throw new ServiceException("干预任务不存在");
         }
         accessService.checkStudentAccess(db.getStudentId());
         task.setUpdateBy(SecurityUtils.getUsername());
@@ -160,7 +185,17 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         {
             task.setCloseTime(new Date());
         }
-        return interveneMapper.updateSpasInterveneTask(task);
+        int rows = interveneMapper.updateSpasInterveneTask(task);
+        if (task.getKnowledgeIds() != null || task.getKnowledgeIdList() != null)
+        {
+            List<Long> kids = resolveKnowledgeIds(task);
+            if (kids.isEmpty() && task.getKnowledgeIds() != null)
+            {
+                kids = parseKnowledgeIds(task.getKnowledgeIds());
+            }
+            syncInterveneKnowledge(task.getInterveneId(), kids);
+        }
+        return rows;
     }
 
     @Override
@@ -171,7 +206,7 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         SpasWarningRecord warning = warningRecordMapper.selectSpasWarningRecordById(warningId);
         if (warning == null)
         {
-            throw new ServiceException("????????????");
+            throw new ServiceException("预警记录不存在");
         }
         accessService.checkStudentAccess(warning.getStudentId());
         SpasInterveneTask task = form == null ? new SpasInterveneTask() : form;
@@ -184,19 +219,61 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         task.setSourceId(warningId);
         if (StringUtils.isEmpty(task.getTitle()))
         {
-            task.setTitle("?????" + (StringUtils.isNotEmpty(warning.getTitle()) ? warning.getTitle() : warning.getRuleName()));
+            task.setTitle("预警干预：" + (StringUtils.isNotEmpty(warning.getTitle()) ? warning.getTitle() : warning.getRuleName()));
         }
         if (warning.getKnowledgeId() != null && (task.getKnowledgeIdList() == null || task.getKnowledgeIdList().isEmpty())
             && StringUtils.isEmpty(task.getKnowledgeIds()))
         {
             task.setKnowledgeIdList(Arrays.asList(warning.getKnowledgeId()));
         }
+        if (resolveKnowledgeIds(task).isEmpty())
+        {
+            throw new ServiceException("该预警未关联知识点，请手动选择知识点后再创建干预");
+        }
         if (task.getRemark() == null)
         {
-            task.setRemark("????????#" + warningId + "????");
+            task.setRemark("\u7531\u9884\u8b66#" + warningId + "\u521b\u5efa");
+        }
+        String cause = topCauseText(warning.getStudentId());
+        if (StringUtils.isNotEmpty(cause) && task.getRemark().indexOf("\u4e3b\u9519\u56e0") < 0)
+        {
+            task.setRemark(task.getRemark() + "\u3002\u4e3b\u9519\u56e0\uff1a" + cause);
         }
         insertSpasInterveneTask(task);
         return interveneMapper.selectSpasInterveneTaskById(task.getInterveneId());
+    }
+
+    private String topCauseText(Long studentId)
+    {
+        if (studentId == null)
+        {
+            return null;
+        }
+        List<Map<String, Object>> rows = errorTagService.selectCauseSummary(studentId);
+        if (rows == null || rows.isEmpty())
+        {
+            return null;
+        }
+        Map<String, Object> top = rows.get(0);
+        Object label = top.get("errorCategoryLabel");
+        if (label == null)
+        {
+            label = top.get("errorLabel");
+        }
+        if (label == null)
+        {
+            label = top.get("errorlabel");
+        }
+        Object count = top.get("tagCount");
+        if (count == null)
+        {
+            count = top.get("tagcount");
+        }
+        if (label == null)
+        {
+            return null;
+        }
+        return label + (count == null ? "" : "\uff08" + count + "\u9898\uff09");
     }
 
     @Override
@@ -207,7 +284,7 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         SpasInterveneTask task = interveneMapper.selectSpasInterveneTaskById(interveneId);
         if (task == null)
         {
-            throw new ServiceException("??????????");
+            throw new ServiceException("干预任务不存在");
         }
         accessService.checkStudentAccess(task.getStudentId());
         doEvaluate(task);
@@ -342,6 +419,107 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         return timeline;
     }
 
+    @Override
+    public Map<String, Object> classSummary(Long deptId, Long subjectId)
+    {
+        accessService.checkClassAnalysisDept(deptId);
+        Map<String, Object> row = interveneMapper.selectDeptSummary(deptId, subjectId);
+        if (row == null)
+        {
+            row = new LinkedHashMap<String, Object>();
+        }
+        if (!row.containsKey("openCount"))
+        {
+            row.put("openCount", 0);
+        }
+        if (!row.containsKey("passedCount"))
+        {
+            row.put("passedCount", 0);
+        }
+        if (!row.containsKey("overdueCount"))
+        {
+            row.put("overdueCount", 0);
+        }
+        return row;
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> batchCreateForWeak(Long deptId, Long subjectId, Long knowledgeId, String title,
+        java.math.BigDecimal targetRate)
+    {
+        accessService.assertCanWrite();
+        if (deptId == null || knowledgeId == null)
+        {
+            throw new ServiceException("班级和知识点不能为空");
+        }
+        accessService.checkClassAnalysisDept(deptId);
+        List<Map<String, Object>> students = analysisMapper.selectWeakStudentsByKnowledge(deptId, subjectId, knowledgeId);
+        int created = 0;
+        int skipped = 0;
+        if (students != null)
+        {
+            for (Map<String, Object> stu : students)
+            {
+                if (stu.get("studentId") == null)
+                {
+                    continue;
+                }
+                Long studentId = Long.valueOf(stu.get("studentId").toString());
+                if (hasOpenKnowledge(studentId, knowledgeId))
+                {
+                    skipped++;
+                    continue;
+                }
+                SpasInterveneTask task = new SpasInterveneTask();
+                task.setStudentId(studentId);
+                task.setSubjectId(subjectId);
+                task.setSourceType("2");
+                task.setSourceId(knowledgeId);
+                task.setKnowledgeIdList(java.util.Collections.singletonList(knowledgeId));
+                String name = stu.get("studentName") == null ? String.valueOf(studentId) : stu.get("studentName").toString();
+                task.setTitle(StringUtils.isNotEmpty(title) ? title : ("薄弱干预：" + name));
+                if (targetRate != null)
+                {
+                    task.setTargetRate(targetRate);
+                }
+                task.setCreateBy(SecurityUtils.getUsername());
+                insertSpasInterveneTask(task);
+                created++;
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("created", created);
+        result.put("skipped", skipped);
+        result.put("candidates", students == null ? 0 : students.size());
+        return result;
+    }
+
+    private boolean hasOpenKnowledge(Long studentId, Long knowledgeId)
+    {
+        List<SpasInterveneTask> open = interveneMapper.selectOpenByStudentIds(java.util.Collections.singletonList(studentId));
+        if (open == null)
+        {
+            return false;
+        }
+        String needle = String.valueOf(knowledgeId);
+        for (SpasInterveneTask task : open)
+        {
+            if (StringUtils.isEmpty(task.getKnowledgeIds()))
+            {
+                continue;
+            }
+            for (String part : task.getKnowledgeIds().split(","))
+            {
+                if (needle.equals(part.trim()))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private void prepareBaseline(SpasInterveneTask task)
     {
         List<Long> kids = resolveKnowledgeIds(task);
@@ -423,8 +601,10 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
     private void doEvaluate(SpasInterveneTask task)
     {
         List<Long> kids = parseKnowledgeIds(task.getKnowledgeIds());
-        List<SpasStudentKnowledgeStat> stats = analysisMapper.selectStudentKnowledgeStats(task.getStudentId(), task.getSubjectId());
+        EffectStatsLoad loaded = loadEffectStatsWithMeta(task, kids);
+        List<SpasStudentKnowledgeStat> stats = loaded.stats;
         Map<Long, SpasStudentKnowledgeStat> index = new HashMap<>();
+        Map<Long, BigDecimal> baselineByKid = new HashMap<>();
         if (stats != null)
         {
             for (SpasStudentKnowledgeStat st : stats)
@@ -432,28 +612,32 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
                 index.put(st.getKnowledgeId(), st);
             }
         }
-        BigDecimal sumW = BigDecimal.ZERO;
-        BigDecimal sumWR = BigDecimal.ZERO;
-        if (kids.isEmpty())
+        try
         {
-            // use all baseline knowledge ids from json
-            try
+            List<Map> rows = JSON.parseArray(task.getBaselineJson(), Map.class);
+            if (rows != null)
             {
-                List<Map> rows = JSON.parseArray(task.getBaselineJson(), Map.class);
-                if (rows != null)
+                for (Map row : rows)
                 {
-                    for (Map row : rows)
+                    if (row.get("knowledgeId") == null)
                     {
-                        if (row.get("knowledgeId") != null)
-                        {
-                            kids.add(Long.valueOf(row.get("knowledgeId").toString()));
-                        }
+                        continue;
+                    }
+                    Long kid = Long.valueOf(row.get("knowledgeId").toString());
+                    if (kids.isEmpty())
+                    {
+                        kids.add(kid);
+                    }
+                    Object br = row.get("weightedRate");
+                    if (br != null)
+                    {
+                        baselineByKid.put(kid, new BigDecimal(br.toString()));
                     }
                 }
             }
-            catch (Exception ignored)
-            {
-            }
+        }
+        catch (Exception ignored)
+        {
         }
         if (kids.isEmpty() && stats != null)
         {
@@ -462,6 +646,9 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
                 kids.add(st.getKnowledgeId());
             }
         }
+        BigDecimal sumW = BigDecimal.ZERO;
+        BigDecimal sumWR = BigDecimal.ZERO;
+        List<Map<String, Object>> effectRows = new ArrayList<>();
         for (Long kid : kids)
         {
             SpasStudentKnowledgeStat st = index.get(kid);
@@ -473,6 +660,19 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
             BigDecimal rate = st.getWeightedRate() == null ? BigDecimal.ZERO : st.getWeightedRate();
             sumW = sumW.add(BigDecimal.valueOf(att));
             sumWR = sumWR.add(rate.multiply(BigDecimal.valueOf(att)));
+            BigDecimal base = baselineByKid.get(kid);
+            if (base == null)
+            {
+                base = task.getBaselineRate() == null ? BigDecimal.ZERO : task.getBaselineRate();
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("knowledgeId", kid);
+            row.put("knowledgeName", st.getKnowledgeName());
+            row.put("baselineRate", base);
+            row.put("effectRate", rate);
+            row.put("delta", rate.subtract(base));
+            row.put("attemptCount", st.getAttemptCount());
+            effectRows.add(row);
         }
         BigDecimal effect = BigDecimal.ZERO;
         if (sumW.compareTo(BigDecimal.ZERO) > 0)
@@ -484,16 +684,28 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         BigDecimal target = task.getTargetRate() == null ? BigDecimal.valueOf(defaultTargetRate) : task.getTargetRate();
         boolean passed = effect.compareTo(target) >= 0;
 
+        Map<String, Object> effectPayload = new LinkedHashMap<String, Object>();
+        effectPayload.put("mode", loaded.mode);
+        effectPayload.put("windowDesc", loaded.windowDesc);
+        effectPayload.put("windowFrom", loaded.windowFrom);
+        effectPayload.put("baselineRate", baseline);
+        effectPayload.put("effectRate", effect);
+        effectPayload.put("delta", delta);
+        effectPayload.put("targetRate", target);
+        effectPayload.put("passed", passed);
+        effectPayload.put("formula", "各知识点加权得分率按练习次数加权；Δ=当前−基线");
+        effectPayload.put("knowledges", effectRows);
+
         SpasInterveneTask upd = new SpasInterveneTask();
         upd.setInterveneId(task.getInterveneId());
         upd.setEffectRate(effect);
         upd.setEffectDelta(delta);
         upd.setEffectPassed(passed ? "1" : "0");
+        upd.setEffectJson(JSON.toJSONString(effectPayload));
         if (passed && "0".equals(task.getStatus()))
         {
             upd.setStatus("1");
         }
-        // overdue check
         if (!passed && "0".equals(task.getStatus()) && task.getDueDate() != null
             && task.getDueDate().before(new Date()))
         {
@@ -501,6 +713,115 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         }
         upd.setUpdateBy("system");
         interveneMapper.updateSpasInterveneTask(upd);
+        if (passed && closeWarningOnPass)
+        {
+            closeLinkedWarning(task);
+        }
+    }
+
+    /** Prefer attempts after task creation; fall back to full snapshot when the window is empty. */
+    private List<SpasStudentKnowledgeStat> loadEffectStats(SpasInterveneTask task)
+    {
+        return loadEffectStatsWithMeta(task, parseKnowledgeIds(task.getKnowledgeIds())).stats;
+    }
+
+    private EffectStatsLoad loadEffectStatsWithMeta(SpasInterveneTask task, List<Long> kids)
+    {
+        EffectStatsLoad out = new EffectStatsLoad();
+        out.mode = "snapshot";
+        out.windowDesc = "全量快照掌握度";
+        out.windowFrom = null;
+        if (effectAfterCreate && task.getCreateTime() != null)
+        {
+            List<SpasStudentKnowledgeStat> windowed = knowledgeStatQueryService.computeStudentStats(
+                task.getStudentId(), task.getSubjectId(), task.getCreateTime(), null);
+            if (hasMeasuredKnowledge(windowed, kids))
+            {
+                out.stats = windowed;
+                out.mode = "after_create";
+                out.windowDesc = "干预创建后作答窗口";
+                out.windowFrom = task.getCreateTime();
+                return out;
+            }
+        }
+        List<SpasStudentKnowledgeStat> full = analysisMapper.selectStudentKnowledgeStats(task.getStudentId(),
+            task.getSubjectId());
+        out.stats = full == null ? new ArrayList<SpasStudentKnowledgeStat>() : full;
+        return out;
+    }
+
+    private static class EffectStatsLoad
+    {
+        List<SpasStudentKnowledgeStat> stats;
+        String mode;
+        String windowDesc;
+        Date windowFrom;
+    }
+
+    private boolean hasMeasuredKnowledge(List<SpasStudentKnowledgeStat> stats, List<Long> kids)
+    {
+        if (stats == null || stats.isEmpty())
+        {
+            return false;
+        }
+        Set<Long> filter = kids == null || kids.isEmpty() ? null : new HashSet<Long>(kids);
+        for (SpasStudentKnowledgeStat st : stats)
+        {
+            if (st.getKnowledgeId() == null)
+            {
+                continue;
+            }
+            if (filter != null && !filter.contains(st.getKnowledgeId()))
+            {
+                continue;
+            }
+            int att = st.getAttemptCount() == null ? 0 : st.getAttemptCount().intValue();
+            if (att > 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void closeLinkedWarning(SpasInterveneTask task)
+    {
+        if (task == null || !"1".equals(task.getSourceType()) || task.getSourceId() == null)
+        {
+            return;
+        }
+        SpasWarningRecord warning = warningRecordMapper.selectSpasWarningRecordById(task.getSourceId());
+        if (warning == null || !"0".equals(warning.getStatus()))
+        {
+            return;
+        }
+        warning.setStatus("1");
+        warning.setHandleBy("system");
+        warning.setHandleTime(new Date());
+        warning.setHandleRemark("干预达标自动关闭 #" + task.getInterveneId());
+        warningRecordMapper.updateSpasWarningRecord(warning);
+    }
+
+    private void syncInterveneKnowledge(Long interveneId, List<Long> knowledgeIds)
+    {
+        if (interveneId == null)
+        {
+            return;
+        }
+        interveneMapper.deleteInterveneKnowledge(interveneId);
+        if (knowledgeIds == null || knowledgeIds.isEmpty())
+        {
+            return;
+        }
+        Set<Long> seen = new HashSet<>();
+        for (Long kid : knowledgeIds)
+        {
+            if (kid == null || !seen.add(kid))
+            {
+                continue;
+            }
+            interveneMapper.insertInterveneKnowledge(interveneId, kid);
+        }
     }
 
     private List<Long> resolveKnowledgeIds(SpasInterveneTask task)
@@ -509,7 +830,20 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         {
             return new ArrayList<>(task.getKnowledgeIdList());
         }
-        return parseKnowledgeIds(task.getKnowledgeIds());
+        List<Long> fromCsv = parseKnowledgeIds(task.getKnowledgeIds());
+        if (!fromCsv.isEmpty())
+        {
+            return fromCsv;
+        }
+        if (task.getInterveneId() != null)
+        {
+            List<Long> fromJoin = interveneMapper.selectInterveneKnowledgeIds(task.getInterveneId());
+            if (fromJoin != null && !fromJoin.isEmpty())
+            {
+                return fromJoin;
+            }
+        }
+        return fromCsv;
     }
 
     private List<Long> parseKnowledgeIds(String raw)

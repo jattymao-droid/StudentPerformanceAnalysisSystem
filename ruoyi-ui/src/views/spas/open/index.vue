@@ -1,5 +1,28 @@
 <template>
   <div class="app-container">
+    <el-alert
+      :title="statusTitle"
+      :type="openStatus.enabled ? 'success' : 'warning'"
+      :closable="false"
+      show-icon
+      class="mb8"
+      :description="openStatus.hint"
+    />
+
+    <el-card shadow="never" class="mb8" v-if="activeTab === 'client'">
+      <div slot="header" class="card-header">联调示例（Token）</div>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb8"
+        title="需先将 spas.open.enabled=true 并重启后端；下方示例可一键拷贝到终端测试。"
+      />
+      <el-input type="textarea" :rows="8" :value="tokenExample" readonly class="code-box" />
+      <div class="code-actions">
+        <el-button type="primary" size="mini" icon="el-icon-document-copy" @click="copyTokenExample">拷贝示例</el-button>
+      </div>
+    </el-card>
     <el-tabs v-model="activeTab" @tab-click="handleTabClick">
       <el-tab-pane label="开放客户端" name="client">
         <el-form :model="clientQuery" size="small" :inline="true" label-width="68px">
@@ -140,7 +163,7 @@
 import {
   listOpenClient, addOpenClient, updateOpenClient, delOpenClient,
   listOpenParent, addOpenParent, updateOpenParent, delOpenParent,
-  listParentStudents, bindParentStudent, unbindParentStudent
+  listParentStudents, bindParentStudent, unbindParentStudent, getOpenStatus
 } from '@/api/spas/open'
 import { listStudent } from '@/api/spas/student'
 
@@ -170,13 +193,73 @@ export default {
       studentOptions: [],
       studentLoading: false,
       parentsLoaded: false,
-      studentsLoaded: false
+      studentsLoaded: false,
+      openStatus: { enabled: false, tokenTtlMinutes: 120, hint: '' }
+    }
+  },
+  computed: {
+    statusTitle() {
+      const on = this.openStatus && this.openStatus.enabled
+      const ttl = this.openStatus && this.openStatus.tokenTtlMinutes
+      return (on ? 'OpenAPI ON' : 'OpenAPI OFF') + '  |  token TTL ' + (ttl != null ? ttl : '-') + ' min  |  /open/v1'
+    },
+    tokenExample() {
+      const c = (this.clientList && this.clientList[0]) || {}
+      const appId = c.appId || 'parent-demo'
+      const secret = c.appSecret || 'spas-open-demo-secret'
+      const mobile = '13800138000'
+      const base = (typeof window !== 'undefined' && window.location && window.location.origin)
+        ? window.location.origin.replace(/:\d+$/, ':8080')
+        : 'http://localhost:8080'
+      return [
+        '# 1) get token',
+        'curl -X POST "' + base + '/open/v1/oauth/token" \\',
+        '  -H "Content-Type: application/json" \\',
+        '  -d "{\"appId\":\"' + appId + '\",\"appSecret\":\"' + secret + '\",\"mobile\":\"' + mobile + '\"}"',
+        '',
+        '# 2) call API with Bearer token',
+        'curl -X GET "' + base + '/open/v1/student/list" \\',
+        '  -H "Authorization: Bearer <accessToken>"'
+      ].join('\n')
     }
   },
   created() {
+    this.loadStatus()
     this.loadClients()
   },
   methods: {
+    copyTokenExample() {
+      const text = this.tokenExample
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          this.$modal.msgSuccess('已拷贝到剪贴板')
+        }).catch(() => {
+          this.fallbackCopy(text)
+        })
+      } else {
+        this.fallbackCopy(text)
+      }
+    },
+    fallbackCopy(text) {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      try {
+        document.execCommand('copy')
+        this.$modal.msgSuccess('已拷贝到剪贴板')
+      } catch (e) {
+        this.$modal.msgError('拷贝失败，请手动复制')
+      }
+      document.body.removeChild(ta)
+    },
+    loadStatus() {
+      getOpenStatus().then(res => {
+        this.openStatus = res.data || { enabled: false, hint: '' }
+      }).catch(() => {
+        this.openStatus = { enabled: false, hint: 'Unable to load spas.open runtime status' }
+      })
+    },
     handleTabClick(tab) {
       if (tab.name === 'parent') {
         if (!this.parentsLoaded) {
@@ -300,3 +383,26 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.code-box ::v-deep .el-textarea__inner {
+  font-family: Consolas, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  background: #0F172A;
+  color: #E2E8F0;
+  border-color: #1E293B;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.code-actions {
+  margin-top: 10px;
+}
+.card-header {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.mb8 {
+  margin-bottom: 12px;
+}
+</style>

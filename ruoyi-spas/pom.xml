@@ -20,5 +20,27 @@
             <groupId>com.github.librepdf</groupId>
             <artifactId>openpdf</artifactId>
         </dependency>
+        <!-- Text extract for question-bank paper import (digital PDF; scanned needs OCR later) -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>2.0.31</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.11.4</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+        </plugins>
+    </build>
 </project>

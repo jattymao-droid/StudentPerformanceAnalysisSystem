@@ -1,9 +1,9 @@
 <template>
   <div class="app-container tree-sidebar-manage-wrap">
     <tree-panel
-      title="组织机构"
+      :title="deptPanelTitle"
       :tree-data="deptOptions"
-      search-placeholder="请输入部门名称"
+      :search-placeholder="deptTreeSource === 'teaching' ? '请输入班级名称' : '请输入部门名称'"
       storage-key="spas-student-sidebar-width-v2"
       :default-width="300"
       :defaultExpandAll="true"
@@ -261,6 +261,8 @@
 import { listStudent, getStudent, addStudent, updateStudent, delStudent, resetStudentPwd } from '@/api/spas/student'
 import { listDept, getDept, addDept, updateDept, delDept, listDeptExcludeChild } from '@/api/system/dept'
 import { deptTreeSelect } from '@/api/system/user'
+import { listMyTeachingDepts } from '@/api/spas/teacher'
+import { loadSpasDeptTree, preferredTeachingDeptId } from '@/utils/spasDeptTree'
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 import TreePanel from '@/components/TreePanel'
@@ -281,6 +283,8 @@ export default {
       studentList: [],
       title: '',
       open: false,
+      deptPanelTitle: '组织机构',
+      deptTreeSource: 'system',
       deptOptions: undefined,
       enabledDeptOptions: undefined,
       deptOpen: false,
@@ -340,9 +344,18 @@ export default {
       })
     },
     getDeptTree() {
-      deptTreeSelect().then(response => {
-        this.deptOptions = this.attachDeptMeta(response.data || [], 0)
+      return loadSpasDeptTree(listMyTeachingDepts, deptTreeSelect, nodes => this.attachDeptMeta(nodes || [], 0)).then(result => {
+        this.deptTreeSource = result.source
+        this.deptPanelTitle = result.source === 'teaching' ? '任教班级' : '组织机构'
+        this.deptOptions = result.tree || []
         this.enabledDeptOptions = this.filterDisabledDept(JSON.parse(JSON.stringify(this.deptOptions)))
+        if (result.source === 'teaching' && !this.queryParams.deptId) {
+          const preferred = preferredTeachingDeptId(result.myDepts)
+          if (preferred) {
+            this.queryParams.deptId = preferred
+            this.getList()
+          }
+        }
       })
     },
     attachDeptMeta(nodes, parentId) {

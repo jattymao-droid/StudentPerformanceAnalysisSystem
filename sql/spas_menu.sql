@@ -66,7 +66,7 @@ where not exists (select 1 from sys_role where role_key='spas_student');
 -- menus (2000+)
 -- directory: student learning
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)
-select 2000, '学生学情', 0, 5, 'spas', null, '', '', 1, 0, 'M', '0', '0', '', 'education', 'admin', now(), 'SPAS root'
+select 2000, '知脉', 0, 5, 'spas', null, '', '', 1, 0, 'M', '0', '0', '', 'education', 'admin', now(), '知脉 root'
 where not exists (select 1 from sys_menu where menu_id=2000);
 
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)

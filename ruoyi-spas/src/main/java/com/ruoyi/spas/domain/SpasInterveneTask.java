@@ -34,6 +34,8 @@ public class SpasInterveneTask extends BaseEntity
     private BigDecimal effectRate;
     private BigDecimal effectDelta;
     private String effectPassed;
+    /** Retest detail JSON: per-knowledge baseline/effect/delta */
+    private String effectJson;
 
     /** display */
     private String studentName;
@@ -81,6 +83,8 @@ public class SpasInterveneTask extends BaseEntity
     public void setEffectDelta(BigDecimal effectDelta) { this.effectDelta = effectDelta; }
     public String getEffectPassed() { return effectPassed; }
     public void setEffectPassed(String effectPassed) { this.effectPassed = effectPassed; }
+    public String getEffectJson() { return effectJson; }
+    public void setEffectJson(String effectJson) { this.effectJson = effectJson; }
     public String getStudentName() { return studentName; }
     public void setStudentName(String studentName) { this.studentName = studentName; }
     public String getStudentNo() { return studentNo; }

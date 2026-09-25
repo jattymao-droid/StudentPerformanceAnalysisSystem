@@ -18,6 +18,9 @@ const getters = {
   permission_routes: state => state.permission.routes,
   topbarRouters: state => state.permission.topbarRouters,
   defaultRoutes: state => state.permission.defaultRoutes,
-  sidebarRouters: state => state.permission.sidebarRouters
+  sidebarRouters: state => state.permission.sidebarRouters,
+  qbBasketCount: state => (state.qbBasket.items || []).length,
+  qbBasketItems: state => state.qbBasket.items || [],
+  qbBasketSubjectId: state => state.qbBasket.subjectId
 }
 export default getters

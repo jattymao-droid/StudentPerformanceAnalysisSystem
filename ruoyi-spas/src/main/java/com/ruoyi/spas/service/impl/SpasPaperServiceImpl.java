@@ -22,6 +22,7 @@ import com.ruoyi.spas.domain.SpasPaperQuestion;
 import com.ruoyi.spas.domain.SpasQuestionKnowledge;
 import com.ruoyi.spas.mapper.SpasPaperMapper;
 import com.ruoyi.spas.service.ISpasPaperService;
+import com.ruoyi.spas.support.PaperAnnotationInspector;
 import com.ruoyi.spas.support.SpasAccessService;
 import com.ruoyi.spas.support.SpasTeacherScopeService;
 import com.ruoyi.spas.warning.WarningEngine;
@@ -58,7 +59,7 @@ public class SpasPaperServiceImpl implements ISpasPaperService
     {
         if (teacherScopeService.useTeacherDeptFilter())
         {
-            teacherScopeService.applyTeacherDeptFilter(paper);
+            teacherScopeService.applyTeacherPaperDeptFilter(paper);
             return paperMapper.selectSpasPaperList(paper);
         }
         return SpringUtils.getAopProxy(this).selectSpasPaperListScoped(paper);
@@ -94,6 +95,11 @@ public class SpasPaperServiceImpl implements ISpasPaperService
             paper.setQuestions(questions);
             paper.setScoreCount(paperMapper.countScoreDetailByPaperId(paperId));
             paper.setAllowChangeKnowledgeAfterScore(paperProperties.isAllowChangeKnowledgeAfterScore());
+            List<String> metaWarnings = PaperAnnotationInspector.metaWarnings(questions);
+            if (metaWarnings != null && !metaWarnings.isEmpty())
+            {
+                paper.getParams().put("metaWarnings", metaWarnings);
+            }
         }
         return paper;
     }
@@ -145,7 +151,14 @@ public class SpasPaperServiceImpl implements ISpasPaperService
                 }
                 throw new ServiceException("\u8bd5\u5377\u5df2\u6709\u6210\u7ee9\uff0c\u7981\u6b62\u4fee\u6539\u9898\u76ee\u7ed3\u6784\uff08\u53ef\u5728\u914d\u7f6e\u4e2d\u5f00\u542f\u4ec5\u6539\u77e5\u8bc6\u70b9\uff09");
             }
-            return paperMapper.updateSpasPaper(meta);
+            boolean examDateChanged = !sameExamDate(db.getExamDate(), paper.getExamDate());
+            int rows = paperMapper.updateSpasPaper(meta);
+            if (examDateChanged)
+            {
+                knowledgeStatCalculator.recalculateByPaper(paper.getPaperId());
+                warningEngine.evaluateAfterPaper(paper.getPaperId());
+            }
+            return rows;
         }
         if (paper.getQuestions() != null)
         {
@@ -193,6 +206,8 @@ public class SpasPaperServiceImpl implements ISpasPaperService
         {
             throw new ServiceException("\u8bf7\u5148\u7ef4\u62a4\u9898\u76ee\u540e\u518d\u53d1\u5e03");
         }
+        PaperAnnotationInspector.assertReady(questions, paperMapper.selectKnowledgeByPaperId(paperId),
+            paperProperties.isRequireQuestionType(), paperProperties.isRequireBloomLevel());
         SpasPaper update = new SpasPaper();
         update.setPaperId(paperId);
         update.setStatus("1");
@@ -418,5 +433,18 @@ public class SpasPaperServiceImpl implements ISpasPaperService
             }
         }
         return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static boolean sameExamDate(Date a, Date b)
+    {
+        if (a == null && b == null)
+        {
+            return true;
+        }
+        if (a == null || b == null)
+        {
+            return false;
+        }
+        return a.getTime() == b.getTime();
     }
 }

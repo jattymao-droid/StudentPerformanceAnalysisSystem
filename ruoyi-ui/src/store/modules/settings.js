@@ -4,7 +4,7 @@ import { useDynamicTitle } from '@/utils/dynamicTitle'
 const { sideTheme, showSettings, navType, tagsView, tagsViewPersist, tagsIcon, tagsViewStyle, fixedHeader, sidebarLogo, dynamicTitle, footerVisible, footerContent } = defaultSettings
 
 // Reset cached RuoYi layout once for SPAS defaults
-const SPAS_LAYOUT_VER = 'spas-ui-2'
+const SPAS_LAYOUT_VER = 'spas-ui-gocrm-1'
 if (localStorage.getItem('spas-layout-ver') !== SPAS_LAYOUT_VER) {
   localStorage.removeItem('layout-setting')
   localStorage.setItem('spas-layout-ver', SPAS_LAYOUT_VER)
@@ -13,7 +13,7 @@ if (localStorage.getItem('spas-layout-ver') !== SPAS_LAYOUT_VER) {
 const storageSetting = JSON.parse(localStorage.getItem('layout-setting')) || ''
 const state = {
   title: '',
-  theme: storageSetting.theme || '#7B6CF6',
+  theme: storageSetting.theme || '#2442ED',
   sideTheme: storageSetting.sideTheme || sideTheme,
   showSettings: showSettings,
   navType: storageSetting.navType === undefined ? navType : storageSetting.navType,

@@ -1,5 +1,5 @@
 <template>
-  <div :class="classObj" class="app-wrapper" :style="{'--current-color': theme, '--current-color-light': '#EDE7FF', '--current-color-dark-bg': theme + '33'}">
+  <div :class="classObj" class="app-wrapper" :style="{'--current-color': theme, '--current-color-light': '#E0E7FF', '--current-color-dark-bg': theme + '33'}">
     <div v-if="device==='mobile'&&sidebar.opened" class="drawer-bg" @click="handleClickOutside"/>
     <sidebar v-if="!sidebar.hide" class="sidebar-container"/>
     <div :class="{hasTagsView:needTagsView,sidebarHide:sidebar.hide}" class="main-container">

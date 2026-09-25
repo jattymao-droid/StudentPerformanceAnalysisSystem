@@ -50,14 +50,15 @@ select r.role_id, m.menu_id from sys_role r cross join sys_menu m
 where r.role_key = 'spas_jw' and m.menu_id between 2045 and 2054
   and not exists (select 1 from sys_role_menu rm where rm.role_id = r.role_id and rm.menu_id = m.menu_id);
 
--- spas_bzr: teacher perms + student import + same biz as teacher
+-- spas_bzr: teacher perms + student import + same biz as teacher + exam score
 insert into sys_role_menu(role_id, menu_id)
 select r.role_id, m.menu_id from sys_role r cross join sys_menu m
 where r.role_key = 'spas_bzr'
   and m.menu_id in (
     2000, 2001, 2030, 2031, 2032, 2033, 2034, 2035, 2036,
     2002, 2040, 2041, 2042, 2043, 2044, 2050, 2051, 2052, 2053,
-    2003, 2060, 2070, 2080, 2004, 2100, 2101, 2102, 2110, 2111
+    2003, 2060, 2070, 2080, 2004, 2100, 2101, 2102, 2110, 2111,
+    2150, 2151, 2152, 2153, 2154
   )
   and not exists (select 1 from sys_role_menu rm where rm.role_id = r.role_id and rm.menu_id = m.menu_id);
 

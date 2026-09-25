@@ -19,6 +19,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.poi.ExcelUtil;
+import com.ruoyi.spas.domain.SpasClassTeacherBind;
 import com.ruoyi.spas.domain.SpasTeacher;
 import com.ruoyi.spas.service.ISpasTeacherService;
 
@@ -46,11 +47,26 @@ public class SpasTeacherController extends BaseController
     }
 
     /** Teaching depts for current user (used by analysis quick switch) */
-    @PreAuthorize("@ss.hasAnyPermi('spas:analysis:class,spas:analysis:student,spas:analysis:knowledge,spas:portfolio:list,spas:score:list')")
+    @PreAuthorize("@ss.hasAnyPermi('spas:analysis:class,spas:analysis:student,spas:analysis:knowledge,spas:analysis:frequency,spas:portfolio:list,spas:score:list,spas:quality:list,spas:examScore:list,spas:student:list,spas:teacher:list,spas:paper:list,spas:intervene:list,spas:warning:record,spas:report:export')")
     @GetMapping("/my-depts")
     public AjaxResult myDepts()
     {
         return success(teacherService.listMyTeachingDepts());
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('spas:teacher:query,spas:teacher:list')")
+    @GetMapping("/class-binding/{deptId}")
+    public AjaxResult classBinding(@PathVariable Long deptId)
+    {
+        return success(teacherService.getClassBinding(deptId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:teacher:edit')")
+    @Log(title = "Class teacher binding", businessType = BusinessType.UPDATE)
+    @PutMapping("/class-binding")
+    public AjaxResult saveClassBinding(@RequestBody SpasClassTeacherBind bind)
+    {
+        return success(teacherService.saveClassBinding(bind, getUsername()));
     }
 
     @Log(title = "Teacher", businessType = BusinessType.EXPORT)

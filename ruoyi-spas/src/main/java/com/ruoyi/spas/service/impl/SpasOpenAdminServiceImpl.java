@@ -1,6 +1,8 @@
 package com.ruoyi.spas.service.impl;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.ruoyi.common.exception.ServiceException;
@@ -9,6 +11,7 @@ import com.ruoyi.spas.domain.SpasOpenClient;
 import com.ruoyi.spas.domain.SpasParent;
 import com.ruoyi.spas.domain.SpasStudent;
 import com.ruoyi.spas.mapper.SpasOpenMapper;
+import com.ruoyi.spas.open.config.SpasOpenProperties;
 import com.ruoyi.spas.service.ISpasOpenAdminService;
 
 @Service
@@ -16,6 +19,23 @@ public class SpasOpenAdminServiceImpl implements ISpasOpenAdminService
 {
     @Autowired
     private SpasOpenMapper openMapper;
+
+    @Autowired
+    private SpasOpenProperties openProperties;
+
+    @Override
+    public Map<String, Object> openRuntimeStatus()
+    {
+        Map<String, Object> data = new HashMap<>();
+        data.put("enabled", openProperties.isEnabled());
+        data.put("tokenTtlMinutes", openProperties.getTokenTtlMinutes());
+        data.put("basePath", "/open/v1");
+        data.put("docsPath", "docs/spas-open-api.md");
+        data.put("hint", openProperties.isEnabled()
+            ? "OpenAPI is ON. Use /open/v1/** with client token; keep secrets out of logs."
+            : "OpenAPI is OFF (spas.open.enabled=false). Enable only for parent integration/staging; restart after change.");
+        return data;
+    }
 
     @Override
     public List<SpasOpenClient> selectClientList(SpasOpenClient query)

@@ -56,7 +56,7 @@ public class SpasPortfolioController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('spas:portfolio:list')")
-    @GetMapping("/{studentId}")
+    @GetMapping("/{studentId:\\d+}")
     public AjaxResult getPortfolio(@PathVariable Long studentId,
         @RequestParam(required = false) Long subjectId)
     {

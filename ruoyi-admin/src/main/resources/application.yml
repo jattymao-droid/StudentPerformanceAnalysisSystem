@@ -6,24 +6,61 @@ spas:
     force-reset-pwd: false
   paper:
     allow-change-knowledge-after-score: false
+    # 发布/导入成绩时是否强制题型、Bloom（false=仅软提示，true=硬拦截）
+    require-question-type: false
+    require-bloom-level: false
   score:
-    # 导入时空单元格记为 0 分（更精确；关闭则跳过该题不计入样本）
-    blank-as-zero: true
+    # 导入时空单元格跳过、不计入样本（true 则按 0 分计入）
+    blank-as-zero: false
     # 得分率小数位
     rate-scale: 6
+  qb:
+    ocr:
+      max-pages: ${SPAS_QB_OCR_MAX_PAGES:30}
+      dpi: ${SPAS_QB_OCR_DPI:220}
+      session-ttl-hours: ${SPAS_QB_OCR_TTL_HOURS:24}
+    ai:
+      # false=本地启发式；true 且配置 api-key 时走 DeepSeek（OpenAI 兼容）
+      enabled: ${SPAS_QB_AI_ENABLED:false}
+      endpoint: ${SPAS_QB_AI_ENDPOINT:https://api.deepseek.com/v1/chat/completions}
+      api-key: ${SPAS_QB_AI_API_KEY:}
+      model: ${SPAS_QB_AI_MODEL:deepseek-chat}
+      timeout-ms: 30000
+      top-k: 5
   analysis:
     # Time window: all | last30d | last90d | semester
-    default-window: all
+    # P2 E7: 分析默认本学期，降低旧考试对结论的干扰
+    default-window: semester
     # semester start as MM-dd or yyyy-MM-dd
     semester-start: "09-01"
-    # 近因半衰期（天）：越近考试权重越高；0=关闭近因加权
+    # D3: 上学期闭区间 [start, end)。空则按 semester-start 自动推算：
+    # 秋学期(>=8月) → 上学期 当年-02-15 ~ 当年-09-01；春学期 → 上年-09-01 ~ 当年 semester-start
+    # 也可写死：prev-semester-start: "2026-02-15" / prev-semester-end: "2026-09-01"
+    prev-semester-start: ""
+    prev-semester-end: ""
+    # 近因半衰期（天）：越近考试权重越高；0=关闭近因加权；重算时可临时覆盖
     recency-half-life-days: 60
+    # 近因锚定：today=查询当日；max-exam=样本内最晚考试日；semester-end=当前学期末日（期内稳定）
+    recency-anchor: semester-end
+    # 选卷诊断一次最多试卷数
+    scope-max-papers: 30
+    # 反复薄弱判定
+    persistent-weak:
+      min-papers: 3
+      rate-threshold: 0.60
+      persist-ratio: 0.67
     # 得分率小数位（快照）
     rate-scale: 6
     difficulty-weight:
       easy: 1.0
       medium: 1.2
       hard: 1.5
+      # 用班级实测通过率校正标签难度（样本够时混合）
+      empirical-enabled: true
+      empirical-min-students: 8
+      empirical-blend: 0.5
+      empirical-easy-rate: 0.80
+      empirical-hard-rate: 0.40
     weak-thresholds:
       watch: 0.75
       weak: 0.60
@@ -31,22 +68,47 @@ spas:
       min-attempts: 3
       # 严重等级也要求达到最低练习次数，避免样本过少误判
       severe-min-attempts: 3
+      # 考查频次 × 掌握度交叉（优先干预象限）
+    priority:
+      question-min: 2
+      weak-rate: 0.60
+      solid-rate: 0.75
+      # 置信度展示：attempt < mid → 样本不足；mid~high → 中；>= high → 高
+      attempt-mid: 3
+      attempt-high: 6
+    # 选卷诊断：未标注题目占比过高时自动降置信度
+    annotation-coverage:
+      unbound-ratio-threshold: 0.20
+      force-insufficient: true
+      confidence-multiplier: 0.5
+    # D4 Bloom 叙事阈值（薄弱线默认跟 weak-thresholds.weak）
+    bloom-insight:
+      # 基础层低于此且高阶不低于 weak → 「基础偏弱」
+      # 未单独配置时与 weak-thresholds.weak 对齐（见 Java 默认值）
+      foundation-solid: 0.70
+      gap: 0.15
   intervene:
     auto-evaluate-after-recalc: true
     # Large class import/recalc: evaluate open intervene tasks off the request thread
     async-evaluate: true
     default-target-rate: 0.60
+    # Prefer post-create attempts when measuring effect (fallback to full snapshot if none)
+    effect-after-create: true
+    # Auto-close source warning when intervene reaches target
+    close-warning-on-pass: true
   report:
     # Optional absolute path override; otherwise classpath fonts/spas-cjk.otf then OS fonts
     pdf-font-path:
   open:
-    # Parent OpenAPI master switch (see docs/spas-open-api.md). Keep false in production until ready.
+    # Parent OpenAPI master switch (see docs/spas-open-api.md).
+    # Production: keep false until parent client + secrets are ready; enable only in staging/integration.
+    # After flipping enabled, restart backend. Admin UI /spas/open shows runtime status banner.
     enabled: false
     token-ttl-minutes: 120
 
 ruoyi:
   # 名称
-  name: 学生学情分析系统
+  name: 知脉
   # 版本
   version: 3.9.2
   # 版权年份
@@ -102,9 +164,9 @@ spring:
   servlet:
     multipart:
       # 单个文件大小
-      max-file-size: 10MB
+      max-file-size: 30MB
       # 设置总上传的文件大小
-      max-request-size: 20MB
+      max-request-size: 40MB
   jackson:
     time-zone: GMT+8
     date-format: yyyy-MM-dd HH:mm:ss
@@ -187,6 +249,6 @@ xss:
   # 过滤开关
   enabled: true
   # 排除链接（多个用逗号分隔）
-  excludes: /system/notice
+  excludes: /system/notice,/spas/warning/rule
   # 匹配链接
   urlPatterns: /system/*,/monitor/*,/tool/*,/spas/*

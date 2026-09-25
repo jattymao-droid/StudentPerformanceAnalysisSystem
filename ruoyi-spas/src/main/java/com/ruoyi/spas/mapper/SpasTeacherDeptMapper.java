@@ -13,4 +13,6 @@ public interface SpasTeacherDeptMapper
     int deleteByTeacherId(Long teacherId);
 
     int insertTeacherDept(@Param("teacherId") Long teacherId, @Param("deptId") Long deptId);
+
+    int deleteTeacherDept(@Param("teacherId") Long teacherId, @Param("deptId") Long deptId);
 }

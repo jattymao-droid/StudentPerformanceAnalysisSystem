@@ -10,6 +10,13 @@
     </template>
     <div class="right-menu">
       <template v-if="device!=='mobile'">
+        <el-tooltip content="试题篮" effect="dark" placement="bottom">
+          <div class="right-menu-item hover-effect qb-nav-basket" @click="goQbBasket">
+            <el-badge :value="qbBasketCount" :hidden="!qbBasketCount" :max="99">
+              <i class="el-icon-shopping-cart-2" style="font-size:20px" />
+            </el-badge>
+          </div>
+        </el-tooltip>
         <screenfull id="screenfull" class="right-menu-item hover-effect" />
         <el-tooltip content="消息通知" effect="dark" placement="bottom">
           <header-notice id="header-notice" class="right-menu-item hover-effect" />
@@ -59,7 +66,8 @@ export default {
       'sidebar',
       'avatar',
       'device',
-      'nickName'
+      'nickName',
+      'qbBasketCount'
     ]),
     navType: {
       get() {
@@ -73,6 +81,13 @@ export default {
     }
   },
   methods: {
+    goQbBasket() {
+      const sid = this.$store.state.qbBasket && this.$store.state.qbBasket.subjectId
+      this.$router.push({
+        path: '/spas/qb/select',
+        query: sid ? { subjectId: sid, openBasket: '1' } : { openBasket: '1' }
+      }).catch(() => {})
+    },
     toggleSideBar() {
       this.$store.dispatch('app/toggleSideBar')
     },
@@ -98,12 +113,23 @@ export default {
   }
 }
 
+.qb-nav-basket {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.qb-nav-basket .el-badge__content {
+  border: none;
+}
 .navbar {
   height: 50px;
   overflow: hidden;
   position: relative;
   background: #fff;
-  box-shadow: 0 1px 0 rgba(123, 108, 246, 0.1);
+  box-shadow: 0 1px 0 rgba(36, 66, 237, 0.1);
   display: flex;
   align-items: center;
   box-sizing: border-box;
@@ -120,7 +146,7 @@ export default {
     margin-right: 8px;
 
     &:hover {
-      background: rgba(123, 108, 246, .08)
+      background: rgba(36, 66, 237, .08)
     }
   }
 
@@ -166,7 +192,7 @@ export default {
         transition: background .3s;
 
         &:hover {
-          background: rgba(123, 108, 246, .08)
+          background: rgba(36, 66, 237, .08)
         }
       }
     }
@@ -193,7 +219,7 @@ export default {
           left: 2px;
           font-size: 14px;
           font-weight: 600;
-          color: #2C2940;
+          color: #0F172A;
         }
       }
     }

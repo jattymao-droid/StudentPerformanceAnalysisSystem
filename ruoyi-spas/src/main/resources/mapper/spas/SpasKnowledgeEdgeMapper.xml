@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasKnowledgeEdgeMapper">
+
+    <resultMap type="SpasKnowledgeEdge" id="SpasKnowledgeEdgeResult">
+        <id     property="edgeId"            column="edge_id"             />
+        <result property="subjectId"         column="subject_id"          />
+        <result property="fromKnowledgeId"   column="from_knowledge_id"   />
+        <result property="toKnowledgeId"     column="to_knowledge_id"     />
+        <result property="relation"          column="relation"            />
+        <result property="weight"            column="weight"              />
+        <result property="status"            column="status"              />
+        <result property="fromKnowledgeName" column="from_knowledge_name" />
+        <result property="toKnowledgeName"   column="to_knowledge_name"   />
+        <result property="subjectName"       column="subject_name"        />
+        <result property="createBy"          column="create_by"           />
+        <result property="createTime"        column="create_time"         />
+        <result property="updateBy"          column="update_by"           />
+        <result property="updateTime"        column="update_time"         />
+        <result property="remark"            column="remark"              />
+    </resultMap>
+
+    <sql id="selectVo">
+        select e.edge_id, e.subject_id, e.from_knowledge_id, e.to_knowledge_id,
+               e.relation, e.weight, e.status,
+               e.create_by, e.create_time, e.update_by, e.update_time, e.remark,
+               kf.knowledge_name as from_knowledge_name,
+               kt.knowledge_name as to_knowledge_name,
+               s.subject_name
+        from spas_knowledge_edge e
+        left join spas_knowledge kf on kf.knowledge_id = e.from_knowledge_id
+        left join spas_knowledge kt on kt.knowledge_id = e.to_knowledge_id
+        left join spas_subject s on s.subject_id = e.subject_id
+    </sql>
+
+    <select id="selectById" parameterType="Long" resultMap="SpasKnowledgeEdgeResult">
+        <include refid="selectVo"/>
+        where e.edge_id = #{edgeId}
+    </select>
+
+    <select id="selectBySubjectId" resultMap="SpasKnowledgeEdgeResult">
+        <include refid="selectVo"/>
+        where e.subject_id = #{subjectId}
+          and (e.status is null or e.status = '0')
+        order by e.edge_id asc
+    </select>
+
+    <select id="selectByToKnowledgeId" resultMap="SpasKnowledgeEdgeResult">
+        <include refid="selectVo"/>
+        where e.to_knowledge_id = #{toKnowledgeId}
+          and (e.status is null or e.status = '0')
+        order by e.edge_id asc
+    </select>
+
+    <select id="selectByFromKnowledgeId" resultMap="SpasKnowledgeEdgeResult">
+        <include refid="selectVo"/>
+        where e.from_knowledge_id = #{fromKnowledgeId}
+          and (e.status is null or e.status = '0')
+        order by e.edge_id asc
+    </select>
+
+    <select id="selectUnique" resultMap="SpasKnowledgeEdgeResult">
+        <include refid="selectVo"/>
+        where e.from_knowledge_id = #{fromKnowledgeId}
+          and e.to_knowledge_id = #{toKnowledgeId}
+          and e.relation = #{relation}
+        limit 1
+    </select>
+
+    <insert id="insertSpasKnowledgeEdge" parameterType="SpasKnowledgeEdge" useGeneratedKeys="true" keyProperty="edgeId">
+        insert into spas_knowledge_edge(
+            subject_id, from_knowledge_id, to_knowledge_id, relation, weight, status,
+            remark, create_by, create_time
+        ) values (
+            #{subjectId}, #{fromKnowledgeId}, #{toKnowledgeId}, #{relation}, #{weight}, #{status},
+            #{remark}, #{createBy}, now()
+        )
+    </insert>
+
+    <delete id="deleteById" parameterType="Long">
+        delete from spas_knowledge_edge where edge_id = #{edgeId}
+    </delete>
+
+    <delete id="deleteByKnowledgeId" parameterType="Long">
+        delete from spas_knowledge_edge
+        where from_knowledge_id = #{knowledgeId} or to_knowledge_id = #{knowledgeId}
+    </delete>
+</mapper>

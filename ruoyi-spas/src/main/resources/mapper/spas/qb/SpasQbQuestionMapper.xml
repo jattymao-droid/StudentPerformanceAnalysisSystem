@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.qb.mapper.SpasQbQuestionMapper">
+
+    <resultMap type="com.ruoyi.spas.qb.domain.SpasQbQuestion" id="SpasQbQuestionResult">
+        <id     property="questionId"    column="question_id"    />
+        <result property="questionCode"  column="question_code"  />
+        <result property="content"       column="content"        />
+        <result property="options"       column="options"        />
+        <result property="correctAnswer" column="correct_answer" />
+        <result property="subjectId"     column="subject_id"     />
+        <result property="questionType"  column="question_type"  />
+        <result property="difficulty"    column="difficulty"     />
+        <result property="analysis"      column="analysis"       />
+        <result property="contentHash"   column="content_hash"   />
+        <result property="status"        column="status"         />
+        <result property="delFlag"       column="del_flag"       />
+        <result property="subjectName"   column="subject_name"   />
+        <result property="knowledgeCount" column="knowledge_count" />
+        <result property="stemImage"     column="stem_image"     />
+        <result property="optionsImage"  column="options_image"  />
+        <result property="answerImage"   column="answer_image"   />
+        <result property="analysisImage" column="analysis_image" />
+        <result property="sourceYear"    column="source_year"     />
+        <result property="sourceRegion"  column="source_region"   />
+        <result property="sourceExam"    column="source_exam"     />
+        <result property="createBy"      column="create_by"      />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"      column="update_by"      />
+        <result property="updateTime"    column="update_time"    />
+        <result property="remark"        column="remark"         />
+    </resultMap>
+
+    <resultMap type="com.ruoyi.spas.qb.domain.SpasQbQuestionKnowledge" id="SpasQbQKResult">
+        <id     property="id"            column="id"             />
+        <result property="questionId"    column="question_id"    />
+        <result property="knowledgeId"   column="knowledge_id"   />
+        <result property="weight"        column="weight"         />
+        <result property="isPrimary"     column="is_primary"     />
+        <result property="knowledgeName" column="knowledge_name" />
+    </resultMap>
+
+    <sql id="selectVo">
+        select q.question_id, q.question_code, q.content, q.options, q.correct_answer,
+               q.subject_id, q.question_type, q.difficulty, q.analysis, q.content_hash,
+               q.status, q.del_flag, q.create_by, q.create_time, q.update_by, q.update_time, q.remark,
+               q.stem_image, q.options_image, q.answer_image, q.analysis_image,
+               q.source_year, q.source_region, q.source_exam,
+               s.subject_name,
+               (select count(1) from spas_qb_question_knowledge qk where qk.question_id = q.question_id) as knowledge_count
+        from spas_qb_question q
+        left join spas_subject s on q.subject_id = s.subject_id
+    </sql>
+
+    <select id="selectSpasQbQuestionList" parameterType="com.ruoyi.spas.qb.domain.SpasQbQuestion" resultMap="SpasQbQuestionResult">
+        <include refid="selectVo"/>
+        <where>
+            and q.del_flag = '0'
+            <if test="subjectId != null">and q.subject_id = #{subjectId}</if>
+            <if test="questionType != null and questionType != ''">and q.question_type = #{questionType}</if>
+            <if test="difficulty != null and difficulty != ''">and q.difficulty = #{difficulty}</if>
+            <if test="status != null and status != ''">and q.status = #{status}</if>
+            <if test="questionCode != null and questionCode != ''">and q.question_code like concat('%', #{questionCode}, '%')</if>
+            <if test="content != null and content != ''">and q.content like concat('%', #{content}, '%')</if>
+            <if test="unboundOnly != null and unboundOnly">
+                and not exists (select 1 from spas_qb_question_knowledge qk2 where qk2.question_id = q.question_id)
+            </if>
+            <if test="boundOnly != null and boundOnly">
+                and exists (select 1 from spas_qb_question_knowledge qk3 where qk3.question_id = q.question_id)
+            </if>
+            <if test="knowledgeId != null">
+                and exists (
+                    select 1 from spas_qb_question_knowledge qk
+                    where qk.question_id = q.question_id and qk.knowledge_id = #{knowledgeId}
+                )
+            </if>
+            <if test="knowledgeIds != null and knowledgeIds.length &gt; 0">
+                and exists (
+                    select 1 from spas_qb_question_knowledge qk
+                    where qk.question_id = q.question_id
+                      and qk.knowledge_id in
+                      <foreach collection="knowledgeIds" item="kid" open="(" separator="," close=")">#{kid}</foreach>
+                )
+            </if>
+            <if test="chapterId != null">
+                and exists (
+                    select 1 from spas_qb_question_knowledge qk
+                    inner join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+                    where qk.question_id = q.question_id
+                      and (
+                        qk.knowledge_id = #{chapterId}
+                        or cast(#{chapterId} as varchar) = any(string_to_array(k.ancestors, ','))
+                      )
+                )
+            </if>
+            <if test="sourceYear != null">and q.source_year = #{sourceYear}</if>
+            <if test="sourceRegion != null and sourceRegion != ''">and q.source_region like concat('%', #{sourceRegion}, '%')</if>
+            <if test="sourceExam != null and sourceExam != ''">and q.source_exam like concat('%', #{sourceExam}, '%')</if>
+        </where>
+        order by q.question_id desc
+    </select>
+
+    <select id="selectSpasQbQuestionById" parameterType="Long" resultMap="SpasQbQuestionResult">
+        <include refid="selectVo"/>
+        where q.question_id = #{questionId} and q.del_flag = '0'
+    </select>
+
+    <select id="selectByContentHash" resultMap="SpasQbQuestionResult">
+        <include refid="selectVo"/>
+        where q.subject_id = #{subjectId} and q.content_hash = #{contentHash} and q.del_flag = '0'
+        limit 1
+    </select>
+
+    <insert id="insertSpasQbQuestion" parameterType="com.ruoyi.spas.qb.domain.SpasQbQuestion" useGeneratedKeys="true" keyProperty="questionId">
+        insert into spas_qb_question(
+            question_code, content, options, correct_answer, subject_id, question_type,
+            difficulty, analysis, content_hash, status, del_flag, create_by, create_time, remark,
+            stem_image, options_image, answer_image, analysis_image,
+            source_year, source_region, source_exam
+        ) values (
+            #{questionCode}, #{content}, #{options}, #{correctAnswer}, #{subjectId}, #{questionType},
+            #{difficulty}, #{analysis}, #{contentHash},
+            <choose><when test="status != null and status != ''">#{status}</when><otherwise>'0'</otherwise></choose>,
+            '0', #{createBy}, now(), #{remark},
+            #{stemImage}, #{optionsImage}, #{answerImage}, #{analysisImage},
+            #{sourceYear}, #{sourceRegion}, #{sourceExam}
+        )
+    </insert>
+
+    <update id="updateSpasQbQuestion" parameterType="com.ruoyi.spas.qb.domain.SpasQbQuestion">
+        update spas_qb_question
+        <set>
+            <if test="questionCode != null">question_code = #{questionCode},</if>
+            <if test="content != null">content = #{content},</if>
+            <if test="options != null">options = #{options},</if>
+            <if test="correctAnswer != null">correct_answer = #{correctAnswer},</if>
+            <if test="subjectId != null">subject_id = #{subjectId},</if>
+            <if test="questionType != null">question_type = #{questionType},</if>
+            <if test="difficulty != null">difficulty = #{difficulty},</if>
+            <if test="analysis != null">analysis = #{analysis},</if>
+            <if test="contentHash != null">content_hash = #{contentHash},</if>
+            <if test="stemImage != null">stem_image = #{stemImage},</if>
+            <if test="optionsImage != null">options_image = #{optionsImage},</if>
+            <if test="answerImage != null">answer_image = #{answerImage},</if>
+            <if test="analysisImage != null">analysis_image = #{analysisImage},</if>
+            <if test="sourceYear != null">source_year = #{sourceYear},</if>
+            <if test="sourceRegion != null">source_region = #{sourceRegion},</if>
+            <if test="sourceExam != null">source_exam = #{sourceExam},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where question_id = #{questionId}
+    </update>
+
+    <update id="deleteSpasQbQuestionByIds" parameterType="Long">
+        update spas_qb_question set del_flag = '2', update_time = now()
+        where question_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
+    <select id="selectKnowledgeByQuestionId" parameterType="Long" resultMap="SpasQbQKResult">
+        select qk.id, qk.question_id, qk.knowledge_id, qk.weight, qk.is_primary, k.knowledge_name
+        from spas_qb_question_knowledge qk
+        left join spas_knowledge k on qk.knowledge_id = k.knowledge_id
+        where qk.question_id = #{questionId}
+        order by qk.is_primary desc, qk.id asc
+    </select>
+
+    <delete id="deleteKnowledgeByQuestionId" parameterType="Long">
+        delete from spas_qb_question_knowledge where question_id = #{questionId}
+    </delete>
+
+    <insert id="batchInsertQuestionKnowledge">
+        insert into spas_qb_question_knowledge(question_id, knowledge_id, weight, is_primary)
+        values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.questionId}, #{item.knowledgeId}, #{item.weight},
+             <choose><when test="item.isPrimary != null and item.isPrimary != ''">#{item.isPrimary}</when><otherwise>'0'</otherwise></choose>)
+        </foreach>
+    </insert>
+
+    <insert id="insertAiSuggestLog">
+        insert into spas_qb_ai_suggest_log(question_id, request_json, response_json, adopted, create_by, create_time)
+        values(#{questionId}, #{requestJson}, #{responseJson}, #{adopted}, #{createBy}, now())
+    </insert>
+</mapper>

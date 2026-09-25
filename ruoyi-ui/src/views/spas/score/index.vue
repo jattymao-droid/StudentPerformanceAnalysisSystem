@@ -1,5 +1,13 @@
 <template>
   <div class="app-container">
+    <el-alert
+      class="mb8"
+      type="info"
+      :closable="false"
+      show-icon
+      title="各科实考分与校次请用「实考校次」导入。本页仅导入单张试卷的小题得分，用于知识点分析。"
+      description="导入前请确保该卷题目已绑知识点且权重之和为1；否则后端会拦截。若提示「标注未通过」，请到「作业/考试」编辑该卷或查看质量看板。"
+    />
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
       <el-form-item label="试卷" prop="paperId">
         <el-select
@@ -61,10 +69,10 @@
         >按新算法重算</el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="info" plain icon="el-icon-data-analysis" size="mini" :disabled="!queryParams.paperId" @click="goAnalysis">去分析</el-button>
+        <el-button type="info" plain icon="el-icon-data-analysis" size="mini" :disabled="!queryParams.paperId" @click="goAnalysis" v-hasPermi="['spas:analysis:class']">去分析</el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="warning" plain icon="el-icon-bell" size="mini" @click="goWarning">预警记录</el-button>
+        <el-button type="warning" plain icon="el-icon-bell" size="mini" @click="goWarning" v-hasPermi="['spas:warning:record']">预警记录</el-button>
       </el-col>
       <el-col :span="1.5">
         <el-button
@@ -81,8 +89,11 @@
     </el-row>
 
     <el-divider content-position="left">导入批次</el-divider>
-    <el-empty v-if="!queryParams.paperId" :image-size="80">
-      <template slot="description"><div>请先选择试卷后查看批次与明细</div><div style="margin-top:6px;color:#909399">演示可选「演示单元测」</div></template>
+    <el-empty v-if="!queryParams.paperId" :image-size="72" class="score-empty">
+      <template slot="description">
+        <div class="empty-title">请先选择试卷</div>
+        <div class="empty-hint">演示可选「演示单元测」后查看批次与明细</div>
+      </template>
     </el-empty>
     <template v-else>
     <el-table v-loading="batchLoading" :data="batchList" @row-click="handleBatchRowClick">
@@ -134,7 +145,7 @@
     />
 
     <el-divider content-position="left">成绩明细</el-divider>
-    <el-table v-loading="detailLoading" :data="detailList">
+    <el-table v-loading="detailLoading" :data="detailList" class="score-detail-anchor">
       <el-table-column label="学号" align="center" prop="studentNo" min-width="120" />
       <el-table-column label="姓名" align="center" prop="studentName" min-width="100" />
       <el-table-column label="题号" align="center" prop="questionNo" width="90" />
@@ -174,10 +185,11 @@
         <i class="el-icon-upload"></i>
         <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
         <div class="el-upload__tip text-center" slot="tip">
-          <span>仅允许导入 xls、xlsx 格式文件。</span>
+          <span>仅允许导入 xls、xlsx 格式文件。</span><br>
+          <span>空单元格跳过、不计入掌握度；可填「缺考」「未做」或 ABS/NA（不计入）；数字 0 为实得 0 分。</span>
           <el-link type="primary" :underline="false" style="font-size: 12px; vertical-align: baseline" @click="handleDownloadTemplate">下载模板</el-link>
-          <div style="margin-top: 8px; color: #E6A23C; line-height: 1.5;">
-            空单元格将按 0 分计入（更精确反映掌握度）；请确保整行题目均已填写，或确认未答即为 0 分。
+          <div style="margin-top: 8px; color: #D97706; line-height: 1.5;">
+            未作答请留空或填缺考/未做，不要用空单元格表示 0 分。
           </div>
         </div>
       </el-upload>
@@ -238,9 +250,14 @@ export default {
   },
   created() {
     this.loadPapers()
-    const qid = this.$route.query && this.$route.query.paperId
-    if (qid) {
-      this.queryParams.paperId = isNaN(Number(qid)) ? qid : Number(qid)
+    const q = this.$route.query || {}
+    if (q.paperId) {
+      this.queryParams.paperId = isNaN(Number(q.paperId)) ? q.paperId : Number(q.paperId)
+    }
+    if (q.batchId) {
+      this.detailQuery.batchId = isNaN(Number(q.batchId)) ? q.batchId : Number(q.batchId)
+    }
+    if (this.queryParams.paperId) {
       this.$nextTick(() => this.handleQuery())
     }
   },
@@ -296,8 +313,20 @@ export default {
         this.batchList = response.rows || []
         this.batchTotal = response.total || 0
         this.batchLoading = false
+        this.focusLinkedBatch()
       }).catch(() => {
         this.batchLoading = false
+      })
+    },
+    focusLinkedBatch() {
+      const bid = this.detailQuery.batchId
+      if (bid == null || !(this.batchList || []).length) return
+      const hit = this.batchList.find(b => String(b.batchId) === String(bid))
+      if (!hit) return
+      this.$nextTick(() => {
+        this.$modal.msgSuccess('已定位导入批次 #' + bid)
+        const el = document.querySelector('.score-detail-anchor')
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
     },
     getDetailList() {
@@ -347,7 +376,13 @@ export default {
     handleFileSuccess(response) {
       this.upload.isUploading = false
       if (!response || response.code !== 200) {
-        this.$modal.msgError((response && response.msg) || '导入失败')
+        const msg = (response && response.msg) || '导入失败'
+        this.$modal.msgError(msg)
+        if (msg.indexOf('标注') >= 0 && this.queryParams.paperId) {
+          this.$confirm(msg + '\n\n是否前往试卷编辑？', '标注问题', { type: 'warning', confirmButtonText: '前往编辑', cancelButtonText: '留在本页' }).then(() => {
+            this.$router.push({ path: '/spas/biz/paper', query: { paperId: this.queryParams.paperId } }).catch(() => {})
+          }).catch(() => {})
+        }
         return
       }
       this.upload.open = false
@@ -356,8 +391,11 @@ export default {
       let html = '<div style="padding:8px 4px;line-height:1.7;">'
       html += '<div>成功：<strong>' + (data.successRows != null ? data.successRows : '-') + '</strong> 行</div>'
       html += '<div>失败：<strong>' + (data.failRows != null ? data.failRows : '-') + '</strong> 行</div>'
+      if (Number(data.successRows) > 0) {
+        html += '<div style="margin-top:8px;color:#10B981;">已自动重算该卷相关学生的知识点快照（全部口径）。本学期即时分析无需额外重算。</div>'
+      }
       if (data.errorLog) {
-        html += '<div style="margin-top:8px;color:#E6A23C;">部分行失败，可在批次中查看错误日志。</div>'
+        html += '<div style="margin-top:8px;color:#D97706;">部分行失败，可在批次中查看错误日志。</div>'
       } else if (response && response.msg) {
         html += '<div style="margin-top:8px;">' + response.msg + '</div>'
       }
@@ -436,3 +474,22 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.score-empty {
+  padding: 36px 16px;
+  background: #fff;
+  border: 1px dashed #E2E8F0;
+  border-radius: 10px;
+}
+.empty-title {
+  color: #0F172A;
+  font-weight: 600;
+  font-size: 14px;
+}
+.empty-hint {
+  margin-top: 6px;
+  color: #64748B;
+  font-size: 12px;
+}
+</style>

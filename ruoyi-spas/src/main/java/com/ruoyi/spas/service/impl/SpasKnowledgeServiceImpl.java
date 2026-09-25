@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.spas.domain.SpasKnowledge;
+import com.ruoyi.spas.mapper.SpasKnowledgeEdgeMapper;
 import com.ruoyi.spas.mapper.SpasKnowledgeMapper;
 import com.ruoyi.spas.service.ISpasKnowledgeService;
 
@@ -19,6 +20,9 @@ public class SpasKnowledgeServiceImpl implements ISpasKnowledgeService
 {
     @Autowired
     private SpasKnowledgeMapper knowledgeMapper;
+
+    @Autowired
+    private SpasKnowledgeEdgeMapper knowledgeEdgeMapper;
 
     @Override
     public List<SpasKnowledge> selectSpasKnowledgeList(SpasKnowledge knowledge)
@@ -168,6 +172,7 @@ public class SpasKnowledgeServiceImpl implements ISpasKnowledgeService
         {
             throw new ServiceException("节点已被题目引用，无法删除");
         }
+        knowledgeEdgeMapper.deleteByKnowledgeId(knowledgeId);
         return knowledgeMapper.deleteSpasKnowledgeById(knowledgeId);
     }
 

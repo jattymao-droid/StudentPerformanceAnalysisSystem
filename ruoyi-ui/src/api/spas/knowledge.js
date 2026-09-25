@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 
-// ��ѯ֪ʶ���б�
+// 查询知识点列表
 export function listKnowledge(query) {
   return request({
     url: '/spas/knowledge/list',
@@ -9,7 +9,7 @@ export function listKnowledge(query) {
   })
 }
 
-// ��ѯ֪ʶ����
+// 查询知识点树
 export function treeKnowledge(subjectId) {
   return request({
     url: '/spas/knowledge/tree/' + subjectId,
@@ -17,7 +17,7 @@ export function treeKnowledge(subjectId) {
   })
 }
 
-// ��ѯ֪ʶ����ϸ
+// 查询知识点详细
 export function getKnowledge(knowledgeId) {
   return request({
     url: '/spas/knowledge/' + knowledgeId,
@@ -25,7 +25,7 @@ export function getKnowledge(knowledgeId) {
   })
 }
 
-// ����֪ʶ��
+// 新增知识点
 export function addKnowledge(data) {
   return request({
     url: '/spas/knowledge',
@@ -34,7 +34,7 @@ export function addKnowledge(data) {
   })
 }
 
-// �޸�֪ʶ��
+// 修改知识点
 export function updateKnowledge(data) {
   return request({
     url: '/spas/knowledge',
@@ -43,7 +43,7 @@ export function updateKnowledge(data) {
   })
 }
 
-// ɾ��֪ʶ��
+// 删除知识点
 export function delKnowledge(knowledgeId) {
   return request({
     url: '/spas/knowledge/' + knowledgeId,

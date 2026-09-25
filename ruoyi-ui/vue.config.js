@@ -7,7 +7,7 @@ function resolve(dir) {
 
 const CompressionPlugin = require('compression-webpack-plugin')
 
-const name = process.env.VUE_APP_TITLE || '若依管理系统' // 网页标题
+const name = process.env.VUE_APP_TITLE || '知脉' // 网页标题
 
 const baseUrl = 'http://localhost:8080' // 后端接口
 
@@ -27,7 +27,7 @@ module.exports = {
   assetsDir: 'static',
   // 如果你不需要生产环境的 source map，可以将其设置为 false 以加速生产环境构建。
   productionSourceMap: false,
-  transpileDependencies: ['quill'],
+  transpileDependencies: ['quill', 'docx-preview'],
   // webpack-dev-server 相关配置
   devServer: {
     host: '0.0.0.0',
@@ -61,7 +61,8 @@ module.exports = {
     name: name,
     resolve: {
       alias: {
-        '@': resolve('src')
+        '@': resolve('src'),
+        'docx-preview': resolve('node_modules/docx-preview/dist/docx-preview.js')
       }
     },
     plugins: [

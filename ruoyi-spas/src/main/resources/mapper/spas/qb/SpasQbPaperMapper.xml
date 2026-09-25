@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.qb.mapper.SpasQbPaperMapper">
+
+    <resultMap type="com.ruoyi.spas.qb.domain.SpasQbPaper" id="SpasQbPaperResult">
+        <id     property="paperId"     column="paper_id"     />
+        <result property="paperTitle"  column="paper_title"  />
+        <result property="subjectId"   column="subject_id"   />
+        <result property="totalScore"  column="total_score"  />
+        <result property="status"      column="status"       />
+        <result property="subjectName" column="subject_name" />
+        <result property="itemCount"   column="item_count"   />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"  column="create_time"  />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"  column="update_time"  />
+        <result property="sectionJson"   column="section_json"    />
+        <result property="remark"      column="remark"       />
+    </resultMap>
+
+    <resultMap type="com.ruoyi.spas.qb.domain.SpasQbPaperItem" id="SpasQbPaperItemResult">
+        <id     property="itemId"         column="item_id"         />
+        <result property="paperId"        column="paper_id"        />
+        <result property="questionId"     column="question_id"     />
+        <result property="orderNum"       column="order_num"       />
+        <result property="scoreValue"     column="score_value"     />
+        <result property="questionNo"     column="question_no"     />
+        <result property="contentPreview" column="content_preview" />
+        <result property="questionType"   column="question_type"   />
+        <result property="difficulty"     column="difficulty"      />
+        <result property="knowledgeCount" column="knowledge_count" />
+    </resultMap>
+
+    <sql id="selectVo">
+        select p.paper_id, p.paper_title, p.subject_id, p.total_score, p.status, p.section_json,
+               p.create_by, p.create_time, p.update_by, p.update_time, p.remark,
+               s.subject_name,
+               (select count(1) from spas_qb_paper_item i where i.paper_id = p.paper_id) as item_count
+        from spas_qb_paper p
+        left join spas_subject s on p.subject_id = s.subject_id
+    </sql>
+
+    <select id="selectSpasQbPaperList" parameterType="com.ruoyi.spas.qb.domain.SpasQbPaper" resultMap="SpasQbPaperResult">
+        <include refid="selectVo"/>
+        <where>
+            <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+            <if test="status != null and status != ''">and p.status = #{status}</if>
+            <if test="paperTitle != null and paperTitle != ''">and p.paper_title like concat('%', #{paperTitle}, '%')</if>
+        </where>
+        order by p.paper_id desc
+    </select>
+
+    <select id="selectSpasQbPaperById" parameterType="Long" resultMap="SpasQbPaperResult">
+        <include refid="selectVo"/>
+        where p.paper_id = #{paperId}
+    </select>
+
+    <insert id="insertSpasQbPaper" parameterType="com.ruoyi.spas.qb.domain.SpasQbPaper" useGeneratedKeys="true" keyProperty="paperId">
+        insert into spas_qb_paper(paper_title, subject_id, total_score, status, section_json, create_by, create_time, remark)
+        values(#{paperTitle}, #{subjectId}, #{totalScore},
+               <choose><when test="status != null and status != ''">#{status}</when><otherwise>'0'</otherwise></choose>,
+               #{sectionJson},
+               #{createBy}, now(), #{remark})
+    </insert>
+
+    <update id="updateSpasQbPaper" parameterType="com.ruoyi.spas.qb.domain.SpasQbPaper">
+        update spas_qb_paper
+        <set>
+            <if test="paperTitle != null">paper_title = #{paperTitle},</if>
+            <if test="subjectId != null">subject_id = #{subjectId},</if>
+            <if test="totalScore != null">total_score = #{totalScore},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="sectionJson != null">section_json = #{sectionJson},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where paper_id = #{paperId}
+    </update>
+
+    <delete id="deleteSpasQbPaperByIds" parameterType="Long">
+        delete from spas_qb_paper where paper_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
+    <select id="selectItemsByPaperId" parameterType="Long" resultMap="SpasQbPaperItemResult">
+        select i.item_id, i.paper_id, i.question_id, i.order_num, i.score_value, i.question_no,
+               left(q.content, 80) as content_preview, q.question_type, q.difficulty,
+               (select count(1) from spas_qb_question_knowledge qk where qk.question_id = i.question_id) as knowledge_count
+        from spas_qb_paper_item i
+        left join spas_qb_question q on i.question_id = q.question_id
+        where i.paper_id = #{paperId}
+        order by i.order_num asc, i.item_id asc
+    </select>
+
+    <delete id="deleteItemsByPaperId" parameterType="Long">
+        delete from spas_qb_paper_item where paper_id = #{paperId}
+    </delete>
+
+    <insert id="insertSpasQbPaperItem" parameterType="com.ruoyi.spas.qb.domain.SpasQbPaperItem" useGeneratedKeys="true" keyProperty="itemId">
+        insert into spas_qb_paper_item(paper_id, question_id, order_num, score_value, question_no)
+        values(#{paperId}, #{questionId}, #{orderNum}, #{scoreValue}, #{questionNo})
+    </insert>
+
+    <insert id="batchInsertItems">
+        insert into spas_qb_paper_item(paper_id, question_id, order_num, score_value, question_no)
+        values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.paperId}, #{item.questionId}, #{item.orderNum}, #{item.scoreValue}, #{item.questionNo})
+        </foreach>
+    </insert>
+
+    <select id="selectAnalysisPaperIdByBank" resultType="Long">
+        select paper_id from spas_paper
+        where bank_paper_id = #{bankPaperId} and dept_id = #{deptId}
+        order by paper_id desc limit 1
+    </select>
+
+    <select id="selectKnowledgeIdsByPaperId" parameterType="Long" resultType="Long">
+        select distinct qk.knowledge_id
+        from spas_qb_paper_item i
+        inner join spas_qb_question_knowledge qk on qk.question_id = i.question_id
+        where i.paper_id = #{paperId}
+    </select>
+</mapper>

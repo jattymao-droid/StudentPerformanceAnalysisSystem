@@ -15,3 +15,34 @@ export function qualityDetail(query) {
     params: query
   })
 }
+
+export function listQualityTicket(query) {
+  return request({
+    url: '/spas/quality/ticket/list',
+    method: 'get',
+    params: query
+  })
+}
+
+export function addQualityTicket(data) {
+  return request({
+    url: '/spas/quality/ticket',
+    method: 'post',
+    data
+  })
+}
+
+export function updateQualityTicket(data) {
+  return request({
+    url: '/spas/quality/ticket',
+    method: 'put',
+    data
+  })
+}
+
+export function delQualityTicket(ticketIds) {
+  return request({
+    url: '/spas/quality/ticket/' + ticketIds,
+    method: 'delete'
+  })
+}

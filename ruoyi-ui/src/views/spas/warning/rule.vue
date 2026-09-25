@@ -32,6 +32,13 @@
         <el-button type="danger" plain icon="el-icon-delete" size="mini" :disabled="multiple" @click="handleDelete" v-hasPermi="['spas:warning:rule:remove']">删除</el-button>
       </el-col>
       <el-col :span="1.5">
+        <el-select v-model="runWindow" size="mini" style="width: 140px; margin-right: 8px" placeholder="执行口径">
+          <el-option label="默认时间窗" value="" />
+          <el-option label="本学期" value="semester" />
+          <el-option label="近30天" value="last30d" />
+          <el-option label="近90天" value="last90d" />
+          <el-option label="全部(快照)" value="all" />
+        </el-select>
         <el-button type="warning" plain icon="el-icon-video-play" size="mini" :loading="runLoading" @click="handleRun" v-hasPermi="['spas:warning:rule:run']">立即执行</el-button>
       </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
@@ -105,7 +112,7 @@
           <el-col :span="12">
             <el-form-item label="运算符" prop="operator">
               <el-select v-model="form.operator" style="width: 100%">
-                <el-option v-for="op in operatorOptions" :key="op" :label="op" :value="op" />
+                <el-option v-for="op in operatorOptions" :key="op.value" :label="op.label" :value="op.value" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -121,12 +128,15 @@
             <el-form-item :label="windowDaysLabel" prop="windowDays">
               <el-input-number
                 v-model="form.windowDays"
-                :min="form.metric === 'CONTINUOUS_DROP' ? 2 : 1"
+                :min="(form.metric === 'CONTINUOUS_DROP' || form.metric === 'KNOWLEDGE_CONTINUOUS_DROP' || form.metric === 'RANK_DROP') ? 2 : 1"
                 :max="30"
                 controls-position="right"
                 style="width: 100%"
               />
               <div v-if="form.metric === 'CONTINUOUS_DROP'" class="el-form-item__tip">取最近 N 场试卷得分率，需连续逐场下降且总降幅达阈值</div>
+              <div v-if="form.metric === 'KNOWLEDGE_CONTINUOUS_DROP'" class="el-form-item__tip">取最近 N 场，统计连续下滑的知识点个数；阈值为个数</div>
+              <div v-if="form.metric === 'RANK_DROP'" class="el-form-item__tip">取最近 N 场总分校次，须逐场名次变差。阈值是退步名次，例如 &gt; 10</div>
+              <div v-if="form.metric === 'SUBJECT_IMBALANCE'" class="el-form-item__tip">最近一场里，单科校次比总分校次落后的最大名次。场次不参与计算</div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -169,6 +179,7 @@ export default {
     return {
       loading: true,
       runLoading: false,
+      runWindow: '',
       ids: [],
       single: true,
       multiple: true,
@@ -181,9 +192,19 @@ export default {
         { value: 'AVG_RATE', label: '平均得分率' },
         { value: 'WEAK_COUNT', label: '薄弱知识点数量' },
         { value: 'BELOW_CLASS_AVG', label: '低于班级均分差值' },
-        { value: 'CONTINUOUS_DROP', label: '连续下滑幅度' }
+        { value: 'CONTINUOUS_DROP', label: '连续下滑幅度' },
+        { value: 'PERSISTENT_WEAK', label: '反复薄弱知识点数' },
+        { value: 'KNOWLEDGE_CONTINUOUS_DROP', label: '知识点连续下滑数' },
+        { value: 'RANK_DROP', label: '总分校次连续下滑' },
+        { value: 'SUBJECT_IMBALANCE', label: '单科落后总分' }
       ],
-      operatorOptions: ['<', '<=', '>', '>=', '='],
+      operatorOptions: [
+        { value: 'LT', label: '<' },
+        { value: 'LE', label: '<=' },
+        { value: 'GT', label: '>' },
+        { value: 'GE', label: '>=' },
+        { value: 'EQ', label: '=' }
+      ],
       queryParams: {
         pageNum: 1,
         pageSize: 10,
@@ -202,7 +223,9 @@ export default {
   },
   computed: {
     windowDaysLabel() {
-      return this.form.metric === 'CONTINUOUS_DROP' ? '连续场次' : '考试场次'
+      if (this.form.metric === 'CONTINUOUS_DROP' || this.form.metric === 'KNOWLEDGE_CONTINUOUS_DROP' || this.form.metric === 'RANK_DROP') return '连续场次'
+      if (this.form.metric === 'PERSISTENT_WEAK') return '最少场次'
+      return '考试场次'
     },
     thresholdHint() {
       if (this.form.metric === 'AVG_RATE') {
@@ -217,6 +240,15 @@ export default {
       if (this.form.metric === 'CONTINUOUS_DROP') {
         return '阈值=首场与末场得分率差值（0~1）。建议运算符 >，例如 > 0.1 表示连续下滑超10%'
       }
+      if (this.form.metric === 'PERSISTENT_WEAK') {
+        return '指标=反复薄弱知识点数。最少场次=判定所需有效考试场数；阈值建议 > 0（有任意反复薄弱即预警）'
+      }
+      if (this.form.metric === 'RANK_DROP') {
+        return '指标=最近 N 场总分校次退步名次（末场-首场，名次数字变大）。须逐场变差。建议 > 10，连续场次至少 2'
+      }
+      if (this.form.metric === 'SUBJECT_IMBALANCE') {
+        return '指标=单科校次减总分校次的最大正差距。建议运算符 >，例如 > 20 表示至少一科比总分落后超过 20 名'
+      }
       return '按所选指标填写阈值'
     }
   },
@@ -230,23 +262,40 @@ export default {
     },
     handleMetricChange(metric) {
       if (metric === 'AVG_RATE') {
-        this.form.operator = '<'
+        this.form.operator = 'LT'
         if (this.form.threshold == null) this.form.threshold = 0.6
       } else if (metric === 'BELOW_CLASS_AVG') {
-        this.form.operator = '>'
+        this.form.operator = 'GT'
         if (this.form.threshold == null) this.form.threshold = 0.1
       } else if (metric === 'WEAK_COUNT') {
-        this.form.operator = '>'
+        this.form.operator = 'GT'
         if (this.form.threshold == null) this.form.threshold = 3
       } else if (metric === 'CONTINUOUS_DROP') {
-        this.form.operator = '>'
+        this.form.operator = 'GT'
         if (this.form.threshold == null) this.form.threshold = 0.1
         if (!this.form.windowDays || this.form.windowDays < 2) this.form.windowDays = 3
+      } else if (metric === 'PERSISTENT_WEAK') {
+        this.form.operator = 'GT'
+        if (this.form.threshold == null) this.form.threshold = 0
+        if (!this.form.windowDays || this.form.windowDays < 2) this.form.windowDays = 3
+      } else if (metric === 'RANK_DROP') {
+        this.form.operator = 'GT'
+        if (this.form.threshold == null) this.form.threshold = 10
+        if (!this.form.windowDays || this.form.windowDays < 2) this.form.windowDays = 3
+      } else if (metric === 'SUBJECT_IMBALANCE') {
+        this.form.operator = 'GT'
+        if (this.form.threshold == null) this.form.threshold = 20
       }
     },
+    toOperatorCode(op) {
+      const map = { '<': 'LT', '<=': 'LE', '>': 'GT', '>=': 'GE', '=': 'EQ', LT: 'LT', LE: 'LE', GT: 'GT', GE: 'GE', EQ: 'EQ' }
+      return map[op] || op || 'LT'
+    },
     formatCondition(row) {
-      const defaults = { AVG_RATE: '<', WEAK_COUNT: '>', BELOW_CLASS_AVG: '>', CONTINUOUS_DROP: '>' }
-      const op = row.operator || defaults[row.metric] || '<'
+      const defaults = { AVG_RATE: '<', WEAK_COUNT: '>', BELOW_CLASS_AVG: '>', CONTINUOUS_DROP: '>', PERSISTENT_WEAK: '>', KNOWLEDGE_CONTINUOUS_DROP: '>', RANK_DROP: '>', SUBJECT_IMBALANCE: '>' }
+      const code = this.toOperatorCode(row.operator || defaults[row.metric] || '<')
+      const hit = this.operatorOptions.find(i => i.value === code)
+      const op = hit ? hit.label : code
       const n = Number(row.threshold)
       if (isNaN(n)) {
         return op + ' ' + (row.threshold == null ? '-' : row.threshold)
@@ -255,6 +304,10 @@ export default {
         const pct = n <= 1 ? (Math.round(n * 10000) / 100).toFixed(1) + '%' : n
         const extra = row.metric === 'CONTINUOUS_DROP' && row.windowDays ? ` / ${row.windowDays}场` : ''
         return op + ' ' + pct + extra
+      }
+      if (row.metric === 'PERSISTENT_WEAK') {
+        const extra = row.windowDays ? ` / 最少${row.windowDays}场` : ''
+        return op + ' ' + n + '个' + extra
       }
       return op + ' ' + n
     },
@@ -278,8 +331,12 @@ export default {
         this.$modal.msgError('薄弱知识点数量阈值不能为负数')
         return false
       }
-      if (this.form.metric === 'CONTINUOUS_DROP' && (!this.form.windowDays || this.form.windowDays < 2)) {
+      if ((this.form.metric === 'CONTINUOUS_DROP' || this.form.metric === 'KNOWLEDGE_CONTINUOUS_DROP' || this.form.metric === 'RANK_DROP') && (!this.form.windowDays || this.form.windowDays < 2)) {
         this.$modal.msgError('连续下滑至少需要 2 场考试')
+        return false
+      }
+      if ((this.form.metric === 'RANK_DROP' || this.form.metric === 'SUBJECT_IMBALANCE') && (isNaN(n) || n < 0)) {
+        this.$modal.msgError('名次阈值不能为负数')
         return false
       }
       return true
@@ -304,7 +361,7 @@ export default {
         scopeType: '1',
         scopeId: undefined,
         metric: 'AVG_RATE',
-        operator: '<',
+        operator: 'LT',
         threshold: 0.6,
         windowDays: 3,
         level: '1',
@@ -336,7 +393,8 @@ export default {
       this.reset()
       const ruleId = row.ruleId || this.ids
       getWarningRule(ruleId).then(response => {
-        this.form = response.data
+        this.form = response.data || {}
+        this.form.operator = this.toOperatorCode(this.form.operator)
         this.open = true
         this.title = '修改预警规则'
       })
@@ -370,9 +428,13 @@ export default {
       }).catch(() => {})
     },
     handleRun() {
-      this.$modal.confirm('确认立即执行全部启用规则？').then(() => {
+      const win = this.runWindow || ''
+      const tip = win
+        ? ('确认按口径「' + ({ semester: '本学期', last30d: '近30天', last90d: '近90天', all: '全部(快照)' }[win] || win) + '」执行全部启用规则？')
+        : '确认按系统默认时间窗执行全部启用规则？'
+      this.$modal.confirm(tip).then(() => {
         this.runLoading = true
-        return runWarningEngine()
+        return runWarningEngine(win || undefined)
       }).then(res => {
         this.$modal.msgSuccess(res.msg || '执行完成')
       }).catch(() => {}).finally(() => {

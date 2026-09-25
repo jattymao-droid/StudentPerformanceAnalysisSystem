@@ -333,7 +333,7 @@ export default {
         height: 100%;
         padding-top: 15px;
         padding-left: 24px;
-        color: #7B6CF6;
+        color: #2442ED;
         font-weight: 700;
         font-size: 14px;
       }

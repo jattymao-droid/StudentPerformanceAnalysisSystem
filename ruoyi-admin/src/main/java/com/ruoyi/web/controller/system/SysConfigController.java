@@ -67,12 +67,27 @@ public class SysConfigController extends BaseController
     }
 
     /**
-     * 根据参数键名查询参数值
+     * 根据参数键名查询参数值（敏感键不返回明文）
      */
     @GetMapping(value = "/configKey/{configKey}")
     public AjaxResult getConfigKey(@PathVariable String configKey)
     {
+        if (isSensitiveConfigKey(configKey))
+        {
+            return error("\u654f\u611f\u53c2\u6570\u4e0d\u53ef\u901a\u8fc7\u8be5\u63a5\u53e3\u8bfb\u53d6");
+        }
         return success(configService.selectConfigByKey(configKey));
+    }
+
+    private static boolean isSensitiveConfigKey(String configKey)
+    {
+        if (configKey == null)
+        {
+            return false;
+        }
+        String k = configKey.toLowerCase();
+        return k.contains("api-key") || k.contains("apikey") || k.contains("secret")
+                || k.contains("password") || k.endsWith(".token");
     }
 
     /**

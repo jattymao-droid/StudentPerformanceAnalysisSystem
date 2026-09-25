@@ -52,3 +52,19 @@ export function interveneTimeline(studentId) {
     method: 'get'
   })
 }
+
+export function classInterveneSummary(deptId, query) {
+  return request({
+    url: '/spas/intervene/class/' + deptId + '/summary',
+    method: 'get',
+    params: query
+  })
+}
+
+export function batchWeakIntervene(data) {
+  return request({
+    url: '/spas/intervene/batch-weak',
+    method: 'post',
+    data
+  })
+}

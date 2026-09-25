@@ -134,6 +134,17 @@
                 v-hasPermi="['spas:knowledge:add']"
               >新增知识点</el-button>
             </el-col>
+            <el-col :span="1.5">
+              <el-button
+                type="success"
+                plain
+                icon="el-icon-share"
+                size="mini"
+                :disabled="!queryParams.subjectId"
+                @click="openSubjectEdgeDrawer"
+                v-hasPermi="['spas:knowledge:list']"
+              >学科依赖边{{ subjectEdgeCount != null ? ('(' + subjectEdgeCount + ')') : '' }}</el-button>
+            </el-col>
             <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
           </el-row>
 
@@ -154,9 +165,12 @@
                 <dict-tag :options="dict.type.sys_normal_disable" :value="scope.row.status" />
               </template>
             </el-table-column>
-            <el-table-column label="操作" align="center" width="160" class-name="small-padding fixed-width">
+            <el-table-column label="操作" align="center" width="240" class-name="small-padding fixed-width">
               <template slot-scope="scope">
                 <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdateKnowledge(scope.row)" v-hasPermi="['spas:knowledge:edit']">修改</el-button>
+                <el-button size="mini" type="text" icon="el-icon-share" @click="openEdgeDrawer(scope.row)" v-hasPermi="['spas:knowledge:list']">
+                  依赖<span v-if="edgeCountMap[scope.row.knowledgeId]">({{ edgeCountMap[scope.row.knowledgeId] }})</span>
+                </el-button>
                 <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDeleteKnowledge(scope.row)" v-hasPermi="['spas:knowledge:remove']">删除</el-button>
               </template>
             </el-table-column>
@@ -244,11 +258,110 @@
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
+
+    <el-drawer
+      :title="'前置依赖 · ' + (edgeTarget.knowledgeName || '')"
+      :visible.sync="edgeOpen"
+      size="480px"
+      append-to-body
+    >
+      <div style="padding: 0 16px 16px">
+        <el-alert
+          class="mb8"
+          type="info"
+          :closable="false"
+          show-icon
+          title="添加前置知识点：该知识点依赖的前置叶子（from → 当前）。薄弱分析会据此提示根因。"
+        />
+        <el-alert
+          v-if="!edgeList.length && !edgeLoading"
+          class="mb8"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="尚无前置边。建议从同章或更基础知识点中选择前置叶子，便于薄弱根因提示。"
+        />
+        <div class="card-header mb8" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <span>已有前置边</span>
+          <el-button type="text" size="mini" icon="el-icon-refresh" :loading="edgeLoading" @click="loadEdges">刷新</el-button>
+        </div>
+        <el-table v-loading="edgeLoading" :data="edgeList" size="mini" empty-text="暂无前置依赖" class="mb8">
+          <el-table-column label="前置知识点" min-width="160" :show-overflow-tooltip="true">
+            <template slot-scope="scope">{{ scope.row.fromKnowledgeName || ('ID:' + scope.row.fromKnowledgeId) }}</template>
+          </el-table-column>
+          <el-table-column label="关系" prop="relation" width="90" align="center">
+            <template slot-scope="scope">{{ scope.row.relation || 'prerequisite' }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="80" align="center">
+            <template slot-scope="scope">
+              <el-button size="mini" type="text" icon="el-icon-delete" @click="removeEdge(scope.row)" v-hasPermi="['spas:knowledge:edit']">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="card-header mb8">添加前置</div>
+        <el-form size="small" label-width="88px">
+          <el-form-item label="前置叶子">
+            <el-select
+              v-model="edgeFromId"
+              filterable
+              clearable
+              placeholder="选择同学科其他叶子知识点"
+              style="width: 100%"
+              :loading="leafLoading"
+            >
+              <el-option
+                v-for="item in availableLeafOptions"
+                :key="item.knowledgeId"
+                :label="item.knowledgeName + (item.parentName ? ('（' + item.parentName + '）') : '')"
+                :value="item.knowledgeId"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" size="mini" :loading="edgeSaving" :disabled="!edgeFromId" @click="addEdge" v-hasPermi="['spas:knowledge:edit']">添加依赖</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+    </el-drawer>
+
+    <el-drawer
+      :title="'学科依赖边 · ' + (currentSubjectName || '')"
+      :visible.sync="subjectEdgeOpen"
+      size="560px"
+      append-to-body
+    >
+      <div style="padding: 0 16px 16px">
+        <el-alert
+          class="mb8"
+          type="info"
+          :closable="false"
+          show-icon
+          title="以下为当前学科全部前置依赖边。可到具体知识点行点「依赖」增删；薄弱分析依赖这些边给出根因提示。"
+        />
+        <el-table v-loading="subjectEdgeLoading" :data="subjectEdgeList" size="mini" empty-text="本学科暂无依赖边，请在知识点行点击「依赖」添加" max-height="480">
+          <el-table-column label="前置" min-width="140" :show-overflow-tooltip="true">
+            <template slot-scope="scope">{{ scope.row.fromKnowledgeName || scope.row.fromKnowledgeId }}</template>
+          </el-table-column>
+          <el-table-column label="目标" min-width="140" :show-overflow-tooltip="true">
+            <template slot-scope="scope">{{ scope.row.toKnowledgeName || scope.row.toKnowledgeId }}</template>
+          </el-table-column>
+          <el-table-column label="关系" width="100" align="center">
+            <template slot-scope="scope">{{ scope.row.relation || 'prerequisite' }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="80" align="center">
+            <template slot-scope="scope">
+              <el-button size="mini" type="text" icon="el-icon-delete" @click="removeSubjectEdge(scope.row)" v-hasPermi="['spas:knowledge:edit']">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script>
 import { listKnowledge, treeKnowledge, getKnowledge, addKnowledge, updateKnowledge, delKnowledge } from '@/api/spas/knowledge'
+import { listKnowledgeEdge, addKnowledgeEdge, delKnowledgeEdge } from '@/api/spas/knowledgeEdge'
 import { optionselectSubject } from '@/api/spas/subject'
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
@@ -270,6 +383,19 @@ export default {
       currentNode: null,
       title: '',
       open: false,
+      edgeOpen: false,
+      edgeLoading: false,
+      edgeSaving: false,
+      edgeList: [],
+      edgeTarget: {},
+      edgeFromId: undefined,
+      leafOptions: [],
+      leafLoading: false,
+      edgeCountMap: {},
+      subjectEdgeOpen: false,
+      subjectEdgeLoading: false,
+      subjectEdgeList: [],
+      subjectEdgeCount: null,
       queryParams: {
         pageNum: 1,
         pageSize: 10,
@@ -306,6 +432,12 @@ export default {
         return '当前版本：' + this.currentSubjectName + ' / ' + (this.currentNode.label || '') + '。点章节可筛选知识点；树上可新增章节。'
       }
       return '当前学科：' + this.currentSubjectName + '。左侧为 版本 → 章节；点章节查看知识点。'
+    },
+    availableLeafOptions() {
+      const used = new Set((this.edgeList || []).map(e => e.fromKnowledgeId))
+      return (this.leafOptions || []).filter(k =>
+        k.knowledgeId !== this.edgeTarget.knowledgeId && !used.has(k.knowledgeId)
+      )
     }
   },
   created() {
@@ -407,6 +539,8 @@ export default {
       if (!this.queryParams.subjectId) {
         this.knowledgeList = []
         this.total = 0
+        this.edgeCountMap = {}
+        this.subjectEdgeCount = null
         return
       }
       this.loading = true
@@ -415,9 +549,66 @@ export default {
         this.knowledgeList = response.rows || []
         this.total = response.total || 0
         this.loading = false
+        this.refreshSubjectEdgeCounts()
       }).catch(() => {
         this.loading = false
       })
+    },
+    refreshSubjectEdgeCounts() {
+      const subjectId = this.queryParams.subjectId
+      if (!subjectId) {
+        this.edgeCountMap = {}
+        this.subjectEdgeCount = null
+        return
+      }
+      listKnowledgeEdge({ subjectId }).then(res => {
+        const list = (res && res.data) ? res.data : []
+        this.subjectEdgeCount = list.length
+        const map = {}
+        list.forEach(e => {
+          const tid = e.toKnowledgeId
+          if (tid == null) return
+          map[tid] = (map[tid] || 0) + 1
+        })
+        this.edgeCountMap = map
+      }).catch(() => {
+        this.subjectEdgeCount = null
+        this.edgeCountMap = {}
+      })
+    },
+    openSubjectEdgeDrawer() {
+      if (!this.queryParams.subjectId) {
+        this.$modal.msgWarning('请先选择学科')
+        return
+      }
+      this.subjectEdgeOpen = true
+      this.loadSubjectEdges()
+    },
+    loadSubjectEdges() {
+      const subjectId = this.queryParams.subjectId
+      if (!subjectId) {
+        this.subjectEdgeList = []
+        return
+      }
+      this.subjectEdgeLoading = true
+      listKnowledgeEdge({ subjectId }).then(res => {
+        this.subjectEdgeList = (res && res.data) ? res.data : []
+        this.subjectEdgeCount = this.subjectEdgeList.length
+      }).catch(() => {
+        this.subjectEdgeList = []
+      }).finally(() => {
+        this.subjectEdgeLoading = false
+      })
+    },
+    removeSubjectEdge(row) {
+      if (!row || !row.edgeId) return
+      this.$modal.confirm('确认删除该前置依赖？').then(() => {
+        return delKnowledgeEdge(row.edgeId)
+      }).then(() => {
+        this.$modal.msgSuccess('已删除')
+        this.loadSubjectEdges()
+        this.refreshSubjectEdgeCounts()
+      }).catch(() => {})
     },
     normalizer(node) {
       if (node.children && !node.children.length) {
@@ -575,6 +766,82 @@ export default {
         this.$modal.msgSuccess('删除成功')
       }).catch(() => {})
     },
+    openEdgeDrawer(row) {
+      this.edgeTarget = row || {}
+      this.edgeFromId = undefined
+      this.edgeOpen = true
+      this.loadEdges()
+      this.loadLeafOptions()
+    },
+    loadEdges() {
+      if (!this.edgeTarget.knowledgeId) {
+        this.edgeList = []
+        return
+      }
+      this.edgeLoading = true
+      listKnowledgeEdge({ toKnowledgeId: this.edgeTarget.knowledgeId }).then(res => {
+        this.edgeList = (res && res.data) ? res.data : []
+      }).catch(() => {
+        this.edgeList = []
+      }).finally(() => {
+        this.edgeLoading = false
+      })
+    },
+    loadLeafOptions() {
+      const subjectId = this.edgeTarget.subjectId || this.queryParams.subjectId
+      if (!subjectId) {
+        this.leafOptions = []
+        return
+      }
+      this.leafLoading = true
+      listKnowledge({
+        pageNum: 1,
+        pageSize: 500,
+        subjectId,
+        nodeType: '2',
+        status: '0'
+      }).then(res => {
+        this.leafOptions = (res.rows || []).filter(k => k.knowledgeId !== this.edgeTarget.knowledgeId)
+      }).catch(() => {
+        this.leafOptions = []
+      }).finally(() => {
+        this.leafLoading = false
+      })
+    },
+    addEdge() {
+      if (!this.edgeFromId || !this.edgeTarget.knowledgeId) {
+        this.$modal.msgWarning('请选择前置知识点')
+        return
+      }
+      if (this.edgeFromId === this.edgeTarget.knowledgeId) {
+        this.$modal.msgWarning('不能依赖自身')
+        return
+      }
+      this.edgeSaving = true
+      addKnowledgeEdge({
+        subjectId: this.edgeTarget.subjectId || this.queryParams.subjectId,
+        fromKnowledgeId: this.edgeFromId,
+        toKnowledgeId: this.edgeTarget.knowledgeId,
+        relation: 'prerequisite'
+      }).then(() => {
+        this.$modal.msgSuccess('已添加依赖')
+        this.edgeFromId = undefined
+        this.loadEdges()
+        this.refreshSubjectEdgeCounts()
+      }).catch(() => {}).finally(() => {
+        this.edgeSaving = false
+      })
+    },
+    removeEdge(row) {
+      if (!row || !row.edgeId) return
+      this.$modal.confirm('确认删除该前置依赖？').then(() => {
+        return delKnowledgeEdge(row.edgeId)
+      }).then(() => {
+        this.$modal.msgSuccess('已删除')
+        this.loadEdges()
+        this.refreshSubjectEdgeCounts()
+      }).catch(() => {})
+    },
     submitForm() {
       this.$refs['form'].validate(valid => {
         if (!valid) return
@@ -622,6 +889,8 @@ export default {
 .knowledge-subject-bar .el-form-item {
   margin-bottom: 8px;
 }
+.mb8 { margin-bottom: 8px; }
+.card-header { font-weight: 600; color: #303133; }
 .knowledge-body {
   flex: 1;
   min-height: 0;

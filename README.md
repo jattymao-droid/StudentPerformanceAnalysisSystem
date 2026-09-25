@@ -1,16 +1,18 @@
-# 学生学情分析系统（SPAS）
+# 知脉 · 学生学情分析系统（SPAS）
 
-基于 **RuoYi-Vue 3.9.2 + PostgreSQL** 的中学学情分析平台：覆盖作业/考试管理、知识点标注、成绩导入、多维薄弱点分析、学情预警与「一生一册」，并预留家长端开放接口。
+**知脉** 是基于 **RuoYi-Vue 3.9.2 + PostgreSQL** 的中学学情分析平台：覆盖作业/考试管理、知识点标注、成绩导入、多维薄弱点分析、学情预警与「一生一册」，并预留家长端开放接口。
 
 | 项 | 说明 |
 | :--- | :--- |
+| 产品名 | 知脉 |
 | 仓库 | https://github.com/jattymao-droid/StudentPerformanceAnalysisSystem |
 | 上游 | [RuoYi-Vue v3.9.2](https://gitee.com/y_project/RuoYi-Vue)（MySQL → PostgreSQL 适配） |
 | 架构 | 前后端分离 · Spring Boot + Vue |
 | 默认端口 | 后端 `8080` · 前端 `1024` |
 | 数据库 | PostgreSQL · 默认库名 `spas-sql` |
+| 技术代号 | SPAS（代码包 / API 路径 `/spas` / 表前缀 `spas_` 保持不变） |
 
-[开发方案](./docs/学生学情分析系统-开发方案.md) · [部署说明](./docs/spas-deploy.md) · [OpenAPI](./docs/spas-open-api.md) · [验收要点](./docs/spas-acceptance.md)
+[开发方案](./docs/学生学情分析系统-开发方案.md) · [部署说明](./docs/spas-deploy.md) · [SQL 清单](./docs/spas-sql-checklist.md) · [功能评估](./docs/spas-evaluation-report.md) · [新增功能](./docs/spas-next-features.md) · [OpenAPI](./docs/spas-open-api.md) · [验收要点](./docs/spas-acceptance.md)
 
 ---
 
@@ -37,6 +39,7 @@
 | 学生 / 教师 | 组织树（学校→年级→班级）；学生绑定独立登录账号；教师可挂多班 |
 | 试卷 / 作业 | 题目结构、难度；一题可绑定多个知识点并设权重 |
 | 成绩导入 | Excel 按小题导入；支持班级路径预填 |
+| 实考校次 | 各科实考分与校次宽表导入/导出（按班姓名匹配，不绑科目管理；同班同名可覆盖） |
 | 学情分析 | 学生 / 班级 / 知识点多维统计与趋势 |
 | 学情预警 | 规则配置、触发记录与处理 |
 | 一生一册 | 学生档案；学生本人登录只读查看 |

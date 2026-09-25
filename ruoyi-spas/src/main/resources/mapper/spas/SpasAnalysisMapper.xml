@@ -14,6 +14,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="rate"        column="rate"         />
         <result property="paperId"     column="paper_id"     />
         <result property="examDate"    column="exam_date"    />
+        <result property="scoreSource" column="score_source" />
+        <result property="knowledgeName" column="knowledge_name" />
+        <result property="paperName"   column="paper_name"   />
     </resultMap>
 
     <resultMap type="SpasStudentKnowledgeStat" id="SpasStudentKnowledgeStatResult">
@@ -34,13 +37,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <select id="selectScoreRowsForRecalc" resultMap="SpasAnalysisScoreRowResult">
         select d.student_id, d.question_id, qk.knowledge_id, k.subject_id,
-               qk.weight, q.difficulty, d.rate, d.paper_id, p.exam_date
+               qk.weight, q.difficulty, d.rate, d.paper_id, p.exam_date, d.score_source,
+               k.knowledge_name, p.paper_name
         from spas_score_detail d
         join spas_paper_question q on q.question_id = d.question_id
         join spas_question_knowledge qk on qk.question_id = d.question_id
         join spas_knowledge k on k.knowledge_id = qk.knowledge_id
         join spas_paper p on p.paper_id = d.paper_id
         <where>
+            AND coalesce(d.score_source, '2') not in ('4', '5')
             <if test="studentId != null">
                 AND d.student_id = #{studentId}
             </if>
@@ -49,6 +54,70 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             </if>
         </where>
         order by d.student_id, qk.knowledge_id, d.question_id
+    </select>
+
+    <!-- Scoped score rows for live weighted aggregation (window / paper set) -->
+    <select id="selectScoreRowsForScope" resultMap="SpasAnalysisScoreRowResult">
+        select d.student_id, d.question_id, qk.knowledge_id, k.subject_id,
+               qk.weight, q.difficulty, d.rate, d.paper_id, p.exam_date, d.score_source,
+               k.knowledge_name, p.paper_name
+        from spas_score_detail d
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_question_knowledge qk on qk.question_id = d.question_id
+        join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+        join spas_paper p on p.paper_id = d.paper_id
+        <where>
+            AND coalesce(d.score_source, '2') not in ('4', '5')
+            AND coalesce(k.node_type, '2') = '2'
+            <if test="studentId != null">
+                AND d.student_id = #{studentId}
+            </if>
+            <if test="subjectId != null">
+                AND k.subject_id = #{subjectId}
+            </if>
+            <if test="examDateFrom != null">
+                AND p.exam_date &gt;= #{examDateFrom}
+            </if>
+            <if test="paperIds != null and paperIds.size() &gt; 0">
+                AND d.paper_id in
+                <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+                    #{pid}
+                </foreach>
+            </if>
+            <if test="knowledgeId != null">
+                AND qk.knowledge_id = #{knowledgeId}
+            </if>
+            <if test="deptId != null">
+                AND d.student_id in (
+                    select st.student_id from spas_student st
+                    where st.del_flag = '0' and st.status = '0'
+                      and (st.dept_id = #{deptId}
+                           or st.dept_id in (
+                               select t.dept_id from sys_dept t
+                               where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                           ))
+                )
+            </if>
+        </where>
+        order by d.student_id, p.exam_date asc nulls last, d.paper_id, qk.knowledge_id, d.question_id
+    </select>
+
+    <select id="selectStudentIdsByPaperIds" resultType="Long">
+        select distinct d.student_id
+        from spas_score_detail d
+        join spas_student st on st.student_id = d.student_id and st.del_flag = '0' and st.status = '0'
+        where d.paper_id in
+        <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        <if test="deptId != null">
+            and (st.dept_id = #{deptId}
+                 or st.dept_id in (
+                     select t.dept_id from sys_dept t
+                     where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                 ))
+        </if>
+        order by d.student_id
     </select>
 
     <select id="selectStudentIdsByPaperId" parameterType="Long" resultType="Long">
@@ -171,6 +240,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="examDateFrom != null">
             and p.exam_date &gt;= #{examDateFrom}
         </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+            and d.paper_id in
+            <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+                #{pid}
+            </foreach>
+        </if>
         group by d.paper_id, p.paper_name, p.exam_date, cls.class_rate
         order by p.exam_date asc nulls last, d.paper_id asc
     </select>
@@ -211,6 +286,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         select k.knowledge_id as "knowledgeId",
                k.knowledge_name as name,
                avg(s.weighted_rate) as rate,
+               avg(s.attempt_count::numeric) as "attemptCount",
                count(s.student_id) as "studentCount"
         from spas_student_knowledge_stat s
         join spas_knowledge k on k.knowledge_id = s.knowledge_id
@@ -312,6 +388,66 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         from stu
     </select>
 
+    <select id="selectStudentSubjectsWithData" resultType="java.util.HashMap">
+        select k.subject_id as "subjectId",
+               sub.subject_name as "subjectName",
+               count(distinct d.question_id) as "attemptCount",
+               count(distinct qk.knowledge_id) as "knowledgeCount",
+               max(p.exam_date) as "lastExamDate"
+        from spas_score_detail d
+        join spas_paper p on p.paper_id = d.paper_id
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_question_knowledge qk on qk.question_id = d.question_id
+        join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+        join spas_subject sub on sub.subject_id = k.subject_id
+        where d.student_id = #{studentId}
+          and coalesce(d.score_source, '2') not in ('4', '5')
+          and coalesce(k.node_type, '2') = '2'
+        <if test="examDateFrom != null">
+          and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+          and d.paper_id in
+          <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+          </foreach>
+        </if>
+        group by k.subject_id, sub.subject_name, sub.sort
+        having count(distinct d.question_id) &gt; 0
+        order by count(distinct d.question_id) desc, sub.sort nulls last, k.subject_id
+    </select>
+
+    <select id="selectDeptSubjectsWithData" resultType="java.util.HashMap">
+        select k.subject_id as "subjectId",
+               sub.subject_name as "subjectName",
+               count(distinct d.question_id) as "attemptCount",
+               count(distinct d.student_id) as "studentCount",
+               count(distinct qk.knowledge_id) as "knowledgeCount",
+               max(p.exam_date) as "lastExamDate"
+        from spas_score_detail d
+        join spas_paper p on p.paper_id = d.paper_id
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_question_knowledge qk on qk.question_id = d.question_id
+        join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+        join spas_subject sub on sub.subject_id = k.subject_id
+        join spas_student st on st.student_id = d.student_id and st.del_flag = '0' and st.status = '0'
+        where coalesce(d.score_source, '2') not in ('4', '5')
+          and coalesce(k.node_type, '2') = '2'
+        <include refid="studentDeptScope"/>
+        <if test="examDateFrom != null">
+          and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+          and d.paper_id in
+          <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+          </foreach>
+        </if>
+        group by k.subject_id, sub.subject_name, sub.sort
+        having count(distinct d.question_id) &gt; 0
+        order by count(distinct d.student_id) desc, count(distinct d.question_id) desc, sub.sort nulls last, k.subject_id
+    </select>
+
     <select id="selectStudentSummary" resultType="java.util.HashMap">
         with me as (
             select case when coalesce(sum(s.attempt_count), 0) &gt; 0
@@ -321,7 +457,19 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                    sum(case when s.weak_level = '1' then 1 else 0 end) as watch_count,
                    sum(case when s.weak_level = '2' then 1 else 0 end) as weak_count,
                    sum(case when s.weak_level = '3' then 1 else 0 end) as severe_count,
-                   sum(s.attempt_count) as total_attempts,
+                   sum(case when s.weighted_rate &lt; #{weakRate} then 1 else 0 end) as low_rate_count,
+                   sum(case when s.weighted_rate &lt; #{severeRate} then 1 else 0 end) as low_severe_count,
+                   sum(case when s.weighted_rate &lt; #{weakRate} and coalesce(s.attempt_count, 0) &lt; #{minAttempts} then 1 else 0 end) as thin_sample_count,
+                   (
+                       select count(distinct d.question_id)
+                       from spas_score_detail d
+                       join spas_paper p on p.paper_id = d.paper_id
+                       where d.student_id = #{studentId}
+                         and coalesce(d.score_source, '2') not in ('4', '5')
+                       <if test="subjectId != null">
+                         and p.subject_id = #{subjectId}
+                       </if>
+                   ) as total_attempts,
                    max(s.last_exam_date) as last_exam_date,
                    max(s.calc_time) as calc_time
             from spas_student_knowledge_stat s
@@ -330,51 +478,100 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 and s.subject_id = #{subjectId}
             </if>
         ),
-        peers as (
-            select case when coalesce(sum(s.attempt_count), 0) &gt; 0
+        class_peers as (
+            select st.student_id,
+                   case when coalesce(sum(s.attempt_count), 0) &gt; 0
                         then sum(s.weighted_rate * s.attempt_count) / sum(s.attempt_count)
                         else avg(s.weighted_rate) end as peer_rate
             from spas_student_knowledge_stat s
             join spas_student st on st.student_id = s.student_id and st.del_flag = '0' and st.status = '0'
             where st.dept_id = (select dept_id from spas_student where student_id = #{studentId} and del_flag = '0')
-              and st.student_id &lt;&gt; #{studentId}
             <if test="subjectId != null">
                 and s.subject_id = #{subjectId}
             </if>
             group by st.student_id
+        ),
+        ranked as (
+            select student_id,
+                   peer_rate,
+                   rank() over (order by peer_rate desc nulls last) as rank_no,
+                   count(*) over () as class_size,
+                   case when count(*) over () &lt;= 1 then null
+                        else round(100.0 * (count(*) over () - rank() over (order by peer_rate desc nulls last))
+                             / nullif(count(*) over () - 1, 0), 1)
+                   end as percentile
+            from class_peers
         )
         select me.stu_rate as "overallRate",
-               (select avg(peer_rate) from peers) as "classAvgRate",
-               me.stu_rate - (select avg(peer_rate) from peers) as "gap",
+               (select avg(peer_rate) from class_peers where student_id &lt;&gt; #{studentId}) as "classAvgRate",
+               me.stu_rate - (select avg(peer_rate) from class_peers where student_id &lt;&gt; #{studentId}) as "gap",
                me.knowledge_count as "knowledgeCount",
                me.watch_count as "watchCount",
                me.weak_count as "weakCount",
                me.severe_count as "severeCount",
+               me.low_rate_count as "lowRateCount",
+               me.low_severe_count as "lowSevereCount",
+               me.thin_sample_count as "thinSampleCount",
                me.total_attempts as "totalAttempts",
                me.last_exam_date as "lastExamDate",
-               me.calc_time as "calcTime"
+               me.calc_time as "calcTime",
+               r.rank_no as "rankNo",
+               r.class_size as "classSize",
+               r.percentile as "percentile"
         from me
+        left join ranked r on r.student_id = #{studentId}
     </select>
 
     <select id="selectClassStudentRanking" resultType="java.util.HashMap">
-        select st.student_id as "studentId",
-               st.student_no as "studentNo",
-               st.student_name as "studentName",
-               case when coalesce(sum(s.attempt_count), 0) &gt; 0
-                    then sum(s.weighted_rate * s.attempt_count) / sum(s.attempt_count)
-                    else avg(s.weighted_rate) end as "overallRate",
-               sum(case when s.weak_level in ('2','3') then 1 else 0 end) as "weakKnowledgeCount",
-               sum(case when s.weak_level = '3' then 1 else 0 end) as "severeKnowledgeCount",
-               sum(s.attempt_count) as "totalAttempts"
-        from spas_student_knowledge_stat s
-        join spas_student st on st.student_id = s.student_id and st.del_flag = '0' and st.status = '0'
-        where 1 = 1
-        <include refid="studentDeptScope"/>
-        <if test="subjectId != null">
-            and s.subject_id = #{subjectId}
-        </if>
-        group by st.student_id, st.student_no, st.student_name
-        order by 4 asc nulls last, st.student_no asc
+        with base as (
+            select st.student_id as student_id,
+                   st.student_no as student_no,
+                   st.student_name as student_name,
+                   case when coalesce(sum(s.attempt_count), 0) &gt; 0
+                        then sum(s.weighted_rate * s.attempt_count) / sum(s.attempt_count)
+                        else avg(s.weighted_rate) end as overall_rate,
+                   sum(case when s.weak_level in ('2','3') then 1 else 0 end) as weak_knowledge_count,
+                   sum(case when s.weak_level = '3' then 1 else 0 end) as severe_knowledge_count,
+                   sum(case when s.weighted_rate &lt; #{weakRate} then 1 else 0 end) as low_rate_count,
+                   sum(case when s.weighted_rate &lt; #{severeRate} then 1 else 0 end) as low_severe_count,
+                   sum(case when s.weighted_rate &lt; #{weakRate} and coalesce(s.attempt_count, 0) &lt; #{minAttempts} then 1 else 0 end) as thin_sample_count,
+                   (
+                       select count(distinct d.question_id)
+                       from spas_score_detail d
+                       join spas_paper p on p.paper_id = d.paper_id
+                       where d.student_id = st.student_id
+                         and coalesce(d.score_source, '2') not in ('4', '5')
+                       <if test="subjectId != null">
+                         and p.subject_id = #{subjectId}
+                       </if>
+                   ) as total_attempts
+            from spas_student_knowledge_stat s
+            join spas_student st on st.student_id = s.student_id and st.del_flag = '0' and st.status = '0'
+            where 1 = 1
+            <include refid="studentDeptScope"/>
+            <if test="subjectId != null">
+                and s.subject_id = #{subjectId}
+            </if>
+            group by st.student_id, st.student_no, st.student_name
+        )
+        select student_id as "studentId",
+               student_no as "studentNo",
+               student_name as "studentName",
+               overall_rate as "overallRate",
+               weak_knowledge_count as "weakKnowledgeCount",
+               severe_knowledge_count as "severeKnowledgeCount",
+               low_rate_count as "lowRateCount",
+               low_severe_count as "lowSevereCount",
+               thin_sample_count as "thinSampleCount",
+               total_attempts as "totalAttempts",
+               rank() over (order by overall_rate desc nulls last) as "rankNo",
+               count(*) over () as "classSize",
+               case when count(*) over () &lt;= 1 then null
+                    else round(100.0 * (count(*) over () - rank() over (order by overall_rate desc nulls last))
+                         / nullif(count(*) over () - 1, 0), 1)
+               end as "percentile"
+        from base
+        order by overall_rate asc nulls last, student_no asc
     </select>
 
     <select id="selectKnowledgeOverview" resultType="java.util.HashMap">
@@ -425,10 +622,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         select q.question_id as "questionId",
                q.question_no as "questionNo",
                q.full_score as "fullScore",
+               q.difficulty as "difficulty",
+               q.question_type as "questionType",
                qk.weight as weight,
                avg(d.rate) as "avgRate",
                count(distinct d.student_id) as "studentCount",
-               p.paper_name as "paperName"
+               p.paper_id as "paperId",
+               p.paper_name as "paperName",
+               p.exam_date as "examDate"
         from spas_question_knowledge qk
         join spas_paper_question q on q.question_id = qk.question_id
         join spas_paper p on p.paper_id = q.paper_id
@@ -450,8 +651,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <foreach collection="deptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
             or st.student_id is null)
         </if>
-        group by q.question_id, q.question_no, q.full_score, qk.weight, p.paper_name, q.question_order
-        order by q.question_order asc, q.question_no asc
+        group by q.question_id, q.question_no, q.full_score, q.difficulty, q.question_type, qk.weight,
+                 p.paper_id, p.paper_name, p.exam_date, q.question_order
+        order by p.exam_date desc nulls last, q.question_order asc, q.question_no asc
     </select>
 
     <select id="selectStudentKnowledgeQuestions" resultType="java.util.HashMap">
@@ -467,6 +669,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                p.paper_name as "paperName",
                p.exam_date as "examDate",
                k.knowledge_name as "knowledgeName",
+               et.error_code as "errorCode",
+               ed.dict_label as "errorLabel",
                (select string_agg(k2.knowledge_name || '(' || round(qk2.weight * 100) || '%)', ', ' order by qk2.weight desc)
                   from spas_question_knowledge qk2
                   join spas_knowledge k2 on k2.knowledge_id = qk2.knowledge_id
@@ -476,10 +680,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         join spas_paper_question q on q.question_id = d.question_id
         join spas_knowledge k on k.knowledge_id = qk.knowledge_id
         join spas_paper p on p.paper_id = d.paper_id
+        left join spas_error_tag et on et.student_id = d.student_id and et.question_id = d.question_id
+        left join sys_dict_data ed on ed.dict_type = 'spas_error_cause' and ed.dict_value = et.error_code and ed.status = '0'
         where d.student_id = #{studentId}
           and qk.knowledge_id = #{knowledgeId}
         <if test="subjectId != null">
             and p.subject_id = #{subjectId}
+        </if>
+        <if test="examDateFrom != null">
+            and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+            and d.paper_id in
+            <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+                #{pid}
+            </foreach>
         </if>
         order by p.exam_date desc nulls last, q.question_order asc
     </select>
@@ -534,7 +749,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                ch.knowledge_name as name,
                avg(leaf_rate.stu_rate) as "avgRate",
                count(leaf_rate.student_id) as "studentCount",
-               sum(case when leaf_rate.stu_rate &lt; 0.60 then 1 else 0 end) as "weakCount",
+               sum(case when leaf_rate.stu_rate &lt; #{weakRate} then 1 else 0 end) as "weakCount",
                'chapter' as "nodeKind"
         from spas_knowledge ch
         join (
@@ -575,70 +790,40 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         order by ch.order_num asc, ch.knowledge_id asc
     </select>
 
-    <select id="selectStudentRadarLive" resultType="java.util.HashMap">
-        select k.knowledge_id as "knowledgeId",
-               k.knowledge_name as name,
-               case when sum(d.full_score) &gt; 0 then sum(d.score) / sum(d.full_score) else null end as rate,
-               count(distinct d.question_id) as "attemptCount",
-               max(p.exam_date) as "lastExamDate"
-        from spas_score_detail d
-        join spas_paper p on p.paper_id = d.paper_id
-        join spas_question_knowledge qk on qk.question_id = d.question_id
-        join spas_knowledge k on k.knowledge_id = qk.knowledge_id and k.status = '0'
-        where d.student_id = #{studentId}
+    <select id="selectLeafChapterMap" resultType="java.util.HashMap">
+        select leaf.knowledge_id as "leafId",
+               ch.knowledge_id as "chapterId",
+               ch.knowledge_name as "chapterName",
+               ch.order_num as "orderNum"
+        from spas_knowledge leaf
+        join spas_knowledge ch on ch.node_type = '1' and ch.status = '0'
+             and (
+                 leaf.parent_id = ch.knowledge_id
+                 or cast(ch.knowledge_id as varchar) = any(string_to_array(leaf.ancestors, ','))
+             )
+        where leaf.node_type = '2' and leaf.status = '0'
         <if test="subjectId != null">
-            and p.subject_id = #{subjectId}
+            and leaf.subject_id = #{subjectId}
+            and ch.subject_id = #{subjectId}
         </if>
-        <if test="examDateFrom != null">
-            and p.exam_date &gt;= #{examDateFrom}
-        </if>
-        group by k.knowledge_id, k.knowledge_name, k.order_num
-        order by k.order_num asc, k.knowledge_id asc
+        order by leaf.knowledge_id, ch.order_num
     </select>
 
-    <select id="selectStudentSummaryLive" resultType="java.util.HashMap">
-        with me as (
-            select case when sum(d.full_score) &gt; 0 then sum(d.score) / sum(d.full_score) else null end as stu_rate,
-                   count(distinct qk.knowledge_id) as knowledge_count,
-                   count(distinct d.question_id) as total_attempts,
-                   max(p.exam_date) as last_exam_date
-            from spas_score_detail d
-            join spas_paper p on p.paper_id = d.paper_id
-            left join spas_question_knowledge qk on qk.question_id = d.question_id
-            where d.student_id = #{studentId}
-            <if test="subjectId != null">
-                and p.subject_id = #{subjectId}
-            </if>
-            <if test="examDateFrom != null">
-                and p.exam_date &gt;= #{examDateFrom}
-            </if>
-        ),
-        peers as (
-            select case when sum(d.full_score) &gt; 0 then sum(d.score) / sum(d.full_score) else null end as peer_rate
-            from spas_score_detail d
-            join spas_paper p on p.paper_id = d.paper_id
-            join spas_student st on st.student_id = d.student_id and st.del_flag = '0' and st.status = '0'
-            where st.dept_id = (select dept_id from spas_student where student_id = #{studentId} and del_flag = '0')
-              and st.student_id &lt;&gt; #{studentId}
-            <if test="subjectId != null">
-                and p.subject_id = #{subjectId}
-            </if>
-            <if test="examDateFrom != null">
-                and p.exam_date &gt;= #{examDateFrom}
-            </if>
-            group by st.student_id
-        )
-        select me.stu_rate as "overallRate",
-               (select avg(peer_rate) from peers) as "classAvgRate",
-               me.stu_rate - (select avg(peer_rate) from peers) as "gap",
-               me.knowledge_count as "knowledgeCount",
-               0 as "watchCount",
-               0 as "weakCount",
-               0 as "severeCount",
-               me.total_attempts as "totalAttempts",
-               me.last_exam_date as "lastExamDate"
-        from me
+    <select id="selectPaperAnnotationCoverage" resultType="java.util.HashMap">
+        select count(distinct pq.question_id)::int as "questionCount",
+               count(distinct case when qk.question_id is not null then pq.question_id end)::int as "boundCount",
+               count(distinct case when qk.question_id is null then pq.question_id end)::int as "unboundCount",
+               count(distinct case when nullif(trim(pq.question_type), '') is null then pq.question_id end)::int as "noTypeCount",
+               count(distinct case when nullif(trim(pq.bloom_level), '') is null then pq.question_id end)::int as "noBloomCount"
+        from spas_paper_question pq
+        left join spas_question_knowledge qk on qk.question_id = pq.question_id
+        where pq.paper_id in
+        <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
     </select>
+
+    <!-- DEPRECATED: bare-average live SQL removed; use KnowledgeStatQueryService (weighted engine). -->
 
     <select id="selectKnowledgeOverviewChapter" resultType="java.util.HashMap">
         select st.student_id as "studentId",
@@ -675,6 +860,188 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         order by 5 asc nulls last, st.student_no asc
     </select>
 
+    <select id="selectKnowledgeOverviewSubject" resultType="java.util.HashMap">
+        select st.student_id as "studentId",
+               st.student_no as "studentNo",
+               st.student_name as "studentName",
+               d.dept_name as "deptName",
+               case when coalesce(sum(s.attempt_count), 0) &gt; 0
+                    then sum(s.weighted_rate * s.attempt_count) / sum(s.attempt_count)
+                    else avg(s.weighted_rate) end as rate,
+               coalesce(sum(s.attempt_count), 0) as "attemptCount",
+               max(s.last_exam_date) as "lastExamDate"
+        from spas_student_knowledge_stat s
+        join spas_knowledge leaf on leaf.knowledge_id = s.knowledge_id and leaf.node_type = '2' and leaf.status = '0'
+            and leaf.subject_id = #{subjectId}
+        join spas_student st on st.student_id = s.student_id and st.del_flag = '0'
+        left join sys_dept d on d.dept_id = st.dept_id
+        where 1 = 1
+        <if test="deptId != null">
+            and (st.dept_id = #{deptId}
+                 or st.dept_id in (
+                     select t.dept_id from sys_dept t
+                     where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                 ))
+        </if>
+        <if test="deptIds != null and deptIds.size() &gt; 0">
+            and st.dept_id in
+            <foreach collection="deptIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+        group by st.student_id, st.student_no, st.student_name, d.dept_name
+        order by 5 asc nulls last, st.student_no asc
+    </select>
+
+    <!-- Child node breakdown under all/version/chapter -->
+    <select id="selectKnowledgeChildBreakdown" resultType="java.util.HashMap">
+        <choose>
+            <when test="childNodeType == '2'">
+                select leaf.knowledge_id as "knowledgeId",
+                       leaf.knowledge_name as "knowledgeName",
+                       leaf.node_type as "nodeType",
+                       avg(s.weighted_rate) as "avgRate",
+                       count(distinct s.student_id) as "studentCount",
+                       sum(case when s.weighted_rate &lt; #{weakRate} then 1 else 0 end) as "weakCount",
+                       avg(s.attempt_count) as "avgAttemptCount"
+                from spas_knowledge leaf
+                join spas_student_knowledge_stat s on s.knowledge_id = leaf.knowledge_id
+                join spas_student st on st.student_id = s.student_id and st.del_flag = '0'
+                where leaf.node_type = '2' and leaf.status = '0'
+                  and leaf.subject_id = #{subjectId}
+                <if test="parentId != null">
+                    and (
+                        leaf.parent_id = #{parentId}
+                        or cast(#{parentId} as varchar) = any(string_to_array(leaf.ancestors, ','))
+                    )
+                </if>
+                <if test="deptId != null">
+                    and (st.dept_id = #{deptId}
+                         or st.dept_id in (
+                             select t.dept_id from sys_dept t
+                             where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                         ))
+                </if>
+                <if test="deptIds != null and deptIds.size() &gt; 0">
+                    and st.dept_id in
+                    <foreach collection="deptIds" item="id" open="(" separator="," close=")">
+                        #{id}
+                    </foreach>
+                </if>
+                group by leaf.knowledge_id, leaf.knowledge_name, leaf.node_type, leaf.order_num
+                order by avg(s.weighted_rate) asc nulls last, leaf.order_num asc, leaf.knowledge_id asc
+            </when>
+            <otherwise>
+                select child.knowledge_id as "knowledgeId",
+                       child.knowledge_name as "knowledgeName",
+                       child.node_type as "nodeType",
+                       avg(stu.stu_rate) as "avgRate",
+                       count(stu.student_id) as "studentCount",
+                       sum(case when stu.stu_rate &lt; #{weakRate} then 1 else 0 end) as "weakCount",
+                       avg(stu.attempt_count) as "avgAttemptCount"
+                from spas_knowledge child
+                join (
+                    select scope.child_id,
+                           s.student_id,
+                           case when coalesce(sum(s.attempt_count), 0) &gt; 0
+                                then sum(s.weighted_rate * s.attempt_count) / sum(s.attempt_count)
+                                else avg(s.weighted_rate) end as stu_rate,
+                           coalesce(sum(s.attempt_count), 0) as attempt_count
+                    from spas_student_knowledge_stat s
+                    join spas_knowledge leaf on leaf.knowledge_id = s.knowledge_id and leaf.node_type = '2' and leaf.status = '0'
+                    join spas_student st on st.student_id = s.student_id and st.del_flag = '0'
+                    join (
+                        select c.knowledge_id as child_id, leaf2.knowledge_id as leaf_id
+                        from spas_knowledge c
+                        join spas_knowledge leaf2 on leaf2.node_type = '2' and leaf2.status = '0'
+                             and (
+                                 leaf2.parent_id = c.knowledge_id
+                                 or cast(c.knowledge_id as varchar) = any(string_to_array(leaf2.ancestors, ','))
+                             )
+                        where c.status = '0'
+                          and c.node_type = #{childNodeType}
+                          and c.subject_id = #{subjectId}
+                        <if test="parentId == null">
+                            and (c.parent_id is null or c.parent_id = 0)
+                        </if>
+                        <if test="parentId != null">
+                            and (
+                                c.parent_id = #{parentId}
+                                or cast(#{parentId} as varchar) = any(string_to_array(c.ancestors, ','))
+                            )
+                        </if>
+                    ) scope on scope.leaf_id = leaf.knowledge_id
+                    where 1 = 1
+                    <if test="deptId != null">
+                        and (st.dept_id = #{deptId}
+                             or st.dept_id in (
+                                 select t.dept_id from sys_dept t
+                                 where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                             ))
+                    </if>
+                    <if test="deptIds != null and deptIds.size() &gt; 0">
+                        and st.dept_id in
+                        <foreach collection="deptIds" item="id" open="(" separator="," close=")">
+                            #{id}
+                        </foreach>
+                    </if>
+                    group by scope.child_id, s.student_id
+                ) stu on stu.child_id = child.knowledge_id
+                where child.status = '0'
+                  and child.node_type = #{childNodeType}
+                  and child.subject_id = #{subjectId}
+                <if test="parentId == null">
+                    and (child.parent_id is null or child.parent_id = 0)
+                </if>
+                <if test="parentId != null">
+                    and (
+                        child.parent_id = #{parentId}
+                        or cast(#{parentId} as varchar) = any(string_to_array(child.ancestors, ','))
+                    )
+                </if>
+                group by child.knowledge_id, child.knowledge_name, child.node_type, child.order_num
+                order by avg(stu.stu_rate) asc nulls last, child.order_num asc, child.knowledge_id asc
+            </otherwise>
+        </choose>
+    </select>
+
+    <select id="selectKnowledgeClassComparisonRollup" resultType="java.util.HashMap">
+        select d.dept_id as "deptId",
+               d.dept_name as "deptName",
+               avg(stu.stu_rate) as "avgRate",
+               count(stu.student_id) as "studentCount"
+        from (
+            select st.dept_id,
+                   s.student_id,
+                   case when coalesce(sum(s.attempt_count), 0) &gt; 0
+                        then sum(s.weighted_rate * s.attempt_count) / sum(s.attempt_count)
+                        else avg(s.weighted_rate) end as stu_rate
+            from spas_student_knowledge_stat s
+            join spas_knowledge leaf on leaf.knowledge_id = s.knowledge_id and leaf.node_type = '2' and leaf.status = '0'
+            join spas_student st on st.student_id = s.student_id and st.del_flag = '0'
+            where 1 = 1
+            <if test="subjectId != null">
+                and leaf.subject_id = #{subjectId}
+            </if>
+            <if test="knowledgeId != null">
+                and (
+                    leaf.parent_id = #{knowledgeId}
+                    or cast(#{knowledgeId} as varchar) = any(string_to_array(leaf.ancestors, ','))
+                )
+            </if>
+            <if test="deptIds != null and deptIds.size() &gt; 0">
+                and st.dept_id in
+                <foreach collection="deptIds" item="id" open="(" separator="," close=")">
+                    #{id}
+                </foreach>
+            </if>
+            group by st.dept_id, s.student_id
+        ) stu
+        join sys_dept d on d.dept_id = stu.dept_id
+        group by d.dept_id, d.dept_name
+        order by avg(stu.stu_rate) asc nulls last
+    </select>
+
     <select id="selectClassTrend" resultType="java.util.HashMap">
         with paper_stu as (
             select d.paper_id,
@@ -693,6 +1060,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="examDateFrom != null">
                 and p.exam_date &gt;= #{examDateFrom}
             </if>
+            <if test="paperIds != null and paperIds.size() &gt; 0">
+                and d.paper_id in
+                <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+                    #{pid}
+                </foreach>
+            </if>
             group by d.paper_id, d.student_id
         )
         select p.paper_id as "paperId",
@@ -700,10 +1073,274 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                p.exam_date as "examDate",
                avg(ps.stu_rate) as "classAvgRate",
                count(ps.student_id) as "studentCount",
-               avg(case when ps.stu_rate is not null and ps.stu_rate &lt; 0.60 then 1.0 else 0.0 end) as "weakStudentRatio"
+               avg(case when ps.stu_rate is not null and ps.stu_rate &lt; #{weakRate} then 1.0 else 0.0 end) as "weakStudentRatio"
         from paper_stu ps
         join spas_paper p on p.paper_id = ps.paper_id
         group by p.paper_id, p.paper_name, p.exam_date
+        order by p.exam_date asc nulls last, p.paper_id asc
+    </select>
+
+    <select id="selectKnowledgeFrequency" resultType="java.util.HashMap">
+        select k.knowledge_id as "knowledgeId",
+               k.knowledge_name as "knowledgeName",
+               k.parent_id as "parentId",
+               pk.knowledge_name as "parentName",
+               count(distinct qk.question_id)::int as "questionCount",
+               count(distinct pq.paper_id)::int as "paperCount",
+               coalesce(sum(qk.weight), 0) as "weightSum",
+               coalesce(sum(pq.full_score * coalesce(qk.weight, 1)), 0) as "weightedScoreSum"
+        from spas_question_knowledge qk
+        join spas_paper_question pq on pq.question_id = qk.question_id
+        join spas_paper p on p.paper_id = pq.paper_id
+        join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+        left join spas_knowledge pk on pk.knowledge_id = k.parent_id
+        where pq.paper_id in
+        <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        and coalesce(k.node_type, '2') = '2'
+        <if test="subjectId != null">
+            and (p.subject_id = #{subjectId} or k.subject_id = #{subjectId})
+        </if>
+        group by k.knowledge_id, k.knowledge_name, k.parent_id, pk.knowledge_name
+        order by count(distinct qk.question_id) desc, coalesce(sum(qk.weight), 0) desc, k.knowledge_id asc
+    </select>
+
+    <select id="selectKnowledgeFrequencyByPaper" resultType="java.util.HashMap">
+        select pq.paper_id as "paperId",
+               p.paper_name as "paperName",
+               p.exam_date as "examDate",
+               k.knowledge_id as "knowledgeId",
+               k.knowledge_name as "knowledgeName",
+               count(distinct qk.question_id)::int as "questionCount",
+               coalesce(sum(qk.weight), 0) as "weightSum",
+               coalesce(sum(pq.full_score * coalesce(qk.weight, 1)), 0) as "weightedScoreSum"
+        from spas_question_knowledge qk
+        join spas_paper_question pq on pq.question_id = qk.question_id
+        join spas_paper p on p.paper_id = pq.paper_id
+        join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+        where pq.paper_id in
+        <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        and coalesce(k.node_type, '2') = '2'
+        <if test="subjectId != null">
+            and (p.subject_id = #{subjectId} or k.subject_id = #{subjectId})
+        </if>
+        group by pq.paper_id, p.paper_name, p.exam_date, k.knowledge_id, k.knowledge_name
+        order by p.exam_date asc nulls last, pq.paper_id asc, count(distinct qk.question_id) desc
+    </select>
+
+    <select id="selectKnowledgePriority" resultType="java.util.HashMap">
+        with freq as (
+            select k.knowledge_id,
+                   k.knowledge_name,
+                   k.parent_id,
+                   pk.knowledge_name as parent_name,
+                   count(distinct qk.question_id)::int as question_count,
+                   coalesce(sum(qk.weight), 0) as weight_sum
+            from spas_question_knowledge qk
+            join spas_paper_question pq on pq.question_id = qk.question_id
+            join spas_paper p on p.paper_id = pq.paper_id
+            join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+            left join spas_knowledge pk on pk.knowledge_id = k.parent_id
+            where pq.paper_id in
+            <foreach collection="paperIds" item="pid" open="(" separator="," close=")">
+                #{pid}
+            </foreach>
+            and coalesce(k.node_type, '2') = '2'
+            <if test="subjectId != null">
+                and (p.subject_id = #{subjectId} or k.subject_id = #{subjectId})
+            </if>
+            group by k.knowledge_id, k.knowledge_name, k.parent_id, pk.knowledge_name
+        ),
+        mastery as (
+            select st.knowledge_id,
+                   avg(st.weighted_rate) as avg_rate,
+                   avg(st.attempt_count::numeric) as attempt_avg,
+                   count(distinct st.student_id)::int as student_count
+            from spas_student_knowledge_stat st
+            join spas_student s on s.student_id = st.student_id and s.del_flag = '0' and s.status = '0'
+            where st.knowledge_id in (select knowledge_id from freq)
+            <if test="subjectId != null">
+                and st.subject_id = #{subjectId}
+            </if>
+            <if test="deptId != null">
+                and (
+                    s.dept_id = #{deptId}
+                    or s.dept_id in (
+                        select t.dept_id from sys_dept t
+                        where cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                    )
+                )
+            </if>
+            group by st.knowledge_id
+        )
+        select f.knowledge_id as "knowledgeId",
+               f.knowledge_name as "knowledgeName",
+               f.parent_id as "parentId",
+               f.parent_name as "parentName",
+               f.question_count as "questionCount",
+               f.weight_sum as "weightSum",
+               m.avg_rate as "avgRate",
+               m.attempt_avg as "attemptAvg",
+               coalesce(m.student_count, 0) as "studentCount"
+        from freq f
+        left join mastery m on m.knowledge_id = f.knowledge_id
+        order by f.question_count desc, m.avg_rate asc nulls last
+    </select>
+
+    <select id="selectQuestionEmpiricalRates" resultType="java.util.HashMap">
+        select d.question_id as "questionId",
+               avg(d.rate) as "avgRate",
+               count(distinct d.student_id)::int as "studentCount"
+        from spas_score_detail d
+        where coalesce(d.score_source, '2') not in ('4', '5')
+        group by d.question_id
+    </select>
+
+    <select id="selectWeakStudentsByKnowledge" resultType="java.util.HashMap">
+        select st.student_id as "studentId",
+               st.student_name as "studentName",
+               s.weighted_rate as "weightedRate"
+        from spas_student_knowledge_stat s
+        join spas_student st on st.student_id = s.student_id and st.del_flag = '0' and st.status = '0'
+        where s.knowledge_id = #{knowledgeId}
+          and s.weak_level in ('1', '2', '3')
+          and (st.dept_id = #{deptId} or st.dept_id in (
+            select x.dept_id from sys_dept x
+            where cast(#{deptId} as varchar) = any(string_to_array(x.ancestors, ','))
+          ))
+        <if test="subjectId != null">
+            and s.subject_id = #{subjectId}
+        </if>
+        order by s.weighted_rate asc
+        limit 80
+    </select>
+
+    <select id="selectStudentQuestionType" resultType="java.util.HashMap">
+        select coalesce(nullif(trim(q.question_type), ''), '_unlabeled') as "typeCode",
+               count(distinct q.question_id)::int as "questionCount",
+               count(1)::int as "attemptCount",
+               coalesce(sum(d.full_score), 0) as "fullScoreSum",
+               coalesce(sum(d.score), 0) as "scoreSum",
+               case when coalesce(sum(d.full_score), 0) &gt; 0
+                    then sum(d.score) / sum(d.full_score) else null end as "avgRate"
+        from spas_score_detail d
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_paper p on p.paper_id = d.paper_id
+        where d.student_id = #{studentId}
+          and coalesce(d.score_source, '2') not in ('4', '5')
+        <if test="subjectId != null">
+            and p.subject_id = #{subjectId}
+        </if>
+        <if test="examDateFrom != null">
+            and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+            and d.paper_id in
+            <foreach collection="paperIds" item="pid" open="(" separator="," close=")">#{pid}</foreach>
+        </if>
+        group by coalesce(nullif(trim(q.question_type), ''), '_unlabeled')
+        order by "typeCode"
+    </select>
+
+    <select id="selectClassQuestionType" resultType="java.util.HashMap">
+        select coalesce(nullif(trim(q.question_type), ''), '_unlabeled') as "typeCode",
+               count(distinct q.question_id)::int as "questionCount",
+               count(1)::int as "attemptCount",
+               coalesce(sum(d.full_score), 0) as "fullScoreSum",
+               coalesce(sum(d.score), 0) as "scoreSum",
+               case when coalesce(sum(d.full_score), 0) &gt; 0
+                    then sum(d.score) / sum(d.full_score) else null end as "avgRate"
+        from spas_score_detail d
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_paper p on p.paper_id = d.paper_id
+        join spas_student st on st.student_id = d.student_id and st.del_flag = '0' and st.status = '0'
+        where coalesce(d.score_source, '2') not in ('4', '5')
+          <include refid="studentDeptScope"/>
+        <if test="subjectId != null">
+            and p.subject_id = #{subjectId}
+        </if>
+        <if test="examDateFrom != null">
+            and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+            and d.paper_id in
+            <foreach collection="paperIds" item="pid" open="(" separator="," close=")">#{pid}</foreach>
+        </if>
+        group by coalesce(nullif(trim(q.question_type), ''), '_unlabeled')
+        order by "typeCode"
+    </select>
+
+    <select id="selectStudentBloom" resultType="java.util.HashMap">
+        select coalesce(nullif(trim(q.bloom_level), ''), '_unlabeled') as "bloomLevel",
+               count(distinct q.question_id)::int as "questionCount",
+               count(1)::int as "attemptCount",
+               coalesce(sum(d.full_score), 0) as "fullScoreSum",
+               coalesce(sum(d.score), 0) as "scoreSum",
+               case when coalesce(sum(d.full_score), 0) &gt; 0
+                    then sum(d.score) / sum(d.full_score) else null end as "avgRate"
+        from spas_score_detail d
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_paper p on p.paper_id = d.paper_id
+        where d.student_id = #{studentId}
+          and coalesce(d.score_source, '2') not in ('4', '5')
+        <if test="subjectId != null">
+            and p.subject_id = #{subjectId}
+        </if>
+        <if test="examDateFrom != null">
+            and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+            and d.paper_id in
+            <foreach collection="paperIds" item="pid" open="(" separator="," close=")">#{pid}</foreach>
+        </if>
+        group by coalesce(nullif(trim(q.bloom_level), ''), '_unlabeled')
+        order by "bloomLevel"
+    </select>
+
+    <select id="selectClassBloom" resultType="java.util.HashMap">
+        select coalesce(nullif(trim(q.bloom_level), ''), '_unlabeled') as "bloomLevel",
+               count(distinct q.question_id)::int as "questionCount",
+               count(1)::int as "attemptCount",
+               coalesce(sum(d.full_score), 0) as "fullScoreSum",
+               coalesce(sum(d.score), 0) as "scoreSum",
+               case when coalesce(sum(d.full_score), 0) &gt; 0
+                    then sum(d.score) / sum(d.full_score) else null end as "avgRate"
+        from spas_score_detail d
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_paper p on p.paper_id = d.paper_id
+        join spas_student st on st.student_id = d.student_id and st.del_flag = '0' and st.status = '0'
+        where coalesce(d.score_source, '2') not in ('4', '5')
+          <include refid="studentDeptScope"/>
+        <if test="subjectId != null">
+            and p.subject_id = #{subjectId}
+        </if>
+        <if test="examDateFrom != null">
+            and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="paperIds != null and paperIds.size() &gt; 0">
+            and d.paper_id in
+            <foreach collection="paperIds" item="pid" open="(" separator="," close=")">#{pid}</foreach>
+        </if>
+        group by coalesce(nullif(trim(q.bloom_level), ''), '_unlabeled')
+        order by "bloomLevel"
+    </select>
+
+    <select id="selectPaperIdsByExamDateRange" resultType="java.lang.Long">
+        select p.paper_id
+        from spas_paper p
+        where p.status = '1'
+        <if test="subjectId != null">
+            and p.subject_id = #{subjectId}
+        </if>
+        <if test="examDateFrom != null">
+            and p.exam_date &gt;= #{examDateFrom}
+        </if>
+        <if test="examDateTo != null">
+            and p.exam_date &lt; #{examDateTo}
+        </if>
         order by p.exam_date asc nulls last, p.paper_id asc
     </select>
 

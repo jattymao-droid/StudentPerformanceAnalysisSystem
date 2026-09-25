@@ -32,6 +32,13 @@ public class SpasOpenAdminController extends BaseController
     private ISpasOpenAdminService openAdminService;
 
     @PreAuthorize("@ss.hasPermi('spas:open:client:list')")
+    @GetMapping("/status")
+    public AjaxResult openStatus()
+    {
+        return success(openAdminService.openRuntimeStatus());
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:open:client:list')")
     @GetMapping("/client/list")
     public TableDataInfo clientList(SpasOpenClient query)
     {

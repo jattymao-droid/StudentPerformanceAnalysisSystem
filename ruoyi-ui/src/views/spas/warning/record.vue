@@ -27,18 +27,26 @@
       <el-col :span="1.5">
         <el-button type="warning" plain icon="el-icon-download" size="mini" @click="handleExport" v-hasPermi="['spas:warning:record']">导出</el-button>
       </el-col>
+      <el-col :span="1.5">
+        <el-button type="success" plain icon="el-icon-check" size="mini" :disabled="!ids.length" @click="openBatchHandle('1')" v-hasPermi="['spas:warning:record:handle']">批量处理</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="info" plain icon="el-icon-close" size="mini" :disabled="!ids.length" @click="openBatchHandle('2')" v-hasPermi="['spas:warning:record:handle']">批量忽略</el-button>
+      </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
 
     <el-alert v-if="!loading && (!recordList || recordList.length===0)" type="info" :closable="false" show-icon style="margin-bottom:12px"
       title="暂无预警记录：可前往「预警规则」点击「立即执行」生成（演示规则已预置）" />
-    <el-table v-loading="loading" :data="recordList">
+    <el-table v-loading="loading" :data="recordList" @selection-change="handleSelectionChange">
+      <el-table-column type="selection" width="50" align="center" :selectable="rowSelectable" />
       <el-table-column label="编号" align="center" prop="warningId" width="80" />
       <el-table-column label="学号" align="center" prop="studentNo" width="120" />
       <el-table-column label="学生" align="center" prop="studentName" width="100" />
       <el-table-column label="规则" align="center" prop="ruleName" min-width="140" :show-overflow-tooltip="true" />
-      <el-table-column label="标题" align="center" prop="title" min-width="140" :show-overflow-tooltip="true" />
+      <el-table-column label="触发说明" align="center" prop="content" min-width="220" :show-overflow-tooltip="true" />
+      <el-table-column label="标题" align="center" prop="title" min-width="120" :show-overflow-tooltip="true" />
       <el-table-column label="指标值" align="center" prop="metricValue" width="110">
         <template slot-scope="scope">
           <span>{{ formatMetricValue(scope.row) }}</span>
@@ -112,6 +120,9 @@
         <el-descriptions-item label="标题">{{ current.title }}</el-descriptions-item>
         <el-descriptions-item label="内容">{{ current.content }}</el-descriptions-item>
         <el-descriptions-item label="指标值">{{ formatMetricValue(current) }}</el-descriptions-item>
+        <el-descriptions-item v-if="reasonRows.length" label="结构化原因">
+          <div v-for="row in reasonRows" :key="row.k" style="line-height: 1.6">{{ row.k }}：{{ row.v }}</div>
+        </el-descriptions-item>
         <el-descriptions-item label="处理人">{{ current.handleBy || '-' }}</el-descriptions-item>
         <el-descriptions-item label="处理时间">{{ parseTime(current.handleTime) || '-' }}</el-descriptions-item>
         <el-descriptions-item label="处理备注">{{ current.handleRemark || '-' }}</el-descriptions-item>
@@ -129,12 +140,47 @@
         <el-button @click="handleOpen = false">取 消</el-button>
       </div>
     </el-dialog>
+
+    <el-dialog title="关联薄弱知识点" :visible.sync="kpOpen" width="520px" append-to-body>
+      <p class="mb8" style="color:#64748B;font-size:13px">
+        将按该生当前薄弱知识点创建干预并冻结基线（默认全选，可取消个别项）。
+      </p>
+      <div v-loading="kpLoading">
+        <el-empty v-if="!kpLoading && !knowledgeOptions.length" description="未找到薄弱知识点，请先在学情分析中确认数据" :image-size="64" />
+        <el-select
+          v-else
+          v-model="kpForm.knowledgeIds"
+          multiple
+          filterable
+          collapse-tags
+          placeholder="选择薄弱知识点"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="item in knowledgeOptions"
+            :key="item.knowledgeId"
+            :label="weakKpLabel(item)"
+            :value="item.knowledgeId"
+          />
+        </el-select>
+        <p v-if="knowledgeOptions.length" class="mt8" style="color:#94A3B8;font-size:12px;margin:8px 0 0">
+          已选 {{ (kpForm.knowledgeIds || []).length }} / {{ knowledgeOptions.length }} 个
+          <el-button type="text" size="mini" @click="selectAllWeakKp">全选</el-button>
+          <el-button type="text" size="mini" @click="kpForm.knowledgeIds = []">清空</el-button>
+        </p>
+      </div>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" :disabled="kpLoading || !(kpForm.knowledgeIds && kpForm.knowledgeIds.length)" @click="submitInterveneKp">创建干预</el-button>
+        <el-button @click="kpOpen = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import { listWarningRecord, handleWarningRecord } from '@/api/spas/warning'
 import { createFromWarning } from '@/api/spas/intervene'
+import { weakTopStudent } from '@/api/spas/analysis'
 
 export default {
   name: 'SpasWarningRecord',
@@ -145,6 +191,8 @@ export default {
       showSearch: true,
       total: 0,
       recordList: [],
+      ids: [],
+      selectedRows: [],
       viewOpen: false,
       handleOpen: false,
       handleTitle: '',
@@ -154,6 +202,11 @@ export default {
         status: undefined,
         handleRemark: undefined
       },
+      kpOpen: false,
+      kpLoading: false,
+      kpForm: { knowledgeIds: [] },
+      knowledgeOptions: [],
+      pendingWarning: null,
       queryParams: {
         pageNum: 1,
         pageSize: 10,
@@ -162,6 +215,36 @@ export default {
         level: undefined,
         status: '0'
       }
+    }
+  },
+  computed: {
+    reasonRows() {
+      const raw = this.current && this.current.reasonJson
+      if (!raw) return []
+      let obj
+      try {
+        obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+      } catch (e) {
+        return []
+      }
+      const labels = {
+        metricLabel: '指标',
+        operator: '运算符',
+        threshold: '阈值',
+        metricValue: '当前值',
+        analysisWindow: '分析口径',
+        windowDays: '场次窗',
+        ruleCode: '规则码',
+        level: '级别'
+      }
+      const order = ['metricLabel', 'operator', 'threshold', 'metricValue', 'analysisWindow', 'windowDays', 'ruleCode', 'level']
+      const rows = []
+      order.forEach(k => {
+        if (obj[k] != null && obj[k] !== '') {
+          rows.push({ k: labels[k] || k, v: String(obj[k]) })
+        }
+      })
+      return rows
     }
   },
   created() {
@@ -192,9 +275,32 @@ export default {
       this.current = row
       this.viewOpen = true
     },
+    handleSelectionChange(selection) {
+      this.selectedRows = selection || []
+      this.ids = (selection || []).map(r => r.warningId)
+    },
+    rowSelectable(row) {
+      return row && row.status === '0'
+    },
+    openBatchHandle(status) {
+      const openRows = (this.selectedRows || []).filter(r => r.status === '0')
+      if (!openRows.length) {
+        this.$modal.msgWarning('请先勾选待处理的预警')
+        return
+      }
+      this.handleForm = {
+        warningId: undefined,
+        warningIds: openRows.map(r => r.warningId),
+        status: status,
+        handleRemark: undefined
+      }
+      this.handleTitle = (status === '1' ? '批量处理' : '批量忽略') + ' (' + openRows.length + ')'
+      this.handleOpen = true
+    },
     openHandle(row, status) {
       this.handleForm = {
         warningId: row.warningId,
+        warningIds: undefined,
         status: status,
         handleRemark: undefined
       }
@@ -202,11 +308,23 @@ export default {
       this.handleOpen = true
     },
     submitHandle() {
-      handleWarningRecord(this.handleForm).then(() => {
-        this.$modal.msgSuccess('操作成功')
+      const ids = this.handleForm.warningIds && this.handleForm.warningIds.length
+        ? this.handleForm.warningIds
+        : (this.handleForm.warningId != null ? [this.handleForm.warningId] : [])
+      if (!ids.length) {
+        this.$modal.msgWarning('无效预警')
+        return
+      }
+      const tasks = ids.map(id => handleWarningRecord({
+        warningId: id,
+        status: this.handleForm.status,
+        handleRemark: this.handleForm.handleRemark
+      }))
+      Promise.all(tasks).then(() => {
+        this.$modal.msgSuccess('操作成功 (' + ids.length + ')')
         this.handleOpen = false
         this.getList()
-      })
+      }).catch(() => {})
     },
     formatMetricValue(row) {
       if (!row || row.metricValue == null || row.metricValue === '') {
@@ -238,14 +356,94 @@ export default {
       this.$router.push({ path: '/spas/analysis/student', query })
     },
     goIntervene(row) {
-      this.$modal.confirm('确认为该预警创建干预任务？将冻结当前知识点基线。').then(() => {
+      if (!row || !row.studentId) {
+        this.$modal.msgWarning('预警缺少学生信息')
+        return
+      }
+      this.pendingWarning = row
+      this.kpForm = { knowledgeIds: [] }
+      this.knowledgeOptions = []
+      this.kpOpen = true
+      this.kpLoading = true
+      weakTopStudent(row.studentId, {
+        subjectId: row.subjectId,
+        limit: 100
+      }).then(res => {
+        const list = this.normalizeWeakList(res && res.data)
+        // 预警已挂知识点时一并纳入，避免漏关联
+        if (row.knowledgeId && !list.some(i => String(i.knowledgeId) === String(row.knowledgeId))) {
+          list.unshift({
+            knowledgeId: row.knowledgeId,
+            knowledgeName: row.knowledgeName || ('#' + row.knowledgeId),
+            rate: null,
+            weakLevel: '2'
+          })
+        }
+        this.knowledgeOptions = list
+        this.kpForm.knowledgeIds = list.map(i => i.knowledgeId)
+        if (!list.length) {
+          this.$modal.msgWarning('该生暂无薄弱知识点，请先在学情分析中确认')
+        }
+      }).catch(() => {
+        this.knowledgeOptions = []
+        this.$modal.msgError('加载薄弱知识点失败')
+      }).finally(() => {
+        this.kpLoading = false
+      })
+    },
+    normalizeWeakList(raw) {
+      const rows = Array.isArray(raw) ? raw : []
+      const out = []
+      const seen = {}
+      rows.forEach(r => {
+        const id = r.knowledgeId != null ? r.knowledgeId : r.id
+        if (id == null || seen[String(id)]) return
+        const level = String(r.weakLevel != null ? r.weakLevel : '')
+        const rate = r.rate != null ? Number(r.rate) : (r.weightedRate != null ? Number(r.weightedRate) : null)
+        // 薄弱：关注/薄弱/严重，或得分率低于 60%
+        const isWeak = level === '1' || level === '2' || level === '3' || (rate != null && !isNaN(rate) && rate < 0.6)
+        if (!isWeak) return
+        seen[String(id)] = true
+        out.push({
+          knowledgeId: id,
+          knowledgeName: r.knowledgeName || r.name || ('#' + id),
+          rate: rate,
+          weakLevel: level || undefined
+        })
+      })
+      return out
+    },
+    weakKpLabel(item) {
+      const name = item.knowledgeName || ('#' + item.knowledgeId)
+      if (item.rate == null || isNaN(Number(item.rate))) return name
+      const n = Number(item.rate)
+      const pct = Math.abs(n) <= 1 ? n * 100 : n
+      return name + '（' + pct.toFixed(1) + '%）'
+    },
+    selectAllWeakKp() {
+      this.kpForm.knowledgeIds = (this.knowledgeOptions || []).map(i => i.knowledgeId)
+    },
+    submitInterveneKp() {
+      const ids = this.kpForm.knowledgeIds || []
+      if (!ids.length) {
+        this.$modal.msgWarning('请至少选择一个薄弱知识点')
+        return
+      }
+      this.submitFromWarning(this.pendingWarning, ids)
+    },
+    submitFromWarning(row, knowledgeIdList) {
+      if (!row) return
+      const n = (knowledgeIdList || []).length
+      this.$modal.confirm('确认为该预警创建干预任务？将关联 ' + n + ' 个知识点并冻结基线。').then(() => {
         return createFromWarning(row.warningId, {
           subjectId: row.subjectId,
-          targetRate: 0.6
+          targetRate: 0.6,
+          knowledgeIdList
         })
       }).then(res => {
+        this.kpOpen = false
         const id = res.data && res.data.interveneId
-        this.$modal.msgSuccess('干预任务已创建' + (id ? (' #' + id) : ''))
+        this.$modal.msgSuccess('干预任务已创建' + (id ? (' #' + id) : '') + '，已关联 ' + n + ' 个知识点')
         this.$router.push({ path: '/spas/intervene', query: { status: '0' } })
       }).catch(() => {})
     }

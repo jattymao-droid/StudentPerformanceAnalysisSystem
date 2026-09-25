@@ -42,9 +42,13 @@ import com.ruoyi.spas.mapper.SpasAnalysisMapper;
 import com.ruoyi.spas.service.ISpasScoreService;
 import com.ruoyi.spas.service.ISpasStudentService;
 import com.ruoyi.spas.service.ISpasInterveneService;
+import com.ruoyi.spas.config.SpasPaperProperties;
+import com.ruoyi.spas.support.PaperAnnotationInspector;
 import com.ruoyi.spas.support.SpasAccessService;
 import com.ruoyi.spas.support.SpasTeacherScopeService;
 import com.ruoyi.spas.warning.WarningEngine;
+import com.ruoyi.common.core.domain.entity.SysDept;
+import com.ruoyi.system.service.ISysDeptService;
 
 /**
  * Score import service implementation
@@ -86,7 +90,13 @@ public class SpasScoreServiceImpl implements ISpasScoreService
     private SpasTeacherScopeService teacherScopeService;
 
     @Autowired
+    private SpasPaperProperties paperProperties;
+
+    @Autowired
     private SpasAccessService accessService;
+
+    @Autowired
+    private ISysDeptService deptService;
 
     @Value("${spas.score.blank-as-zero:true}")
     private boolean blankAsZero;
@@ -196,6 +206,8 @@ public class SpasScoreServiceImpl implements ISpasScoreService
         {
             throw new ServiceException("试卷尚未维护题目");
         }
+        PaperAnnotationInspector.assertReady(questions, paperMapper.selectKnowledgeByPaperId(paperId),
+            paperProperties.isRequireQuestionType(), paperProperties.isRequireBloomLevel());
         Map<String, SpasPaperQuestion> questionMap = new HashMap<String, SpasPaperQuestion>();
         for (SpasPaperQuestion q : questions)
         {
@@ -272,14 +284,18 @@ public class SpasScoreServiceImpl implements ISpasScoreService
                     {
                         throw new ServiceException("学号为空");
                     }
+                    if (isIgnorableStudentNo(studentNo))
+                    {
+                        totalRows--;
+                        continue;
+                    }
                     SpasStudent student = studentMapper.selectSpasStudentByStudentNo(studentNo);
                     if (student == null)
                     {
                         throw new ServiceException("找不到学生：" + studentNo);
                     }
                     accessService.checkStudentAccess(student.getStudentId());
-                    if (paper.getDeptId() != null && student.getDeptId() != null
-                        && !paper.getDeptId().equals(student.getDeptId()))
+                    if (!isStudentUnderPaperDept(paper.getDeptId(), student.getDeptId()))
                     {
                         throw new ServiceException("学生班级与试卷所属班级不一致：" + studentNo);
                     }
@@ -296,28 +312,21 @@ public class SpasScoreServiceImpl implements ISpasScoreService
                     {
                         String scoreText = formatter.formatCellValue(row.getCell(entry.getKey())).trim();
                         SpasPaperQuestion question = entry.getValue();
-                        BigDecimal score;
-                        String scoreSource = "2";
-                        if (StringUtils.isEmpty(scoreText))
+                        com.ruoyi.spas.support.SpasScoreCellParser.Result parsed;
+                        try
                         {
-                            if (!blankAsZero)
-                            {
-                                continue;
-                            }
-                            score = BigDecimal.ZERO;
-                            scoreSource = "3";
+                            parsed = com.ruoyi.spas.support.SpasScoreCellParser.parse(scoreText, blankAsZero);
                         }
-                        else
+                        catch (IllegalArgumentException ex)
                         {
-                            try
-                            {
-                                score = new BigDecimal(scoreText);
-                            }
-                            catch (NumberFormatException ex)
-                            {
-                                throw new ServiceException("题目得分非法 Q" + question.getQuestionNo() + ": " + scoreText);
-                            }
+                            throw new ServiceException("题目得分非法 Q" + question.getQuestionNo() + ": " + scoreText);
                         }
+                        if (parsed == null)
+                        {
+                            continue;
+                        }
+                        BigDecimal score = parsed.getScore();
+                        String scoreSource = parsed.getScoreSource();
                         if (score.compareTo(BigDecimal.ZERO) < 0 || score.compareTo(question.getFullScore()) > 0)
                         {
                             throw new ServiceException("题目得分超出满分 Q" + question.getQuestionNo()
@@ -439,6 +448,17 @@ public class SpasScoreServiceImpl implements ISpasScoreService
                 knowledgeStatCalculator.recalculateByStudent(studentId);
             }
         }
+        if (autoEvaluateIntervene && studentIds != null && !studentIds.isEmpty())
+        {
+            if (asyncEvaluateIntervene)
+            {
+                interveneService.evaluateOpenForStudentsAsync(studentIds);
+            }
+            else
+            {
+                interveneService.evaluateOpenForStudents(studentIds);
+            }
+        }
         return 1;
     }
 
@@ -450,6 +470,47 @@ public class SpasScoreServiceImpl implements ISpasScoreService
     private boolean isStudentNameHeader(String header)
     {
         return "studentName".equalsIgnoreCase(header) || "\u59d3\u540d".equals(header);
+    }
+
+    /**
+     * Paper may hang on grade/school; students hang on class. Allow exact match
+     * or student dept under paper dept (ancestors contains paperDeptId).
+     */
+    private boolean isStudentUnderPaperDept(Long paperDeptId, Long studentDeptId)
+    {
+        if (paperDeptId == null || studentDeptId == null)
+        {
+            return true;
+        }
+        if (paperDeptId.equals(studentDeptId))
+        {
+            return true;
+        }
+        SysDept studentDept = deptService.selectDeptById(studentDeptId);
+        if (studentDept == null || StringUtils.isEmpty(studentDept.getAncestors()))
+        {
+            return false;
+        }
+        String paperIdText = String.valueOf(paperDeptId);
+        for (String part : studentDept.getAncestors().split(","))
+        {
+            if (paperIdText.equals(part.trim()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isIgnorableStudentNo(String studentNo)
+    {
+        if (StringUtils.isEmpty(studentNo))
+        {
+            return false;
+        }
+        String v = studentNo.trim();
+        return "-".equals(v) || "—".equals(v) || "–".equals(v)
+            || "合计".equals(v) || "小计".equals(v) || "平均".equals(v);
     }
 
     private boolean isRowEmpty(Row row, DataFormatter formatter)

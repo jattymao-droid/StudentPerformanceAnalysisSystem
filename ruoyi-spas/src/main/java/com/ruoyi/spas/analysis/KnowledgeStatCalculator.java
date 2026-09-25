@@ -42,6 +42,24 @@ public class KnowledgeStatCalculator
     @Value("${spas.analysis.difficulty-weight.hard:1.5}")
     private double difficultyHard;
 
+    @Value("${spas.analysis.difficulty-weight.empirical-enabled:true}")
+    private boolean empiricalEnabled;
+
+    @Value("${spas.analysis.difficulty-weight.empirical-min-students:8}")
+    private int empiricalMinStudents;
+
+    @Value("${spas.analysis.difficulty-weight.empirical-blend:0.5}")
+    private double empiricalBlend;
+
+    @Value("${spas.analysis.difficulty-weight.empirical-easy-rate:0.80}")
+    private double empiricalEasyRate;
+
+    @Value("${spas.analysis.difficulty-weight.empirical-hard-rate:0.40}")
+    private double empiricalHardRate;
+
+    /** questionId -> [avgRate, studentCount] */
+    private volatile Map<Long, double[]> empiricalCache;
+
     @Value("${spas.analysis.weak-thresholds.watch:0.75}")
     private double watchThreshold;
 
@@ -59,6 +77,49 @@ public class KnowledgeStatCalculator
 
     @Value("${spas.analysis.recency-half-life-days:60}")
     private int recencyHalfLifeDays;
+
+    /**
+     * Recency as-of date strategy:
+     * today = query day (may drift day-to-day);
+     * max-exam = latest exam date in the row set (stable until new exam);
+     * semester-end = current semester end date (stable within semester).
+     */
+    @Value("${spas.analysis.recency-anchor:today}")
+    private String recencyAnchor;
+
+    @Autowired(required = false)
+    private com.ruoyi.spas.support.SpasAnalysisWindowHelper windowHelper;
+
+    /** Request-scoped override: null=use config, 0=disable, >0=custom half-life days */
+    private static final ThreadLocal<Integer> RECENCY_OVERRIDE = new ThreadLocal<>();
+
+    public String getRecencyAnchor()
+    {
+        return recencyAnchor == null || recencyAnchor.trim().isEmpty() ? "today" : recencyAnchor.trim().toLowerCase();
+    }
+
+    public static void setRecencyOverride(Integer halfLifeDays)
+    {
+        if (halfLifeDays == null)
+        {
+            RECENCY_OVERRIDE.remove();
+        }
+        else
+        {
+            RECENCY_OVERRIDE.set(halfLifeDays);
+        }
+    }
+
+    public static void clearRecencyOverride()
+    {
+        RECENCY_OVERRIDE.remove();
+    }
+
+    public int effectiveRecencyHalfLifeDays()
+    {
+        Integer ov = RECENCY_OVERRIDE.get();
+        return ov != null ? ov.intValue() : recencyHalfLifeDays;
+    }
 
     @Value("${spas.analysis.rate-scale:6}")
     private int rateScale;
@@ -95,6 +156,7 @@ public class KnowledgeStatCalculator
         {
             return 0;
         }
+        clearEmpiricalCache();
         int upserted = 0;
         for (Long studentId : studentIds)
         {
@@ -123,10 +185,14 @@ public class KnowledgeStatCalculator
         {
             return map;
         }
-        LocalDate today = LocalDate.now(ZONE);
+        LocalDate asOf = resolveRecencyAsOf(rows);
         for (SpasAnalysisScoreRow row : rows)
         {
             if (row.getKnowledgeId() == null || row.getStudentId() == null)
+            {
+                continue;
+            }
+            if (!com.ruoyi.spas.support.SpasScoreCellParser.countsTowardMastery(row.getScoreSource()))
             {
                 continue;
             }
@@ -137,12 +203,17 @@ public class KnowledgeStatCalculator
                 agg.studentId = row.getStudentId();
                 agg.knowledgeId = row.getKnowledgeId();
                 agg.subjectId = row.getSubjectId();
+                agg.knowledgeName = row.getKnowledgeName();
                 map.put(row.getKnowledgeId(), agg);
+            }
+            if (agg.knowledgeName == null && row.getKnowledgeName() != null)
+            {
+                agg.knowledgeName = row.getKnowledgeName();
             }
             BigDecimal weight = row.getWeight() == null ? BigDecimal.ONE : row.getWeight();
             BigDecimal rate = row.getRate() == null ? BigDecimal.ZERO : row.getRate();
-            double dw = difficultyWeight(row.getDifficulty());
-            double recency = recencyFactor(row.getExamDate(), today);
+            double dw = difficultyWeight(row.getDifficulty(), row.getQuestionId());
+            double recency = recencyFactor(row.getExamDate(), asOf);
             BigDecimal sampleW = weight.multiply(BigDecimal.valueOf(dw)).multiply(BigDecimal.valueOf(recency));
             agg.sumWeightedRate = agg.sumWeightedRate.add(rate.multiply(sampleW));
             agg.sumSampleW = agg.sumSampleW.add(sampleW);
@@ -164,6 +235,35 @@ public class KnowledgeStatCalculator
             }
         }
         return map;
+    }
+
+    /** Public live aggregation for scoped queries (same formula as snapshot). */
+    public Map<Long, AggView> aggregateViews(List<SpasAnalysisScoreRow> rows)
+    {
+        Map<Long, Agg> raw = aggregate(rows);
+        Map<Long, AggView> views = new HashMap<Long, AggView>();
+        for (Map.Entry<Long, Agg> e : raw.entrySet())
+        {
+            views.put(e.getKey(), AggView.from(e.getValue()));
+        }
+        return views;
+    }
+
+    public SpasStudentKnowledgeStat toStatView(AggView view)
+    {
+        Agg agg = new Agg();
+        agg.studentId = view.studentId;
+        agg.knowledgeId = view.knowledgeId;
+        agg.subjectId = view.subjectId;
+        agg.knowledgeName = view.knowledgeName;
+        agg.sumWeightedRate = view.sumWeightedRate;
+        agg.sumSampleW = view.sumSampleW;
+        agg.sumRate = view.sumRate;
+        agg.rateCount = view.rateCount;
+        agg.questionIds = view.questionIds;
+        agg.lastPaperId = view.lastPaperId;
+        agg.lastExamDate = view.lastExamDate;
+        return toStat(agg);
     }
 
     private SpasStudentKnowledgeStat toStat(Agg agg)
@@ -213,6 +313,39 @@ public class KnowledgeStatCalculator
         return "0";
     }
 
+    public boolean belowWeakRate(BigDecimal rate)
+    {
+        double r = rate == null ? 0D : rate.doubleValue();
+        return r < weakThreshold;
+    }
+
+    public boolean belowSevereRate(BigDecimal rate)
+    {
+        double r = rate == null ? 0D : rate.doubleValue();
+        return r < severeThreshold;
+    }
+
+    /** Exposed for live weak-top evidence tagging (same threshold as snapshot). */
+    public int resolveMinAttempts()
+    {
+        return Math.max(minAttempts, 1);
+    }
+
+    public double resolveWeakThreshold()
+    {
+        return weakThreshold;
+    }
+
+    public double resolveWatchThreshold()
+    {
+        return watchThreshold;
+    }
+
+    public double resolveSevereThreshold()
+    {
+        return severeThreshold;
+    }
+
     /** Confidence 0~1 based on attempt volume relative to min-attempts. */
     public BigDecimal confidence(int attempts)
     {
@@ -221,7 +354,90 @@ public class KnowledgeStatCalculator
         return BigDecimal.valueOf(c).setScale(4, RoundingMode.HALF_UP);
     }
 
+    public void clearEmpiricalCache()
+    {
+        empiricalCache = null;
+    }
+
+    private Map<Long, double[]> ensureEmpiricalCache()
+    {
+        Map<Long, double[]> cache = empiricalCache;
+        if (cache != null)
+        {
+            return cache;
+        }
+        synchronized (this)
+        {
+            if (empiricalCache != null)
+            {
+                return empiricalCache;
+            }
+            Map<Long, double[]> map = new HashMap<Long, double[]>();
+            List<Map<String, Object>> rows = analysisMapper.selectQuestionEmpiricalRates();
+            if (rows != null)
+            {
+                for (Map<String, Object> row : rows)
+                {
+                    Object qid = row.get("questionId");
+                    Object rate = row.get("avgRate");
+                    Object cnt = row.get("studentCount");
+                    if (qid == null || rate == null)
+                    {
+                        continue;
+                    }
+                    try
+                    {
+                        map.put(Long.valueOf(qid.toString()),
+                            new double[] { Double.parseDouble(rate.toString()),
+                                cnt == null ? 0.0 : Double.parseDouble(cnt.toString()) });
+                    }
+                    catch (Exception ignored)
+                    {
+                        // skip bad row
+                    }
+                }
+            }
+            empiricalCache = map;
+            return map;
+        }
+    }
+
     private double difficultyWeight(String difficulty)
+    {
+        return difficultyWeight(difficulty, null);
+    }
+
+    private double difficultyWeight(String difficulty, Long questionId)
+    {
+        double tagged = taggedDifficultyWeight(difficulty);
+        if (!empiricalEnabled || questionId == null || empiricalBlend <= 0)
+        {
+            return tagged;
+        }
+        double[] emp = ensureEmpiricalCache().get(questionId);
+        if (emp == null || emp[1] < empiricalMinStudents)
+        {
+            return tagged;
+        }
+        double empirical = taggedDifficultyWeight(rateToDifficultyTier(emp[0]));
+        double blend = Math.max(0.0, Math.min(1.0, empiricalBlend));
+        return blend * empirical + (1.0 - blend) * tagged;
+    }
+
+    private String rateToDifficultyTier(double avgRate)
+    {
+        if (avgRate >= empiricalEasyRate)
+        {
+            return "1";
+        }
+        if (avgRate <= empiricalHardRate)
+        {
+            return "3";
+        }
+        return "2";
+    }
+
+    private double taggedDifficultyWeight(String difficulty)
     {
         if ("1".equals(difficulty))
         {
@@ -234,19 +450,52 @@ public class KnowledgeStatCalculator
         return difficultyMedium;
     }
 
-    private double recencyFactor(Date examDate, LocalDate today)
+    private LocalDate resolveRecencyAsOf(List<SpasAnalysisScoreRow> rows)
     {
-        if (recencyHalfLifeDays <= 0 || examDate == null)
+        String mode = getRecencyAnchor();
+        if ("semester-end".equals(mode) && windowHelper != null)
+        {
+            LocalDate end = windowHelper.resolveSemesterEnd(LocalDate.now(ZONE));
+            if (end != null)
+            {
+                return end;
+            }
+        }
+        if ("max-exam".equals(mode) || "semester-end".equals(mode))
+        {
+            Date max = null;
+            if (rows != null)
+            {
+                for (SpasAnalysisScoreRow row : rows)
+                {
+                    if (row.getExamDate() != null && (max == null || row.getExamDate().after(max)))
+                    {
+                        max = row.getExamDate();
+                    }
+                }
+            }
+            if (max != null)
+            {
+                return Instant.ofEpochMilli(max.getTime()).atZone(ZONE).toLocalDate();
+            }
+        }
+        return LocalDate.now(ZONE);
+    }
+
+    private double recencyFactor(Date examDate, LocalDate asOf)
+    {
+        int halfLife = effectiveRecencyHalfLifeDays();
+        if (halfLife <= 0 || examDate == null)
         {
             return 1.0;
         }
         LocalDate exam = Instant.ofEpochMilli(examDate.getTime()).atZone(ZONE).toLocalDate();
-        long days = ChronoUnit.DAYS.between(exam, today);
+        long days = ChronoUnit.DAYS.between(exam, asOf);
         if (days < 0)
         {
             days = 0;
         }
-        return Math.pow(0.5, days / (double) recencyHalfLifeDays);
+        return Math.pow(0.5, days / (double) halfLife);
     }
 
     private static class Agg
@@ -254,6 +503,7 @@ public class KnowledgeStatCalculator
         Long studentId;
         Long knowledgeId;
         Long subjectId;
+        String knowledgeName;
         BigDecimal sumWeightedRate = BigDecimal.ZERO;
         BigDecimal sumSampleW = BigDecimal.ZERO;
         BigDecimal sumRate = BigDecimal.ZERO;
@@ -261,5 +511,38 @@ public class KnowledgeStatCalculator
         Set<Long> questionIds = new HashSet<Long>();
         Long lastPaperId;
         Date lastExamDate;
+    }
+
+    /** Read-only aggregate view for live query services. */
+    public static class AggView
+    {
+        public Long studentId;
+        public Long knowledgeId;
+        public Long subjectId;
+        public String knowledgeName;
+        public BigDecimal sumWeightedRate = BigDecimal.ZERO;
+        public BigDecimal sumSampleW = BigDecimal.ZERO;
+        public BigDecimal sumRate = BigDecimal.ZERO;
+        public int rateCount = 0;
+        public Set<Long> questionIds = new HashSet<Long>();
+        public Long lastPaperId;
+        public Date lastExamDate;
+
+        static AggView from(Agg agg)
+        {
+            AggView v = new AggView();
+            v.studentId = agg.studentId;
+            v.knowledgeId = agg.knowledgeId;
+            v.subjectId = agg.subjectId;
+            v.knowledgeName = agg.knowledgeName;
+            v.sumWeightedRate = agg.sumWeightedRate;
+            v.sumSampleW = agg.sumSampleW;
+            v.sumRate = agg.sumRate;
+            v.rateCount = agg.rateCount;
+            v.questionIds = agg.questionIds;
+            v.lastPaperId = agg.lastPaperId;
+            v.lastExamDate = agg.lastExamDate;
+            return v;
+        }
     }
 }

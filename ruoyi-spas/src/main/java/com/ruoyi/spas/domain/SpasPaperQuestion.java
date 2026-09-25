@@ -31,8 +31,13 @@ public class SpasPaperQuestion extends BaseEntity
     /** Difficulty (1 easy 2 medium 3 hard) */
     private String difficulty;
 
-    /** Question type */
     private String questionType;
+
+    /** Bloom cognitive level: remember|understand|apply|analyze */
+    private String bloomLevel;
+
+    /** Source bank question id (spas_qb_question), nullable */
+    private Long bankQuestionId;
 
     /** Bound knowledge list */
     private List<SpasQuestionKnowledge> knowledgeList;
@@ -107,6 +112,26 @@ public class SpasPaperQuestion extends BaseEntity
         this.questionType = questionType;
     }
 
+    public String getBloomLevel()
+    {
+        return bloomLevel;
+    }
+
+    public void setBloomLevel(String bloomLevel)
+    {
+        this.bloomLevel = bloomLevel;
+    }
+
+    public Long getBankQuestionId()
+    {
+        return bankQuestionId;
+    }
+
+    public void setBankQuestionId(Long bankQuestionId)
+    {
+        this.bankQuestionId = bankQuestionId;
+    }
+
     public List<SpasQuestionKnowledge> getKnowledgeList()
     {
         return knowledgeList;
@@ -128,6 +153,7 @@ public class SpasPaperQuestion extends BaseEntity
             .append("fullScore", getFullScore())
             .append("difficulty", getDifficulty())
             .append("questionType", getQuestionType())
+            .append("bloomLevel", getBloomLevel())
             .append("remark", getRemark())
             .toString();
     }

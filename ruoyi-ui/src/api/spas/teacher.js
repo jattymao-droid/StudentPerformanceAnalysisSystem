@@ -31,3 +31,11 @@ export function listTeacherRoleOptions() {
 export function listMyTeachingDepts() {
   return request({ url: '/spas/teacher/my-depts', method: 'get' })
 }
+
+export function getClassBinding(deptId) {
+  return request({ url: '/spas/teacher/class-binding/' + deptId, method: 'get' })
+}
+
+export function saveClassBinding(data) {
+  return request({ url: '/spas/teacher/class-binding', method: 'put', data })
+}

@@ -45,6 +45,9 @@
         <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd" v-hasPermi="['spas:paper:add']">新增</el-button>
       </el-col>
       <el-col :span="1.5">
+        <el-button type="success" plain icon="el-icon-collection" size="mini" @click="goQbPaper" v-hasPermi="['spas:qb:paper:list']">从题库发布</el-button>
+      </el-col>
+      <el-col :span="1.5">
         <el-button type="danger" plain icon="el-icon-delete" size="mini" :disabled="multiple" @click="handleDelete" v-hasPermi="['spas:paper:remove']">删除</el-button>
       </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
@@ -62,6 +65,12 @@
       <el-table-column label="班级" align="center" prop="deptName" width="120" :show-overflow-tooltip="true" />
       <el-table-column label="考试日期" align="center" prop="examDate" width="110" />
       <el-table-column label="总分" align="center" prop="totalScore" width="80" />
+      <el-table-column label="题库卷" align="center" prop="bankPaperId" width="80">
+        <template slot-scope="scope">
+          <el-tag v-if="scope.row.bankPaperId" size="mini" type="success">{{ scope.row.bankPaperId }}</el-tag>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="成绩数" align="center" prop="scoreCount" width="80">
         <template slot-scope="scope">
           <el-tag v-if="scope.row.scoreCount > 0" type="warning" size="mini">{{ scope.row.scoreCount }}</el-tag>
@@ -208,6 +217,23 @@
         show-icon
         class="mb8"
       />
+      <el-alert
+        v-for="(w, idx) in metaWarnings"
+        :key="'mw-' + idx"
+        :title="w"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb8"
+      />
+      <el-alert
+        v-if="metaCoverageSummary"
+        :title="metaCoverageSummary"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb8"
+      />
       <el-row :gutter="10" class="mb8">
         <el-col :span="1.5">
           <el-button type="primary" plain icon="el-icon-plus" size="mini" :disabled="structureLocked || !form.subjectId" @click="addQuestion">添加小题</el-button>
@@ -221,7 +247,7 @@
         </el-table-column>
         <el-table-column label="题型" width="130" align="center">
           <template slot-scope="scope">
-            <el-select v-model="scope.row.questionType" size="mini" clearable placeholder="题型" style="width: 100%" :disabled="structureLocked">
+            <el-select v-model="scope.row.questionType" size="mini" clearable placeholder="题型" style="width: 100%" :disabled="structureLocked" @change="refreshLocalMetaWarnings">
               <el-option
                 v-for="item in questionTypeOptions"
                 :key="item.typeCode"
@@ -241,6 +267,18 @@
             <el-select v-model="scope.row.difficulty" size="mini" placeholder="难度" style="width: 100%" :disabled="structureLocked">
               <el-option
                 v-for="dict in dict.type.spas_difficulty"
+                :key="dict.value"
+                :label="dict.label"
+                :value="dict.value"
+              />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="能力层级" width="140" align="center">
+          <template slot-scope="scope">
+            <el-select v-model="scope.row.bloomLevel" size="mini" clearable placeholder="层级" style="width: 100%" :disabled="structureLocked" @change="refreshLocalMetaWarnings">
+              <el-option
+                v-for="dict in dict.type.spas_bloom_level"
                 :key="dict.value"
                 :label="dict.label"
                 :value="dict.value"
@@ -348,12 +386,15 @@ import { optionselectSubject } from '@/api/spas/subject'
 import { optionselectQuestionType } from '@/api/spas/questionType'
 import { treeKnowledge } from '@/api/spas/knowledge'
 import { deptTreeSelect } from '@/api/system/user'
+import { listMyTeachingDepts } from '@/api/spas/teacher'
+import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDeptTree'
+import { analysisConfig } from '@/api/spas/analysis'
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 
 export default {
   name: 'SpasPaper',
-  dicts: ['spas_paper_type', 'spas_paper_status', 'spas_difficulty'],
+  dicts: ['spas_paper_type', 'spas_paper_status', 'spas_difficulty', 'spas_bloom_level'],
   components: { Treeselect },
   data() {
     return {
@@ -388,6 +429,9 @@ export default {
         status: undefined
       },
       form: {},
+      metaWarnings: [],
+      requireQuestionType: false,
+      requireBloomLevel: false,
       rules: {
         paperName: [{ required: true, message: '试卷名称不能为空', trigger: 'blur' }],
         paperType: [{ required: true, message: '试卷类型不能为空', trigger: 'change' }],
@@ -412,14 +456,50 @@ export default {
     },
     weightSumOk() {
       return Math.abs(this.weightSum - 1) < 0.0001
+    },
+    metaCoverageSummary() {
+      const qs = this.form.questions || []
+      if (!qs.length) return ''
+      let bound = 0
+      let typed = 0
+      let bloomed = 0
+      qs.forEach(q => {
+        if (q.knowledgeList && q.knowledgeList.length) bound++
+        if (q.questionType) typed++
+        if (q.bloomLevel) bloomed++
+      })
+      const n = qs.length
+      const pct = v => Math.round((v * 1000) / n) / 10
+      let tip = '本卷标注覆盖：知识点 ' + bound + '/' + n + '（' + pct(bound) + '%）· 题型 '
+        + typed + '/' + n + '（' + pct(typed) + '%）· 认知层级 ' + bloomed + '/' + n + '（' + pct(bloomed) + '%）'
+      if (this.requireQuestionType || this.requireBloomLevel) {
+        const gates = []
+        if (this.requireQuestionType) gates.push('题型')
+        if (this.requireBloomLevel) gates.push('认知层级')
+        tip += '；发布/导入强制：' + gates.join('、')
+      }
+      return tip
     }
   },
   created() {
     this.getList()
     this.loadSubjects()
-    this.loadDepts()
+    this.loadMyDepts()
+    this.loadAnnotationPolicy()
+    const qid = this.$route.query && this.$route.query.paperId
+    if (qid) {
+      const paperId = isNaN(Number(qid)) ? qid : Number(qid)
+      this.$nextTick(() => this.handleUpdate({ paperId }))
+    }
   },
   methods: {
+    loadAnnotationPolicy() {
+      analysisConfig().then(res => {
+        const annot = ((res && res.data) || {}).annotationCoverage || {}
+        this.requireQuestionType = !!annot.requireQuestionType
+        this.requireBloomLevel = !!annot.requireBloomLevel
+      }).catch(() => {})
+    },
     getList() {
       this.loading = true
       listPaper(this.queryParams).then(response => {
@@ -434,8 +514,23 @@ export default {
       })
     },
     loadDepts() {
-      deptTreeSelect().then(response => {
+      if (!canLoadSystemDeptTree()) {
+        this.deptOptions = []
+        return Promise.resolve()
+      }
+      return deptTreeSelect().then(response => {
         this.deptOptions = this.filterDisabledDept(JSON.parse(JSON.stringify(response.data || [])))
+      }).catch(() => {
+        this.deptOptions = []
+      })
+    },
+    loadMyDepts() {
+      return applyTeachingDeptContext(this, listMyTeachingDepts, deptTreeSelect).then(result => {
+        if (result.source === 'system' || result.source === 'teaching') {
+          this.deptOptions = this.filterDisabledDept(JSON.parse(JSON.stringify(result.tree || [])))
+        }
+      }).catch(() => {
+        this.myDepts = []
       })
     },
     filterDisabledDept(deptList) {
@@ -459,6 +554,7 @@ export default {
       this.reset()
     },
     reset() {
+      this.metaWarnings = []
       this.form = {
         paperId: undefined,
         paperName: undefined,
@@ -493,6 +589,7 @@ export default {
       this.reset()
       getPaper(row.paperId).then(response => {
         const data = response.data || {}
+        this.metaWarnings = (data.params && data.params.metaWarnings) ? data.params.metaWarnings : []
         this.form = {
           ...data,
           questions: (data.questions || []).map(q => ({
@@ -501,6 +598,7 @@ export default {
             questionType: q.questionType,
             fullScore: q.fullScore,
             difficulty: q.difficulty || '2',
+            bloomLevel: q.bloomLevel,
             knowledgeList: (q.knowledgeList || []).map(k => ({
               knowledgeId: k.knowledgeId,
               knowledgeName: k.knowledgeName,
@@ -512,7 +610,30 @@ export default {
         this.open = true
         this.title = '修改试卷'
         this.loadQuestionTypes(this.form.subjectId)
+        this.refreshLocalMetaWarnings()
       })
+    },
+    refreshLocalMetaWarnings() {
+      const qs = this.form.questions || []
+      const warns = []
+      let noType = 0
+      let noBloom = 0
+      let noKnowledge = 0
+      qs.forEach(q => {
+        if (!q.questionType) noType++
+        if (!q.bloomLevel) noBloom++
+        if (!q.knowledgeList || !q.knowledgeList.length) noKnowledge++
+      })
+      if (noKnowledge > 0) warns.push(noKnowledge + ' 道题未绑定知识点（发布/导入成绩将被拦截）')
+      if (noType > 0) {
+        warns.push(noType + ' 道题未选题型（题型分析将记为未标注'
+          + (this.requireQuestionType ? '；当前已开启强制校验，发布将被拦截' : '') + '）')
+      }
+      if (noBloom > 0) {
+        warns.push(noBloom + ' 道题未标认知层级（能力层级分析将记为未标注'
+          + (this.requireBloomLevel ? '；当前已开启强制校验，发布将被拦截' : '') + '）')
+      }
+      this.metaWarnings = warns
     },
     handleFormSubjectChange() {
       this.loadQuestionTypes(this.form.subjectId)
@@ -554,11 +675,14 @@ export default {
         questionType: defaultType,
         fullScore: 10,
         difficulty: '2',
+        bloomLevel: undefined,
         knowledgeList: []
       })
+      this.refreshLocalMetaWarnings()
     },
     removeQuestion(index) {
       this.form.questions.splice(index, 1)
+      this.refreshLocalMetaWarnings()
     },
     openKnowledgeDialog(index) {
       if (!this.form.subjectId) {
@@ -782,6 +906,7 @@ export default {
           questionType: q.questionType,
           fullScore: q.fullScore,
           difficulty: q.difficulty,
+          bloomLevel: q.bloomLevel,
           knowledgeList: (q.knowledgeList || []).map(k => ({
             knowledgeId: k.knowledgeId,
             weight: k.weight,
@@ -855,7 +980,14 @@ export default {
       }).catch(() => {})
     },
     handlePublish(row) {
-      this.$modal.confirm('是否确认发布试卷"' + row.paperName + '"？').then(function() {
+      let msg = '是否确认发布试卷「' + row.paperName + '」？'
+      if (this.requireQuestionType || this.requireBloomLevel) {
+        const gates = []
+        if (this.requireQuestionType) gates.push('题型')
+        if (this.requireBloomLevel) gates.push('认知层级')
+        msg += '\n当前已开启强制校验：发布前须补全' + gates.join('、') + '。'
+      }
+      this.$modal.confirm(msg).then(() => {
         return publishPaper(row.paperId)
       }).then(() => {
         this.getList()
@@ -880,6 +1012,11 @@ export default {
     },
     goScoreImport(row) {
       this.$router.push({ path: '/spas/biz/score', query: { paperId: row.paperId } })
+    },
+    goQbPaper() {
+      this.$router.push({ path: '/spas/qb/paper' }).catch(() => {
+        this.$modal.msgWarning('请从菜单「题库 → 题库组卷」进入，或确认已执行 spas_qb_menu.sql')
+      })
     }
   }
 }

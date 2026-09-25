@@ -28,4 +28,9 @@ public interface ISpasInterveneService
     void evaluateOpenForStudentsAsync(Collection<Long> studentIds);
 
     List<Map<String, Object>> studentTimeline(Long studentId);
+
+    Map<String, Object> classSummary(Long deptId, Long subjectId);
+
+    Map<String, Object> batchCreateForWeak(Long deptId, Long subjectId, Long knowledgeId, String title,
+        java.math.BigDecimal targetRate);
 }

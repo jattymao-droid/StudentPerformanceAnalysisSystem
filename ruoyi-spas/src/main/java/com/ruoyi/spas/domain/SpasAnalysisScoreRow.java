@@ -26,6 +26,13 @@ public class SpasAnalysisScoreRow
 
     private Date examDate;
 
+    private String scoreSource;
+
+    /** Optional display fields when loaded via scoped query */
+    private String knowledgeName;
+
+    private String paperName;
+
     public Long getStudentId()
     {
         return studentId;
@@ -114,5 +121,35 @@ public class SpasAnalysisScoreRow
     public void setExamDate(Date examDate)
     {
         this.examDate = examDate;
+    }
+
+    public String getScoreSource()
+    {
+        return scoreSource;
+    }
+
+    public void setScoreSource(String scoreSource)
+    {
+        this.scoreSource = scoreSource;
+    }
+
+    public String getKnowledgeName()
+    {
+        return knowledgeName;
+    }
+
+    public void setKnowledgeName(String knowledgeName)
+    {
+        this.knowledgeName = knowledgeName;
+    }
+
+    public String getPaperName()
+    {
+        return paperName;
+    }
+
+    public void setPaperName(String paperName)
+    {
+        this.paperName = paperName;
     }
 }

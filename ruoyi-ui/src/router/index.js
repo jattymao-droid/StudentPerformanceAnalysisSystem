@@ -93,6 +93,21 @@ export const constantRoutes = [
         meta: { title: '个人中心', icon: 'user' }
       }
     ]
+  },
+  // Student self-service portal (always registered; menu still controls sidebar visibility)
+  {
+    path: '/myspas',
+    component: Layout,
+    hidden: true,
+    redirect: '/myspas/mine',
+    children: [
+      {
+        path: 'mine',
+        component: () => import('@/views/spas/portfolio/mine'),
+        name: 'SpasPortfolioMine',
+        meta: { title: '我的学情', noCache: true }
+      }
+    ]
   }
 ]
 

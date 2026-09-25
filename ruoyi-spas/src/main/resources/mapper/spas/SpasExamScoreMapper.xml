@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasExamScoreMapper">
+
+    <resultMap id="SpasExamResult" type="com.ruoyi.spas.domain.SpasExam">
+        <id property="examId" column="exam_id"/>
+        <result property="examName" column="exam_name"/>
+        <result property="examDate" column="exam_date"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="paperId" column="paper_id"/>
+        <result property="fileName" column="file_name"/>
+        <result property="totalRows" column="total_rows"/>
+        <result property="successRows" column="success_rows"/>
+        <result property="failRows" column="fail_rows"/>
+        <result property="status" column="status"/>
+        <result property="errorLog" column="error_log"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+        <result property="deptName" column="dept_name"/>
+    </resultMap>
+
+    <resultMap id="SpasExamScoreResult" type="com.ruoyi.spas.domain.SpasExamScore">
+        <id property="scoreId" column="score_id"/>
+        <result property="examId" column="exam_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="scoreType" column="score_type"/>
+        <result property="subjectName" column="subject_name"/>
+        <result property="score" column="score"/>
+        <result property="schoolRank" column="school_rank"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="studentNo" column="student_no"/>
+        <result property="studentName" column="student_name"/>
+        <result property="examName" column="exam_name"/>
+        <result property="examDate" column="exam_date"/>
+        <result property="paperId" column="paper_id"/>
+    </resultMap>
+
+    <sql id="selectExamVo">
+        select e.exam_id, e.exam_name, e.exam_date, e.dept_id, e.paper_id, e.file_name,
+               e.total_rows, e.success_rows, e.fail_rows, e.status, e.error_log,
+               e.create_by, e.create_time, e.update_by, e.update_time, e.remark,
+               d.dept_name
+        from spas_exam e
+        left join sys_dept d on d.dept_id = e.dept_id
+    </sql>
+
+    <select id="selectSpasExamList" parameterType="com.ruoyi.spas.domain.SpasExam" resultMap="SpasExamResult">
+        <include refid="selectExamVo"/>
+        <where>
+            <if test="examName != null and examName != ''">
+                and e.exam_name like concat('%', #{examName}, '%')
+            </if>
+            <if test="deptId != null">
+                and e.dept_id = #{deptId}
+            </if>
+            <choose>
+                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() &gt; 0">
+                    and e.dept_id in
+                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                </when>
+                <otherwise>
+                    ${params.dataScope}
+                </otherwise>
+            </choose>
+            <if test="status != null and status != ''">
+                and e.status = #{status}
+            </if>
+            <if test="params != null and params.beginExamDate != null and params.beginExamDate != ''">
+                and e.exam_date &gt;= #{params.beginExamDate}::date
+            </if>
+            <if test="params != null and params.endExamDate != null and params.endExamDate != ''">
+                and e.exam_date &lt;= #{params.endExamDate}::date
+            </if>
+        </where>
+        order by e.create_time desc, e.exam_id desc
+    </select>
+
+    <select id="selectSpasExamById" parameterType="Long" resultMap="SpasExamResult">
+        <include refid="selectExamVo"/>
+        where e.exam_id = #{examId}
+    </select>
+
+    <select id="selectSpasExamByDeptAndName" resultMap="SpasExamResult">
+        <include refid="selectExamVo"/>
+        where e.dept_id = #{deptId} and e.exam_name = #{examName}
+        order by e.exam_id desc
+        limit 1
+    </select>
+
+    <insert id="insertSpasExam" parameterType="com.ruoyi.spas.domain.SpasExam" useGeneratedKeys="true" keyProperty="examId">
+        insert into spas_exam(
+            exam_name, exam_date, dept_id, paper_id, file_name, total_rows, success_rows, fail_rows,
+            status, error_log, create_by, create_time, remark
+        ) values (
+            #{examName}, #{examDate}, #{deptId}, #{paperId}, #{fileName}, #{totalRows}, #{successRows}, #{failRows},
+            #{status}, #{errorLog}, #{createBy}, now(), #{remark}
+        )
+    </insert>
+
+    <update id="updateSpasExam" parameterType="com.ruoyi.spas.domain.SpasExam">
+        update spas_exam
+        <set>
+            <if test="examName != null">exam_name = #{examName},</if>
+            <if test="examDate != null">exam_date = #{examDate},</if>
+            <if test="paperId != null">paper_id = #{paperId},</if>
+            <if test="fileName != null">file_name = #{fileName},</if>
+            <if test="totalRows != null">total_rows = #{totalRows},</if>
+            <if test="successRows != null">success_rows = #{successRows},</if>
+            <if test="failRows != null">fail_rows = #{failRows},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="errorLog != null">error_log = #{errorLog},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            update_time = now()
+        </set>
+        where exam_id = #{examId}
+    </update>
+
+    <delete id="deleteSpasExamById" parameterType="Long">
+        delete from spas_exam where exam_id = #{examId}
+    </delete>
+
+    <delete id="deleteSpasExamByIds" parameterType="Long">
+        delete from spas_exam where exam_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
+    <select id="selectSpasExamScoreList" parameterType="com.ruoyi.spas.domain.SpasExamScore" resultMap="SpasExamScoreResult">
+        select s.score_id, s.exam_id, s.student_id, s.score_type, s.subject_name, s.score, s.school_rank,
+               s.create_time, s.update_time,
+               st.student_no, st.student_name
+        from spas_exam_score s
+        left join spas_student st on st.student_id = s.student_id
+        <where>
+            <if test="examId != null">and s.exam_id = #{examId}</if>
+            <if test="studentId != null">and s.student_id = #{studentId}</if>
+            <if test="scoreType != null and scoreType != ''">and s.score_type = #{scoreType}</if>
+            <if test="subjectName != null and subjectName != ''">and s.subject_name = #{subjectName}</if>
+        </where>
+        order by st.student_no asc, s.score_type asc, s.score_id asc
+    </select>
+
+    <select id="selectScoresByExamId" resultMap="SpasExamScoreResult">
+        select s.score_id, s.exam_id, s.student_id, s.score_type, s.subject_name, s.score, s.school_rank,
+               s.create_time, s.update_time,
+               st.student_no, st.student_name
+        from spas_exam_score s
+        left join spas_student st on st.student_id = s.student_id and st.del_flag = '0'
+        where s.exam_id = #{examId}
+        order by st.student_no asc, s.score_type asc, s.score_id asc
+    </select>
+
+    <insert id="insertSpasExamScore" parameterType="com.ruoyi.spas.domain.SpasExamScore" useGeneratedKeys="true" keyProperty="scoreId">
+        insert into spas_exam_score(exam_id, student_id, score_type, subject_name, score, school_rank, create_time)
+        values (#{examId}, #{studentId}, #{scoreType}, #{subjectName}, #{score}, #{schoolRank}, now())
+    </insert>
+
+    <delete id="deleteSpasExamScoreByExamId" parameterType="Long">
+        delete from spas_exam_score where exam_id = #{examId}
+    </delete>
+
+    <delete id="deleteSpasExamScoreByExamAndStudent">
+        delete from spas_exam_score where exam_id = #{examId} and student_id = #{studentId}
+    </delete>
+
+    <delete id="deleteSpasExamScoreByExamIds" parameterType="Long">
+        delete from spas_exam_score where exam_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
+    <select id="selectScoresByStudentId" resultMap="SpasExamScoreResult">
+        select s.score_id, s.exam_id, s.student_id, s.score_type, s.subject_name, s.score, s.school_rank,
+               s.create_time, s.update_time,
+               st.student_no, st.student_name,
+               e.exam_name, e.exam_date, e.paper_id
+        from spas_exam_score s
+        join spas_exam e on e.exam_id = s.exam_id
+        left join spas_student st on st.student_id = s.student_id and st.del_flag = '0'
+        where s.student_id = #{studentId}
+          and e.status in ('1', '2')
+        order by e.exam_date asc nulls last, e.exam_id asc, s.score_type asc, s.score_id asc
+    </select>
+
+    <resultMap id="RankPointResult" type="com.ruoyi.spas.domain.SpasExamRankPoint">
+        <result property="studentId" column="student_id"/>
+        <result property="studentName" column="student_name"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="examId" column="exam_id"/>
+        <result property="examDate" column="exam_date"/>
+        <result property="scoreType" column="score_type"/>
+        <result property="subjectName" column="subject_name"/>
+        <result property="schoolRank" column="school_rank"/>
+    </resultMap>
+
+    <select id="selectRankPoints" resultMap="RankPointResult">
+        select s.student_id, st.student_name, st.dept_id, e.exam_id, e.exam_date,
+               s.score_type, s.subject_name, s.school_rank
+        from spas_exam_score s
+        join spas_exam e on e.exam_id = s.exam_id and e.status = '1'
+        join spas_student st on st.student_id = s.student_id and st.del_flag = '0'
+        where s.school_rank is not null
+        order by st.student_id, e.exam_date asc nulls last, e.exam_id asc, s.score_id asc
+    </select>
+</mapper>
