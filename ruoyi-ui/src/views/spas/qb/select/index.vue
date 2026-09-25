@@ -7,13 +7,9 @@
         </el-select>
       </el-form-item>
       <el-form-item label="题型">
-        <el-select v-model="queryParams.questionType" clearable style="width:110px" @change="handleQuery">
+        <el-select v-model="queryParams.questionType" clearable style="width:150px" @change="handleQuery">
           <el-option label="全部" value="" />
-          <el-option label="选择" value="choice" />
-          <el-option label="填空" value="blank" />
-          <el-option label="简答" value="short" />
-          <el-option label="计算" value="calc" />
-          <el-option label="实验" value="experiment" />
+          <el-option v-for="o in typeFilterOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
       </el-form-item>
       <el-form-item label="难度">
@@ -86,8 +82,8 @@
               <el-tag v-else size="mini" type="danger">未绑</el-tag>
               <span class="qb-id">#{{ q.questionId }}</span>
             </div>
-            <div class="qb-card-stem" v-html="formulaHtml(q.content)"></div>
-            <div v-if="q.stemImage" class="qb-card-img"><img :src="q.stemImage" alt="" /></div>
+            <div class="qb-card-stem"><qb-rich-content :content="q.content" /></div>
+            <div v-if="q.stemImage" class="qb-card-img"><img :src="mediaUrl(q.stemImage)" alt="" /></div>
             <div class="qb-card-actions">
               <el-button
                 v-if="!inBasket(q.questionId)"
@@ -122,7 +118,7 @@
       <div class="qb-basket-drawer">
         <div v-if="!basketItems.length" class="qb-empty">试题篮为空</div>
         <div v-for="item in basketItems" :key="item.questionId" class="qb-basket-row">
-          <div class="qb-basket-preview" v-html="formulaHtml(item.content || item.contentPreview || ('#' + item.questionId))"></div>
+          <div class="qb-basket-preview"><qb-rich-content compact :content="item.content || item.contentPreview || ('#' + item.questionId)" /></div>
           <div class="qb-basket-ops">
             <span>分值</span>
             <el-input-number
@@ -150,8 +146,21 @@
           <el-tag size="mini" type="warning">{{ diffLabel(detail.difficulty) }}</el-tag>
           <el-tag v-if="detail.sourceYear" size="mini" type="success">{{ detail.sourceYear }} {{ detail.sourceRegion || '' }} {{ detail.sourceExam || '' }}</el-tag>
         </div>
-        <div class="qb-card-stem" v-html="formulaHtml(detail.content)"></div>
-        <div v-if="detail.stemImage"><img :src="detail.stemImage" style="max-width:100%" /></div>
+        <div class="qb-card-stem"><qb-rich-content :content="detail.content" /></div>
+        <div v-if="detail.stemImage" class="qb-detail-img"><img :src="mediaUrl(detail.stemImage)" alt="" /></div>
+        <div v-if="detail.options" class="qb-detail-block">
+          <div class="qb-detail-label">选项</div>
+          <qb-rich-content :content="detail.options" />
+        </div>
+        <div v-if="detail.optionsImage" class="qb-detail-img"><img :src="mediaUrl(detail.optionsImage)" alt="" /></div>
+        <div v-if="detail.correctAnswer" class="qb-detail-block">
+          <div class="qb-detail-label">答案</div>
+          <qb-rich-content :content="detail.correctAnswer" />
+        </div>
+        <div v-if="detail.analysis" class="qb-detail-block">
+          <div class="qb-detail-label">解析</div>
+          <qb-rich-content :content="detail.analysis" />
+        </div>
       </div>
       <div slot="footer">
         <el-button type="primary" size="mini" :disabled="detail && inBasket(detail.questionId)" @click="addToBasket(detail); detailOpen=false">加入试题篮</el-button>
@@ -197,10 +206,12 @@ import { mapGetters } from 'vuex'
 import { listQbQuestion, getQbQuestion, smartPickQbQuestion } from '@/api/spas/qb/question'
 import { optionselectSubject } from '@/api/spas/subject'
 import { treeKnowledge } from '@/api/spas/knowledge'
-import { renderFormulaHtml } from '@/utils/qbFormula'
+import QbRichContent from '@/components/spas/QbRichContent'
+import { qbTypeLabel, qbTypeOptions } from '@/utils/qbTypeLabel'
 
 export default {
   name: 'SpasQbSelect',
+  components: { QbRichContent },
   data() {
     return {
       loading: false,
@@ -220,6 +231,7 @@ export default {
       smartOpen: false,
       smartLoading: false,
       smartForm: { choice: 5, blank: 3, short: 2, calc: 0, experiment: 0, totalCount: 10, boundOnly: true },
+      typeFilterOptions: qbTypeOptions(),
       queryParams: {
         pageNum: 1,
         pageSize: 10,
@@ -314,10 +326,13 @@ export default {
         node = node.parent
       }
     },
-    formulaHtml(text) { return renderFormulaHtml(text || '') },
     typeLabel(t) {
-      const m = { choice: '选择', blank: '填空', short: '简答', calc: '计算', experiment: '实验' }
-      return m[t] || t || '-'
+      return qbTypeLabel(t)
+    },
+    mediaUrl(url) {
+      if (!url) return ''
+      if (url.indexOf('http') === 0 || url.indexOf('data:') === 0) return url
+      return process.env.VUE_APP_BASE_API + url
     },
     diffLabel(d) {
       const m = { '1': '易', '2': '中', '3': '难' }
@@ -582,6 +597,10 @@ export default {
 .qb-basket-ops { display: flex; align-items: center; gap: 8px; }
 .qb-basket-footer { margin-top: 16px; display: flex; justify-content: space-between; }
 .qb-card-stem >>> .katex { font-size: 1em; }
+.qb-card-stem >>> .qb-rich-text { font-size: 14px; line-height: 1.7; }
 .qb-basket-preview { font-size: 13px; line-height: 1.5; max-height: 4.5em; overflow: hidden; }
 .qb-basket-preview >>> .katex { font-size: 0.95em; }
+.qb-detail-block { margin-top: 12px; }
+.qb-detail-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.qb-detail-img img { max-width: 100%; margin-top: 8px; border-radius: 4px; }
 </style>

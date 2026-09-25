@@ -92,3 +92,24 @@ where p.mobile='13800138000' and s.student_no='demo001'
     select 1 from spas_parent_student ps
     where ps.parent_id=p.parent_id and ps.student_id=s.student_id
   );
+
+-- Ensure subject question types exist after subjects are seeded (idempotent)
+INSERT INTO spas_subject_question_type(subject_id, type_code, type_name, sort, status, create_by, create_time)
+SELECT s.subject_id, v.code, v.name, v.sort, '0', 'admin', now()
+FROM spas_subject s
+CROSS JOIN (VALUES
+  ('single', U&'\5355\9009\9898', 1),
+  ('multi',  U&'\591a\9009\9898', 2),
+  ('judge',  U&'\5224\65ad\9898', 3),
+  ('fill',   U&'\586b\7a7a\9898', 4),
+  ('short',  U&'\7b80\7b54\9898', 5),
+  ('calc',   U&'\8ba1\7b97\9898', 6)
+) AS v(code, name, sort)
+WHERE NOT EXISTS (
+  SELECT 1 FROM spas_subject_question_type t
+  WHERE t.subject_id = s.subject_id AND t.type_code = v.code
+);
+
+UPDATE spas_paper_question q
+SET question_type = 'calc'
+WHERE (question_type IS NULL OR trim(question_type) = '');

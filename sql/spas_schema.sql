@@ -30,7 +30,7 @@ create table spas_knowledge (
   ancestors varchar(500) default '',
   knowledge_name varchar(100) not null,
   knowledge_code varchar(64) default null,
-  knowledge_default char(1) default '2',
+  difficulty_default char(1) default '2',
   node_type char(1) default '2',
   order_num int4 default 0,
   status char(1) default '0',

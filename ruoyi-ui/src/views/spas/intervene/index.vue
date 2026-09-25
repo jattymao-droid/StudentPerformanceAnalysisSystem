@@ -1,6 +1,15 @@
 <template>
   <div class="app-container">
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="80px">
+      <el-form-item label="班级" prop="deptId">
+        <treeselect
+          v-model="queryParams.deptId"
+          :options="deptOptions"
+          :show-count="true"
+          placeholder="全部班级"
+          style="width: 220px"
+        />
+      </el-form-item>
       <el-form-item label="学号" prop="studentNo">
         <el-input v-model="queryParams.studentNo" placeholder="学号" clearable @keyup.enter.native="handleQuery" />
       </el-form-item>
@@ -38,7 +47,19 @@
       title="从预警创建干预后，在此跟踪基线/目标得分率与辅导记录；创建时必须挂接知识点，导入成绩重算后可自动评估 Δrate。"
     />
 
-    <el-table v-loading="loading" :data="taskList">
+    <el-empty
+      v-if="!loading && (!taskList || !taskList.length)"
+      :image-size="72"
+      description="暂无干预任务"
+      class="mb8"
+    >
+      <div class="empty-actions">
+        <el-button type="primary" size="mini" icon="el-icon-plus" @click="handleAdd" v-hasPermi="['spas:intervene:add']">新增干预</el-button>
+        <el-button size="mini" icon="el-icon-bell" @click="$router.push('/spas/warning/record')" v-hasPermi="['spas:warning:record']">从预警发起</el-button>
+      </div>
+    </el-empty>
+
+    <el-table v-loading="loading" :data="taskList" v-show="loading || (taskList && taskList.length)">
       <el-table-column label="ID" prop="interveneId" width="70" align="center" />
       <el-table-column label="学号" prop="studentNo" width="110" />
       <el-table-column label="姓名" prop="studentName" width="90" />
@@ -252,9 +273,15 @@ import { addCoachLog } from '@/api/spas/portfolio'
 import { listStudent } from '@/api/spas/student'
 import { optionselectSubject } from '@/api/spas/subject'
 import { listKnowledge } from '@/api/spas/knowledge'
+import { listMyTeachingDepts } from '@/api/spas/teacher'
+import { deptTreeSelect } from '@/api/system/user'
+import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDeptTree'
+import Treeselect from '@riophae/vue-treeselect'
+import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 
 export default {
   name: 'SpasIntervene',
+  components: { Treeselect },
   dicts: ['spas_intervene_status', 'spas_intervene_source'],
   data() {
     return {
@@ -277,9 +304,12 @@ export default {
       subjectOptions: [],
       knowledgeOptions: [],
       studentLoading: false,
+      deptOptions: [],
+      myDepts: [],
       queryParams: {
         pageNum: 1,
         pageSize: 10,
+        deptId: undefined,
         studentNo: undefined,
         studentName: undefined,
         status: '0',
@@ -312,6 +342,9 @@ export default {
   },
   created() {
     const q = this.$route.query || {}
+    if (q.deptId) {
+      this.queryParams.deptId = isNaN(Number(q.deptId)) ? q.deptId : Number(q.deptId)
+    }
     if (q.studentId) {
       this.queryParams.studentId = Number(q.studentId) || q.studentId
     }
@@ -326,7 +359,7 @@ export default {
       this.pendingSubjectId = Number(q.subjectId) || q.subjectId
     }
     this.loadSubjects()
-    this.getList()
+    this.loadDepts().then(() => this.getList())
     if (q.warningId) {
       this.$nextTick(() => this.promptFromWarning(q.warningId))
     } else if (q.openAdd === '1' || q.openAdd === 1) {
@@ -334,6 +367,17 @@ export default {
     }
   },
   methods: {
+    loadDepts() {
+      return applyTeachingDeptContext(this, listMyTeachingDepts, deptTreeSelect).catch(() => {
+        if (!canLoadSystemDeptTree()) {
+          this.deptOptions = []
+          return Promise.resolve()
+        }
+        return deptTreeSelect().then(res => {
+          this.deptOptions = res.data || []
+        }).catch(() => { this.deptOptions = [] })
+      })
+    },
     formatRate(rate) {
       if (rate == null || rate === '') return '-'
       const n = Number(rate)
@@ -430,6 +474,7 @@ export default {
     },
     resetQuery() {
       this.resetForm('queryForm')
+      this.queryParams.deptId = undefined
       this.queryParams.status = '0'
       this.handleQuery()
     },
@@ -569,3 +614,14 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.mb8 { margin-bottom: 12px; }
+</style>

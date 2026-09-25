@@ -26,6 +26,11 @@
         <result property="scoreValue"     column="score_value"     />
         <result property="questionNo"     column="question_no"     />
         <result property="contentPreview" column="content_preview" />
+        <result property="content"        column="content"         />
+        <result property="options"        column="options"         />
+        <result property="correctAnswer"  column="correct_answer"  />
+        <result property="stemImage"      column="stem_image"      />
+        <result property="optionsImage"   column="options_image"   />
         <result property="questionType"   column="question_type"   />
         <result property="difficulty"     column="difficulty"      />
         <result property="knowledgeCount" column="knowledge_count" />
@@ -45,7 +50,7 @@
         <where>
             <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
             <if test="status != null and status != ''">and p.status = #{status}</if>
-            <if test="paperTitle != null and paperTitle != ''">and p.paper_title like concat('%', #{paperTitle}, '%')</if>
+            <if test="paperTitle != null and paperTitle != ''">and p.paper_title like ('%' || #{paperTitle} || '%')</if>
         </where>
         order by p.paper_id desc
     </select>
@@ -85,7 +90,9 @@
 
     <select id="selectItemsByPaperId" parameterType="Long" resultMap="SpasQbPaperItemResult">
         select i.item_id, i.paper_id, i.question_id, i.order_num, i.score_value, i.question_no,
-               left(q.content, 80) as content_preview, q.question_type, q.difficulty,
+               left(q.content, 80) as content_preview,
+               q.content, q.options, q.correct_answer, q.stem_image, q.options_image,
+               q.question_type, q.difficulty,
                (select count(1) from spas_qb_question_knowledge qk where qk.question_id = i.question_id) as knowledge_count
         from spas_qb_paper_item i
         left join spas_qb_question q on i.question_id = q.question_id

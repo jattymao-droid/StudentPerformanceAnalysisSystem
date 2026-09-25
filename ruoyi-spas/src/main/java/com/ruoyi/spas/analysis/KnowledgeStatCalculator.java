@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
@@ -17,9 +18,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.spas.config.SpasAnalysisTuningProperties;
 import com.ruoyi.spas.domain.SpasAnalysisScoreRow;
 import com.ruoyi.spas.domain.SpasStudentKnowledgeStat;
+import com.ruoyi.spas.domain.SpasSubject;
 import com.ruoyi.spas.mapper.SpasAnalysisMapper;
+import com.ruoyi.spas.mapper.SpasSubjectMapper;
 
 /**
  * Multi-knowledge weighted rate calculator and snapshot writer.
@@ -32,6 +36,12 @@ public class KnowledgeStatCalculator
 
     @Autowired
     private SpasAnalysisMapper analysisMapper;
+
+    @Autowired(required = false)
+    private SpasAnalysisTuningProperties tuningProperties;
+
+    @Autowired(required = false)
+    private SpasSubjectMapper subjectMapper;
 
     @Value("${spas.analysis.difficulty-weight.easy:1.0}")
     private double difficultyEasy;
@@ -148,6 +158,7 @@ public class KnowledgeStatCalculator
     /**
      * Rebuild full knowledge snapshot per student.
      * paperId is ignored for load scope (always full history) to avoid wiping cross-paper stats.
+     * Loads score rows in chunks (batch query) instead of one round-trip per student.
      */
     @Transactional
     public int recalculateByStudents(Collection<Long> studentIds, Long paperId)
@@ -157,22 +168,55 @@ public class KnowledgeStatCalculator
             return 0;
         }
         clearEmpiricalCache();
-        int upserted = 0;
+        List<Long> ids = new ArrayList<Long>();
+        Set<Long> seen = new HashSet<Long>();
         for (Long studentId : studentIds)
         {
-            if (studentId == null)
+            if (studentId == null || !seen.add(studentId))
             {
                 continue;
             }
-            analysisMapper.deleteStatByStudent(studentId);
-            // Always full history — paperId filter would orphan other papers' knowledge stats
-            List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForRecalc(studentId, null);
-            Map<Long, Agg> aggMap = aggregate(rows);
-            for (Agg agg : aggMap.values())
+            ids.add(studentId);
+        }
+        if (ids.isEmpty())
+        {
+            return 0;
+        }
+        int upserted = 0;
+        final int chunkSize = 200;
+        for (int from = 0; from < ids.size(); from += chunkSize)
+        {
+            List<Long> chunk = ids.subList(from, Math.min(from + chunkSize, ids.size()));
+            analysisMapper.deleteStatByStudents(chunk);
+            List<SpasAnalysisScoreRow> allRows = analysisMapper.selectScoreRowsForRecalcByStudents(chunk);
+            Map<Long, List<SpasAnalysisScoreRow>> byStudent = new HashMap<Long, List<SpasAnalysisScoreRow>>();
+            if (allRows != null)
             {
-                SpasStudentKnowledgeStat stat = toStat(agg);
-                analysisMapper.upsertStat(stat);
-                upserted++;
+                for (SpasAnalysisScoreRow row : allRows)
+                {
+                    if (row == null || row.getStudentId() == null)
+                    {
+                        continue;
+                    }
+                    List<SpasAnalysisScoreRow> list = byStudent.get(row.getStudentId());
+                    if (list == null)
+                    {
+                        list = new ArrayList<SpasAnalysisScoreRow>();
+                        byStudent.put(row.getStudentId(), list);
+                    }
+                    list.add(row);
+                }
+            }
+            for (Long studentId : chunk)
+            {
+                List<SpasAnalysisScoreRow> rows = byStudent.get(studentId);
+                Map<Long, Agg> aggMap = aggregate(rows);
+                for (Agg agg : aggMap.values())
+                {
+                    SpasStudentKnowledgeStat stat = toStat(agg);
+                    analysisMapper.upsertStat(stat);
+                    upserted++;
+                }
             }
         }
         return upserted;
@@ -185,6 +229,8 @@ public class KnowledgeStatCalculator
         {
             return map;
         }
+        boolean primaryFull = tuningProperties != null && tuningProperties.isPrimaryFullMode();
+        Set<String> primaryKeys = primaryFull ? resolvePrimaryKeys(rows) : null;
         LocalDate asOf = resolveRecencyAsOf(rows);
         for (SpasAnalysisScoreRow row : rows)
         {
@@ -210,7 +256,23 @@ public class KnowledgeStatCalculator
             {
                 agg.knowledgeName = row.getKnowledgeName();
             }
+            // primary-full: secondary KP only counts exposure (attempt), not mastery rate
+            if (primaryFull && !isPrimaryContribution(row, primaryKeys))
+            {
+                if (row.getQuestionId() != null)
+                {
+                    agg.questionIds.add(row.getQuestionId());
+                    agg.exposureOnlyCount++;
+                }
+                touchLastExam(agg, row);
+                continue;
+            }
             BigDecimal weight = row.getWeight() == null ? BigDecimal.ONE : row.getWeight();
+            if (primaryFull)
+            {
+                // Primary contributes full rate (ignore fractional weight for mastery)
+                weight = BigDecimal.ONE;
+            }
             BigDecimal rate = row.getRate() == null ? BigDecimal.ZERO : row.getRate();
             double dw = difficultyWeight(row.getDifficulty(), row.getQuestionId());
             double recency = recencyFactor(row.getExamDate(), asOf);
@@ -223,18 +285,77 @@ public class KnowledgeStatCalculator
             {
                 agg.questionIds.add(row.getQuestionId());
             }
-            if (row.getExamDate() != null
-                && (agg.lastExamDate == null || row.getExamDate().after(agg.lastExamDate)))
-            {
-                agg.lastExamDate = row.getExamDate();
-                agg.lastPaperId = row.getPaperId();
-            }
-            else if (agg.lastExamDate == null && row.getPaperId() != null)
-            {
-                agg.lastPaperId = row.getPaperId();
-            }
+            touchLastExam(agg, row);
         }
         return map;
+    }
+
+    private void touchLastExam(Agg agg, SpasAnalysisScoreRow row)
+    {
+        if (row.getExamDate() != null
+            && (agg.lastExamDate == null || row.getExamDate().after(agg.lastExamDate)))
+        {
+            agg.lastExamDate = row.getExamDate();
+            agg.lastPaperId = row.getPaperId();
+        }
+        else if (agg.lastExamDate == null && row.getPaperId() != null)
+        {
+            agg.lastPaperId = row.getPaperId();
+        }
+    }
+
+    /**
+     * Per student+question, primary knowledge = is_primary=1, else max weight.
+     * Key = studentId + ':' + questionId + ':' + knowledgeId
+     */
+    private Set<String> resolvePrimaryKeys(List<SpasAnalysisScoreRow> rows)
+    {
+        Map<String, SpasAnalysisScoreRow> best = new HashMap<String, SpasAnalysisScoreRow>();
+        for (SpasAnalysisScoreRow row : rows)
+        {
+            if (row.getStudentId() == null || row.getQuestionId() == null || row.getKnowledgeId() == null)
+            {
+                continue;
+            }
+            String qk = row.getStudentId() + ":" + row.getQuestionId();
+            SpasAnalysisScoreRow cur = best.get(qk);
+            if (cur == null)
+            {
+                best.put(qk, row);
+                continue;
+            }
+            boolean rowPrimary = "1".equals(row.getIsPrimary());
+            boolean curPrimary = "1".equals(cur.getIsPrimary());
+            if (rowPrimary && !curPrimary)
+            {
+                best.put(qk, row);
+            }
+            else if (rowPrimary == curPrimary)
+            {
+                BigDecimal rw = row.getWeight() == null ? BigDecimal.ZERO : row.getWeight();
+                BigDecimal cw = cur.getWeight() == null ? BigDecimal.ZERO : cur.getWeight();
+                if (rw.compareTo(cw) > 0)
+                {
+                    best.put(qk, row);
+                }
+            }
+        }
+        Set<String> keys = new HashSet<String>();
+        for (SpasAnalysisScoreRow row : best.values())
+        {
+            keys.add(row.getStudentId() + ":" + row.getQuestionId() + ":" + row.getKnowledgeId());
+        }
+        return keys;
+    }
+
+    private boolean isPrimaryContribution(SpasAnalysisScoreRow row, Set<String> primaryKeys)
+    {
+        if (row.getStudentId() == null || row.getQuestionId() == null || row.getKnowledgeId() == null)
+        {
+            return "1".equals(row.getIsPrimary());
+        }
+        return primaryKeys != null
+            && primaryKeys.contains(row.getStudentId() + ":" + row.getQuestionId() + ":" + row.getKnowledgeId());
     }
 
     /** Public live aggregation for scoped queries (same formula as snapshot). */
@@ -290,23 +411,37 @@ public class KnowledgeStatCalculator
         stat.setAvgRate(avgRate);
         stat.setLastPaperId(agg.lastPaperId);
         stat.setLastExamDate(agg.lastExamDate);
-        stat.setWeakLevel(resolveWeakLevel(weightedRate, attempts));
+        // Exposure-only (primary-full secondary) must not produce formal weak grades
+        if (agg.rateCount <= 0)
+        {
+            stat.setWeakLevel("0");
+        }
+        else
+        {
+            stat.setWeakLevel(resolveWeakLevel(weightedRate, attempts, agg.subjectId));
+        }
         return stat;
     }
 
     public String resolveWeakLevel(BigDecimal rate, int attempts)
     {
+        return resolveWeakLevel(rate, attempts, null);
+    }
+
+    public String resolveWeakLevel(BigDecimal rate, int attempts, Long subjectId)
+    {
+        ThresholdBundle t = thresholdsFor(subjectId);
         double r = rate == null ? 0D : rate.doubleValue();
-        int severeMin = severeMinAttempts > 0 ? severeMinAttempts : minAttempts;
-        if (r < severeThreshold && attempts >= severeMin)
+        int severeMin = t.severeMinAttempts > 0 ? t.severeMinAttempts : t.minAttempts;
+        if (r < t.severe && attempts >= severeMin)
         {
             return "3";
         }
-        if (r < weakThreshold && attempts >= minAttempts)
+        if (r < t.weak && attempts >= t.minAttempts)
         {
             return "2";
         }
-        if (r < watchThreshold && attempts >= minAttempts)
+        if (r < t.watch && attempts >= t.minAttempts)
         {
             return "1";
         }
@@ -315,35 +450,135 @@ public class KnowledgeStatCalculator
 
     public boolean belowWeakRate(BigDecimal rate)
     {
+        return belowWeakRate(rate, null);
+    }
+
+    public boolean belowWeakRate(BigDecimal rate, Long subjectId)
+    {
         double r = rate == null ? 0D : rate.doubleValue();
-        return r < weakThreshold;
+        return r < thresholdsFor(subjectId).weak;
     }
 
     public boolean belowSevereRate(BigDecimal rate)
     {
+        return belowSevereRate(rate, null);
+    }
+
+    public boolean belowSevereRate(BigDecimal rate, Long subjectId)
+    {
         double r = rate == null ? 0D : rate.doubleValue();
-        return r < severeThreshold;
+        return r < thresholdsFor(subjectId).severe;
     }
 
     /** Exposed for live weak-top evidence tagging (same threshold as snapshot). */
     public int resolveMinAttempts()
     {
-        return Math.max(minAttempts, 1);
+        return resolveMinAttempts(null);
+    }
+
+    public int resolveMinAttempts(Long subjectId)
+    {
+        return Math.max(thresholdsFor(subjectId).minAttempts, 1);
     }
 
     public double resolveWeakThreshold()
     {
-        return weakThreshold;
+        return resolveWeakThreshold(null);
+    }
+
+    public double resolveWeakThreshold(Long subjectId)
+    {
+        return thresholdsFor(subjectId).weak;
     }
 
     public double resolveWatchThreshold()
     {
-        return watchThreshold;
+        return resolveWatchThreshold(null);
+    }
+
+    public double resolveWatchThreshold(Long subjectId)
+    {
+        return thresholdsFor(subjectId).watch;
     }
 
     public double resolveSevereThreshold()
     {
-        return severeThreshold;
+        return resolveSevereThreshold(null);
+    }
+
+    public double resolveSevereThreshold(Long subjectId)
+    {
+        return thresholdsFor(subjectId).severe;
+    }
+
+    public String resolveAllocationMode()
+    {
+        if (tuningProperties == null || tuningProperties.getAllocationMode() == null
+            || tuningProperties.getAllocationMode().trim().isEmpty())
+        {
+            return "proportional";
+        }
+        return tuningProperties.getAllocationMode().trim();
+    }
+
+    private ThresholdBundle thresholdsFor(Long subjectId)
+    {
+        ThresholdBundle t = new ThresholdBundle();
+        t.watch = watchThreshold;
+        t.weak = weakThreshold;
+        t.severe = severeThreshold;
+        t.minAttempts = minAttempts;
+        t.severeMinAttempts = severeMinAttempts;
+        if (subjectId == null || tuningProperties == null || subjectMapper == null)
+        {
+            return t;
+        }
+        try
+        {
+            SpasSubject subject = subjectMapper.selectSpasSubjectById(subjectId);
+            if (subject == null || subject.getSubjectCode() == null)
+            {
+                return t;
+            }
+            SpasAnalysisTuningProperties.ThresholdOverride o = tuningProperties.overrideFor(subject.getSubjectCode());
+            if (o == null)
+            {
+                return t;
+            }
+            if (o.getWatch() != null)
+            {
+                t.watch = o.getWatch().doubleValue();
+            }
+            if (o.getWeak() != null)
+            {
+                t.weak = o.getWeak().doubleValue();
+            }
+            if (o.getSevere() != null)
+            {
+                t.severe = o.getSevere().doubleValue();
+            }
+            if (o.getMinAttempts() != null && o.getMinAttempts().intValue() > 0)
+            {
+                t.minAttempts = o.getMinAttempts().intValue();
+            }
+            if (o.getSevereMinAttempts() != null && o.getSevereMinAttempts().intValue() > 0)
+            {
+                t.severeMinAttempts = o.getSevereMinAttempts().intValue();
+            }
+        }
+        catch (Exception ignored)
+        {
+        }
+        return t;
+    }
+
+    private static class ThresholdBundle
+    {
+        double watch;
+        double weak;
+        double severe;
+        int minAttempts;
+        int severeMinAttempts;
     }
 
     /** Confidence 0~1 based on attempt volume relative to min-attempts. */
@@ -508,6 +743,8 @@ public class KnowledgeStatCalculator
         BigDecimal sumSampleW = BigDecimal.ZERO;
         BigDecimal sumRate = BigDecimal.ZERO;
         int rateCount = 0;
+        /** Attempts counted only as secondary exposure under primary-full mode. */
+        int exposureOnlyCount = 0;
         Set<Long> questionIds = new HashSet<Long>();
         Long lastPaperId;
         Date lastExamDate;

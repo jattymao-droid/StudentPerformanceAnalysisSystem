@@ -43,10 +43,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                      OR cast(#{parentId} as varchar) = any(string_to_array(k.ancestors, ',')))
             </if>
             <if test="knowledgeName != null and knowledgeName != ''">
-                AND k.knowledge_name like concat('%', #{knowledgeName,jdbcType=VARCHAR}, '%')
+                AND k.knowledge_name like ('%' || #{knowledgeName} || '%')
             </if>
             <if test="knowledgeCode != null and knowledgeCode != ''">
-                AND k.knowledge_code like concat('%', #{knowledgeCode,jdbcType=VARCHAR}, '%')
+                AND k.knowledge_code like ('%' || #{knowledgeCode} || '%')
             </if>
             <if test="status != null and status != ''">
                 AND k.status = #{status}

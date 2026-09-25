@@ -1127,13 +1127,13 @@ public class SpasQbPaperImportHelper
                 || (c.contains("\u4e0b\u5217") && (c.contains("\u9009\u9879") || c.contains("\u6b63\u786e")
                 || c.contains("\u4e0d\u6b63\u786e") || c.contains("\u9519\u8bef"))))
         {
-            return "choice";
+            return "single";
         }
         if (c.contains("____") || c.contains("\u2014\u2014") || c.contains("\uff08\u3000\uff09")
                 || c.contains("\uff08  \uff09") || c.contains("(  )") || c.contains("\uff08\uff09")
                 || c.contains("\u586b\u7a7a"))
         {
-            return "blank";
+            return "fill";
         }
         return "short";
     }

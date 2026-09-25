@@ -15,4 +15,7 @@ public interface ISpasErrorTagService
     public int deleteByStudentAndQuestion(Long studentId, Long questionId);
 
     public java.util.List<java.util.Map<String, Object>> selectCauseSummary(Long studentId);
+
+    /** Class-level error-cause heat (dept scope, optional subject via paper). */
+    public java.util.List<java.util.Map<String, Object>> selectDeptCauseSummary(Long deptId, Long subjectId);
 }

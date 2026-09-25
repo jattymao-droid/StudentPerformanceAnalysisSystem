@@ -16,6 +16,9 @@ public class SpasOpenProperties
     /** Access token TTL in minutes */
     private int tokenTtlMinutes = 120;
 
+    /** Log authenticated OpenAPI access as SPAS_OPEN_AUDIT */
+    private boolean auditLog = true;
+
     public boolean isEnabled()
     {
         return enabled;
@@ -34,5 +37,15 @@ public class SpasOpenProperties
     public void setTokenTtlMinutes(int tokenTtlMinutes)
     {
         this.tokenTtlMinutes = tokenTtlMinutes;
+    }
+
+    public boolean isAuditLog()
+    {
+        return auditLog;
+    }
+
+    public void setAuditLog(boolean auditLog)
+    {
+        this.auditLog = auditLog;
     }
 }

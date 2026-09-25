@@ -52,7 +52,7 @@
         <include refid="selectExamVo"/>
         <where>
             <if test="examName != null and examName != ''">
-                and e.exam_name like concat('%', #{examName}, '%')
+                and e.exam_name like ('%' || #{examName} || '%')
             </if>
             <if test="deptId != null">
                 and e.dept_id = #{deptId}

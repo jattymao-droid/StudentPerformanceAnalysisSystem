@@ -3,7 +3,9 @@ package com.ruoyi.spas.domain;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import com.ruoyi.common.annotation.Excel;
+import com.ruoyi.common.annotation.Sensitive;
 import com.ruoyi.common.core.domain.BaseEntity;
+import com.ruoyi.common.enums.DesensitizedType;
 
 /**
  * Student profile entity spas_student
@@ -39,6 +41,7 @@ public class SpasStudent extends BaseEntity
 
     /** Parent mobile */
     @Excel(name = "\u5bb6\u957f\u624b\u673a", sort = 6)
+    @Sensitive(desensitizedType = DesensitizedType.PHONE)
     private String parentMobile;
 
     /** Status (0 normal 1 disabled) */

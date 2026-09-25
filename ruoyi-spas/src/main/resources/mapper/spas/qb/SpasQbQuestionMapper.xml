@@ -57,11 +57,15 @@
         <where>
             and q.del_flag = '0'
             <if test="subjectId != null">and q.subject_id = #{subjectId}</if>
-            <if test="questionType != null and questionType != ''">and q.question_type = #{questionType}</if>
+            <if test="questionTypes != null and questionTypes.size() &gt; 0">
+                and q.question_type in
+                <foreach collection="questionTypes" item="qt" open="(" separator="," close=")">#{qt}</foreach>
+            </if>
+            <if test="(questionTypes == null or questionTypes.size() == 0) and questionType != null and questionType != ''">and q.question_type = #{questionType}</if>
             <if test="difficulty != null and difficulty != ''">and q.difficulty = #{difficulty}</if>
             <if test="status != null and status != ''">and q.status = #{status}</if>
-            <if test="questionCode != null and questionCode != ''">and q.question_code like concat('%', #{questionCode}, '%')</if>
-            <if test="content != null and content != ''">and q.content like concat('%', #{content}, '%')</if>
+            <if test="questionCode != null and questionCode != ''">and q.question_code like ('%' || #{questionCode} || '%')</if>
+            <if test="content != null and content != ''">and q.content like ('%' || #{content} || '%')</if>
             <if test="unboundOnly != null and unboundOnly">
                 and not exists (select 1 from spas_qb_question_knowledge qk2 where qk2.question_id = q.question_id)
             </if>
@@ -94,8 +98,8 @@
                 )
             </if>
             <if test="sourceYear != null">and q.source_year = #{sourceYear}</if>
-            <if test="sourceRegion != null and sourceRegion != ''">and q.source_region like concat('%', #{sourceRegion}, '%')</if>
-            <if test="sourceExam != null and sourceExam != ''">and q.source_exam like concat('%', #{sourceExam}, '%')</if>
+            <if test="sourceRegion != null and sourceRegion != ''">and q.source_region like ('%' || #{sourceRegion} || '%')</if>
+            <if test="sourceExam != null and sourceExam != ''">and q.source_exam like ('%' || #{sourceExam} || '%')</if>
         </where>
         order by q.question_id desc
     </select>

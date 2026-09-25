@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import com.ruoyi.spas.domain.SpasAnalysisScoreRow;
@@ -74,6 +75,118 @@ class KnowledgeStatCalculatorTest
         assertTrue(c3.compareTo(c0) > 0);
         assertTrue(c6.compareTo(c3) > 0);
         assertTrue(c6.compareTo(BigDecimal.ONE) < 0);
+    }
+
+    @Test
+    void primaryFullModeSecondaryIsExposureOnly() throws Exception
+    {
+        com.ruoyi.spas.config.SpasAnalysisTuningProperties props =
+            new com.ruoyi.spas.config.SpasAnalysisTuningProperties();
+        props.setAllocationMode("primary-full");
+        set(calculator, "tuningProperties", props);
+
+        List<SpasAnalysisScoreRow> rows = new ArrayList<SpasAnalysisScoreRow>();
+        SpasAnalysisScoreRow primary = row(1L, 10L, 100L, "0.20", "0.70", "2", null);
+        primary.setIsPrimary("1");
+        SpasAnalysisScoreRow secondary = row(1L, 11L, 100L, "0.20", "0.30", "2", null);
+        secondary.setIsPrimary("0");
+        rows.add(primary);
+        rows.add(secondary);
+
+        Map<Long, KnowledgeStatCalculator.AggView> views = calculator.aggregateViews(rows);
+        SpasStudentKnowledgeStat pStat = calculator.toStatView(views.get(10L));
+        SpasStudentKnowledgeStat sStat = calculator.toStatView(views.get(11L));
+        assertEquals(0, new BigDecimal("0.200000").compareTo(pStat.getWeightedRate()));
+        assertEquals(Integer.valueOf(1), pStat.getAttemptCount());
+        assertEquals(0, BigDecimal.ZERO.compareTo(sStat.getWeightedRate()));
+        assertEquals("0", sStat.getWeakLevel());
+        assertEquals(Integer.valueOf(1), sStat.getAttemptCount());
+    }
+
+    @Test
+    void subjectOverrideRaisesWeakThreshold() throws Exception
+    {
+        com.ruoyi.spas.config.SpasAnalysisTuningProperties props =
+            new com.ruoyi.spas.config.SpasAnalysisTuningProperties();
+        com.ruoyi.spas.config.SpasAnalysisTuningProperties.ThresholdOverride o =
+            new com.ruoyi.spas.config.SpasAnalysisTuningProperties.ThresholdOverride();
+        o.setWatch(0.80);
+        o.setWeak(0.65);
+        o.setSevere(0.50);
+        o.setMinAttempts(3);
+        java.util.Map<String, com.ruoyi.spas.config.SpasAnalysisTuningProperties.ThresholdOverride> map =
+            new java.util.LinkedHashMap<String, com.ruoyi.spas.config.SpasAnalysisTuningProperties.ThresholdOverride>();
+        map.put("MATH", o);
+        props.setSubjectOverrides(map);
+        set(calculator, "tuningProperties", props);
+
+        com.ruoyi.spas.mapper.SpasSubjectMapper mapper = stubSubjectMapper(2L, "MATH");
+        set(calculator, "subjectMapper", mapper);
+
+        // 0.62 默认落在「关注」(watch=0.75, weak=0.60)；MATH 覆盖 weak=0.65 后升为正式薄弱
+        assertEquals("1", calculator.resolveWeakLevel(new BigDecimal("0.62"), 3, null));
+        assertEquals("2", calculator.resolveWeakLevel(new BigDecimal("0.62"), 3, 2L));
+        assertEquals(Integer.valueOf(3), Integer.valueOf(calculator.resolveMinAttempts(2L)));
+        assertTrue(calculator.belowWeakRate(new BigDecimal("0.64"), 2L));
+        assertTrue(!calculator.belowWeakRate(new BigDecimal("0.65"), 2L));
+    }
+
+    private static com.ruoyi.spas.mapper.SpasSubjectMapper stubSubjectMapper(final Long id, final String code)
+    {
+        final com.ruoyi.spas.domain.SpasSubject subject = new com.ruoyi.spas.domain.SpasSubject();
+        subject.setSubjectId(id);
+        subject.setSubjectCode(code);
+        return new com.ruoyi.spas.mapper.SpasSubjectMapper()
+        {
+            @Override
+            public java.util.List<com.ruoyi.spas.domain.SpasSubject> selectSpasSubjectList(
+                com.ruoyi.spas.domain.SpasSubject q)
+            {
+                return java.util.Collections.emptyList();
+            }
+
+            @Override
+            public com.ruoyi.spas.domain.SpasSubject selectSpasSubjectById(Long subjectId)
+            {
+                return id.equals(subjectId) ? subject : null;
+            }
+
+            @Override
+            public java.util.List<com.ruoyi.spas.domain.SpasSubject> selectSpasSubjectAll()
+            {
+                return java.util.Collections.singletonList(subject);
+            }
+
+            @Override
+            public com.ruoyi.spas.domain.SpasSubject checkSubjectCodeUnique(String subjectCode)
+            {
+                return null;
+            }
+
+            @Override
+            public int insertSpasSubject(com.ruoyi.spas.domain.SpasSubject s)
+            {
+                return 0;
+            }
+
+            @Override
+            public int updateSpasSubject(com.ruoyi.spas.domain.SpasSubject s)
+            {
+                return 0;
+            }
+
+            @Override
+            public int deleteSpasSubjectById(Long subjectId)
+            {
+                return 0;
+            }
+
+            @Override
+            public int deleteSpasSubjectByIds(Long[] subjectIds)
+            {
+                return 0;
+            }
+        };
     }
 
     private static SpasAnalysisScoreRow row(Long studentId, Long knowledgeId, Long questionId, String rate,

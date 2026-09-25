@@ -198,12 +198,16 @@ public final class SpasReportPdfWriter
         addCell(kpi, body, fmtGap(summary.get("gap")), false);
         addCell(kpi, body, "\u7f6e\u4fe1\u5ea6", true);
         addCell(kpi, body, str(first(summary, "confidenceLabel", "confidence"), "-"), false);
-        addCell(kpi, body, "\u4e25\u91cd", true);
+        addCell(kpi, body, "\u6b63\u5f0f\u4e25\u91cd", true);
         addCell(kpi, body, str(summary.get("severeCount"), "0"), false);
-        addCell(kpi, body, "\u8584\u5f31", true);
+        addCell(kpi, body, "\u6b63\u5f0f\u8584\u5f31", true);
         addCell(kpi, body, str(summary.get("weakCount"), "0"), false);
         addCell(kpi, body, "\u5173\u6ce8", true);
         addCell(kpi, body, str(summary.get("watchCount"), "0"), false);
+        addCell(kpi, body, "\u7efc\u5408\u4f4e\u5206", true);
+        addCell(kpi, body, str(summary.get("lowRateCount"), "0"), false);
+        addCell(kpi, body, "\u6837\u672c\u4e0d\u8db3", true);
+        addCell(kpi, body, str(summary.get("thinSampleCount"), "0"), false);
         addCell(kpi, body, "\u7ec3\u4e60\u6b21\u6570", true);
         addCell(kpi, body, str(summary.get("totalAttempts"), "0"), false);
         doc.add(kpi);
@@ -543,10 +547,14 @@ public final class SpasReportPdfWriter
         addCell(kpi, body, str(overview.get("studentCount"), "0"), false);
         addCell(kpi, body, "\u73ed\u5747\u5f97\u5206\u7387", true);
         addCell(kpi, body, fmtRate(first(overview, "avgRate", "classAvgRate")), false);
-        addCell(kpi, body, "\u8584\u5f31\u5b66\u751f\u6570", true);
+        addCell(kpi, body, "\u6b63\u5f0f\u8584\u5f31", true);
         addCell(kpi, body, str(overview.get("weakStudentCount"), "0"), false);
-        addCell(kpi, body, "\u4e25\u91cd\u6570", true);
-        addCell(kpi, body, str(overview.get("severeCount"), "0"), false);
+        addCell(kpi, body, "\u6b63\u5f0f\u4e25\u91cd", true);
+        addCell(kpi, body, str(first(overview, "severeStudentCount", "severeCount"), "0"), false);
+        addCell(kpi, body, "\u7efc\u5408\u4f4e\u5206", true);
+        addCell(kpi, body, str(overview.get("lowRateStudentCount"), "0"), false);
+        addCell(kpi, body, "\u6837\u672c\u4e0d\u8db3", true);
+        addCell(kpi, body, str(overview.get("thinSampleStudentCount"), "0"), false);
         doc.add(kpi);
         doc.add(spacer(10));
 
@@ -774,6 +782,9 @@ public final class SpasReportPdfWriter
             "C:/Windows/Fonts/msyh.ttc,0",
             "C:/Windows/Fonts/simhei.ttf",
             "C:/Windows/Fonts/simkai.ttf",
+            "/System/Library/Fonts/PingFang.ttc,0",
+            "/System/Library/Fonts/STHeiti Light.ttc,0",
+            "/Library/Fonts/Arial Unicode.ttf",
             "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc,0",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc,0",
             "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf"
@@ -786,7 +797,9 @@ public final class SpasReportPdfWriter
                 return bf;
             }
         }
-        throw new ServiceException("\u672a\u627e\u5230\u4e2d\u6587\u5b57\u4f53\uff0c\u65e0\u6cd5\u751f\u6210PDF\uff08\u8bf7\u786e\u4fdd classpath:fonts/spas-cjk.otf \u6216\u914d\u7f6e spas.report.pdf-font-path\uff09");
+        throw new ServiceException(
+            "未找到中文字体，无法生成PDF。请将 spas-cjk.otf 放到 classpath:/fonts/，"
+                + "或配置 spas.report.pdf-font-path 指向本机 CJK 字体（见 docs/spas-deploy.md §1.5）。");
     }
 
     private static BaseFont loadClasspathFont()

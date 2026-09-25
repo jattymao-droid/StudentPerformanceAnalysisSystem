@@ -48,7 +48,7 @@ where not exists (select 1 from sys_menu where menu_id=2305);
 
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)
 
-select 2310, '题库组卷', 2300, 2, 'paper', 'spas/qb/paper/index', '', '', 1, 0, 'C', '0', '0', 'spas:qb:paper:list', 'form', 'admin', current_timestamp, 'Bank paper compose'
+select 2310, '题库组卷', 2300, 2, 'paper', 'spas/qb/paper/index', '', 'QbPaper', 1, 0, 'C', '0', '0', 'spas:qb:paper:list', 'form', 'admin', current_timestamp, 'Bank paper compose'
 
 where not exists (select 1 from sys_menu where menu_id=2310);
 

@@ -27,6 +27,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="score"       column="score"        />
         <result property="fullScore"   column="full_score"   />
         <result property="rate"        column="rate"         />
+        <result property="scoreSource" column="score_source" />
         <result property="studentNo"   column="student_no"   />
         <result property="studentName" column="student_name" />
         <result property="questionNo"  column="question_no"  />
@@ -57,7 +58,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 AND b.status = #{status}
             </if>
             <if test="fileName != null and fileName != ''">
-                AND b.file_name like concat('%', #{fileName,jdbcType=VARCHAR}, '%')
+                AND b.file_name like ('%' || #{fileName} || '%')
             </if>
             AND exists (
                 select 1 from spas_score_detail sd
@@ -116,10 +117,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <select id="selectSpasScoreDetailList" parameterType="SpasScoreDetail" resultMap="SpasScoreDetailResult">
         select sd.detail_id, sd.paper_id, sd.question_id, sd.student_id, sd.batch_id,
-               sd.score, sd.full_score, sd.rate, sd.create_time, sd.update_time,
+               sd.score, sd.full_score, sd.rate, sd.score_source, sd.create_time, sd.update_time,
                st.student_no, st.student_name, q.question_no
         from spas_score_detail sd
         left join spas_student st on sd.student_id = st.student_id
+        left join sys_dept d on st.dept_id = d.dept_id
         left join spas_paper_question q on sd.question_id = q.question_id
         <where>
             <if test="paperId != null">
@@ -134,16 +136,49 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="batchId != null">
                 AND sd.batch_id = #{batchId}
             </if>
-            <choose>
-                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
-                    AND st.dept_id in
-                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
-                </when>
-                <otherwise>${params.dataScope}</otherwise>
-            </choose>
+            <if test="studentNo != null and studentNo != ''">
+                AND st.student_no like ('%' || #{studentNo} || '%')
+            </if>
+            <if test="studentName != null and studentName != ''">
+                AND st.student_name like ('%' || #{studentName} || '%')
+            </if>
+            <if test="questionNo != null and questionNo != ''">
+                AND q.question_no like ('%' || #{questionNo} || '%')
+            </if>
+            <if test="scoreSource != null and scoreSource != ''">
+                AND sd.score_source = #{scoreSource}
+            </if>
+            <include refid="scoreStudentDeptScope"/>
         </where>
         order by st.student_no asc, q.question_order asc
     </select>
+
+    <select id="selectSpasScoreDetailById" parameterType="Long" resultMap="SpasScoreDetailResult">
+        select sd.detail_id, sd.paper_id, sd.question_id, sd.student_id, sd.batch_id,
+               sd.score, sd.full_score, sd.rate, sd.score_source, sd.create_time, sd.update_time,
+               st.student_no, st.student_name, q.question_no
+        from spas_score_detail sd
+        left join spas_student st on sd.student_id = st.student_id
+        left join spas_paper_question q on sd.question_id = q.question_id
+        where sd.detail_id = #{detailId}
+    </select>
+
+    <update id="updateSpasScoreDetail" parameterType="SpasScoreDetail">
+        update spas_score_detail
+        <set>
+            <if test="score != null">score = #{score},</if>
+            <if test="fullScore != null">full_score = #{fullScore},</if>
+            <if test="rate != null">rate = #{rate},</if>
+            <if test="scoreSource != null">score_source = #{scoreSource},</if>
+            update_time = now()
+        </set>
+        where detail_id = #{detailId}
+    </update>
+
+    <delete id="deleteSpasScoreDetailByIds">
+        delete from spas_score_detail where detail_id in
+        <foreach collection="array" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
 
     <insert id="upsertSpasScoreDetail" parameterType="SpasScoreDetail">
         insert into spas_score_detail(

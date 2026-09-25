@@ -66,7 +66,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <include refid="selectSpasPaperVo"/>
         <where>
             <if test="paperName != null and paperName != ''">
-                AND p.paper_name like concat('%', #{paperName,jdbcType=VARCHAR}, '%')
+                AND p.paper_name like ('%' || #{paperName} || '%')
             </if>
             <if test="paperType != null and paperType != ''">
                 AND p.paper_type = #{paperType}

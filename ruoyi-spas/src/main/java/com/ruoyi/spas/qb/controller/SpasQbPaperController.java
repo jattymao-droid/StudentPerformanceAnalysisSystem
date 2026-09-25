@@ -1,5 +1,6 @@
 package com.ruoyi.spas.qb.controller;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +19,10 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.spas.domain.SpasPaper;
+import com.ruoyi.spas.domain.SpasPaperQuestion;
+import com.ruoyi.spas.mapper.SpasPaperMapper;
 import com.ruoyi.spas.qb.domain.SpasQbPaper;
 import com.ruoyi.spas.qb.domain.SpasQbPublishRequest;
 import com.ruoyi.spas.qb.service.ISpasQbPaperService;
@@ -33,6 +37,9 @@ public class SpasQbPaperController extends BaseController
 {
     @Autowired
     private ISpasQbPaperService paperService;
+
+    @Autowired
+    private SpasPaperMapper analysisPaperMapper;
 
     @Autowired
     private SpasAccessService accessService;
@@ -100,7 +107,52 @@ public class SpasQbPaperController extends BaseController
     {
         request.setBankPaperId(paperId);
         SpasPaper analysis = paperService.publishToAnalysis(request, getUsername());
-        return success(analysis);
+        Map<String, Object> data = new HashMap<>();
+        data.put("paper", analysis);
+        data.put("paperId", analysis != null ? analysis.getPaperId() : null);
+        int noBloom = 0;
+        int noType = 0;
+        int questionCount = 0;
+        if (analysis != null && analysis.getPaperId() != null)
+        {
+            List<SpasPaperQuestion> qs = analysisPaperMapper.selectQuestionsByPaperId(analysis.getPaperId());
+            if (qs != null)
+            {
+                questionCount = qs.size();
+                for (SpasPaperQuestion q : qs)
+                {
+                    if (q == null)
+                    {
+                        continue;
+                    }
+                    if (StringUtils.isEmpty(q.getBloomLevel()))
+                    {
+                        noBloom++;
+                    }
+                    if (StringUtils.isEmpty(q.getQuestionType()))
+                    {
+                        noType++;
+                    }
+                }
+            }
+        }
+        data.put("questionCount", questionCount);
+        data.put("noBloomCount", noBloom);
+        data.put("noQuestionTypeCount", noType);
+        data.put("needBloomBeforeScore", noBloom > 0);
+        if (noBloom > 0)
+        {
+            data.put("nextStep", "分析卷有 " + noBloom + " 题未标认知层级。请先到「试卷管理」补全 Bloom，再导入成绩（当前为硬门禁）。");
+        }
+        else if (noType > 0)
+        {
+            data.put("nextStep", "分析卷有 " + noType + " 题未选题型，请补全后再导分。");
+        }
+        else
+        {
+            data.put("nextStep", "标注齐全，可前往导入成绩。");
+        }
+        return success(data);
     }
 
     /** Pre-publish: unbound KP / weight sum != 1 */

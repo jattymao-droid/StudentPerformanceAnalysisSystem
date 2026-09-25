@@ -18,6 +18,11 @@ public interface SpasAnalysisMapper
         @Param("paperId") Long paperId);
 
     /**
+     * Batch load score rows for full-history recalc (avoids per-student round trips).
+     */
+    public List<SpasAnalysisScoreRow> selectScoreRowsForRecalcByStudents(@Param("studentIds") List<Long> studentIds);
+
+    /**
      * Score rows for scoped live aggregation (optional student / subject / date / papers / dept / knowledge).
      */
     public List<SpasAnalysisScoreRow> selectScoreRowsForScope(@Param("studentId") Long studentId,
@@ -48,6 +53,11 @@ public interface SpasAnalysisMapper
      * Delete all stats for a student
      */
     public int deleteStatByStudent(Long studentId);
+
+    /**
+     * Delete stats for many students in one statement
+     */
+    public int deleteStatByStudents(@Param("studentIds") List<Long> studentIds);
 
     /**
      * Student radar points

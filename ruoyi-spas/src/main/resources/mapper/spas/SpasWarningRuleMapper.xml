@@ -30,7 +30,7 @@
     <select id="selectSpasWarningRuleList" parameterType="SpasWarningRule" resultMap="SpasWarningRuleResult">
         <include refid="selectVo"/>
         <where>
-            <if test="ruleName != null and ruleName != ''">AND rule_name like concat('%', #{ruleName,jdbcType=VARCHAR}, '%')</if>
+            <if test="ruleName != null and ruleName != ''">AND rule_name like ('%' || #{ruleName} || '%')</if>
             <if test="ruleCode != null and ruleCode != ''">AND rule_code = #{ruleCode}</if>
             <if test="metric != null and metric != ''">AND metric = #{metric}</if>
             <if test="enabled != null and enabled != ''">AND enabled = #{enabled}</if>

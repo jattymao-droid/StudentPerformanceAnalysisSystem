@@ -38,6 +38,7 @@ import com.ruoyi.spas.qb.service.ISpasQbQuestionService;
 import com.ruoyi.spas.qb.support.SpasQbFormulaPolishHelper;
 import com.ruoyi.spas.qb.support.SpasQbPaperImportHelper;
 import com.ruoyi.spas.qb.support.SpasQbSourceParseHelper;
+import com.ruoyi.spas.support.SpasQuestionTypeAlias;
 import com.ruoyi.spas.qb.domain.SpasQbSmartPickRequest;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.HashMap;
@@ -69,7 +70,27 @@ public class SpasQbQuestionServiceImpl implements ISpasQbQuestionService
     @Override
     public List<SpasQbQuestion> selectSpasQbQuestionList(SpasQbQuestion query)
     {
+        applyTypeFilterAliases(query);
         return questionMapper.selectSpasQbQuestionList(query);
+    }
+
+    /** Expand choice/blank ↔ single/fill so list/smart-pick do not miss catalog rows. */
+    private void applyTypeFilterAliases(SpasQbQuestion query)
+    {
+        if (query == null || StringUtils.isEmpty(query.getQuestionType()))
+        {
+            return;
+        }
+        List<String> aliases = SpasQuestionTypeAlias.expand(query.getQuestionType());
+        if (aliases.size() > 1)
+        {
+            query.setQuestionTypes(aliases);
+            query.setQuestionType(null);
+        }
+        else
+        {
+            query.setQuestionType(SpasQuestionTypeAlias.normalize(query.getQuestionType()));
+        }
     }
 
     @Override
@@ -116,6 +137,10 @@ public class SpasQbQuestionServiceImpl implements ISpasQbQuestionService
         if (StringUtils.isEmpty(question.getQuestionType()))
         {
             question.setQuestionType("short");
+        }
+        else
+        {
+            question.setQuestionType(SpasQuestionTypeAlias.normalize(question.getQuestionType()));
         }
         int rows = questionMapper.insertSpasQbQuestion(question);
         if (rows > 0 && question.getKnowledgeList() != null && !question.getKnowledgeList().isEmpty())
@@ -796,14 +821,16 @@ public class SpasQbQuestionServiceImpl implements ISpasQbQuestionService
             {
                 // re-check content when section said short but options present
                 String fromContent = SpasQbPaperImportHelper.guessTypeFromContent(item.getContent());
-                if ("choice".equals(fromContent) && !"choice".equals(item.getQuestionType()))
+                if ("single".equals(fromContent) && !"single".equals(item.getQuestionType())
+                    && !"multi".equals(item.getQuestionType()) && !"choice".equals(item.getQuestionType()))
                 {
-                    item.setQuestionType("choice");
+                    item.setQuestionType("single");
                 }
-                else if ("blank".equals(fromContent) && "short".equals(item.getQuestionType()))
+                else if ("fill".equals(fromContent) && "short".equals(item.getQuestionType()))
                 {
-                    item.setQuestionType("blank");
+                    item.setQuestionType("fill");
                 }
+                item.setQuestionType(SpasQuestionTypeAlias.normalize(item.getQuestionType()));
             }
             if (StringUtils.isEmpty(item.getDifficulty()))
             {
@@ -983,7 +1010,8 @@ public class SpasQbQuestionServiceImpl implements ISpasQbQuestionService
                 SpasQbQuestion q = new SpasQbQuestion();
                 q.setSubjectId(request.getSubjectId());
                 q.setContent(item.getContent().trim());
-                q.setQuestionType(StringUtils.isEmpty(item.getQuestionType()) ? "short" : item.getQuestionType());
+                q.setQuestionType(StringUtils.isEmpty(item.getQuestionType()) ? "short"
+                    : SpasQuestionTypeAlias.normalize(item.getQuestionType()));
                 q.setDifficulty(StringUtils.isEmpty(item.getDifficulty()) ? "2" : item.getDifficulty());
                 q.setQuestionCode(item.getQuestionNo());
                 q.setStatus("0");
@@ -1052,7 +1080,7 @@ public class SpasQbQuestionServiceImpl implements ISpasQbQuestionService
                 {
                     q.setQuestionType(row.getQuestionType());
                 }
-                List<SpasQbQuestion> pool = questionMapper.selectSpasQbQuestionList(q);
+                List<SpasQbQuestion> pool = diversifyPool(selectSpasQbQuestionList(q), null);
                 pool = diversifyPool(pool, row.getDifficulty());
                 int need = row.getCount();
                 for (SpasQbQuestion cand : pool)
@@ -1077,7 +1105,7 @@ public class SpasQbQuestionServiceImpl implements ISpasQbQuestionService
         {
             int total = request.getTotalCount() == null ? 10 : Math.max(1, Math.min(50, request.getTotalCount()));
             SpasQbQuestion q = basePickQuery(request);
-            List<SpasQbQuestion> pool = diversifyPool(questionMapper.selectSpasQbQuestionList(q), null);
+            List<SpasQbQuestion> pool = diversifyPool(selectSpasQbQuestionList(q), null);
             for (SpasQbQuestion cand : pool)
             {
                 if (picked.size() >= total)
@@ -1101,7 +1129,7 @@ public class SpasQbQuestionServiceImpl implements ISpasQbQuestionService
             }
             SpasQbQuestion q = basePickQuery(request);
             q.setQuestionType(e.getKey());
-            List<SpasQbQuestion> pool = diversifyPool(questionMapper.selectSpasQbQuestionList(q), null);
+            List<SpasQbQuestion> pool = diversifyPool(selectSpasQbQuestionList(q), null);
             Map<String, Integer> diffQ = request.getDifficultyQuotas();
             int need = e.getValue();
             if (diffQ != null && !diffQ.isEmpty())

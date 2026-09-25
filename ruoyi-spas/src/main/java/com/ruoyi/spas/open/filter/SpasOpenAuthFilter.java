@@ -81,11 +81,31 @@ public class SpasOpenAuthFilter extends OncePerRequestFilter
                 return;
             }
             SpasOpenContext.set(payload);
+            if (openProperties.isAuditLog())
+            {
+                logOpenAccess(request, payload);
+            }
             filterChain.doFilter(request, response);
         }
         finally
         {
             SpasOpenContext.clear();
+        }
+    }
+
+    private void logOpenAccess(HttpServletRequest request, SpasOpenToken payload)
+    {
+        try
+        {
+            String path = request.getRequestURI();
+            String method = request.getMethod();
+            Long parentId = payload.getParentId();
+            org.slf4j.LoggerFactory.getLogger(SpasOpenAuthFilter.class).info(
+                "SPAS_OPEN_AUDIT method={} path={} parentId={} appId={} clientId={} ip={}",
+                method, path, parentId, payload.getAppId(), payload.getClientId(), request.getRemoteAddr());
+        }
+        catch (Exception ignored)
+        {
         }
     }
 

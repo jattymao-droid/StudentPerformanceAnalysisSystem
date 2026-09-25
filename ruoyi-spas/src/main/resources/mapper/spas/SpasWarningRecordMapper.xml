@@ -35,8 +35,15 @@
             <if test="ruleId != null">AND r.rule_id = #{ruleId}</if>
             <if test="status != null and status != ''">AND r.status = #{status}</if>
             <if test="level != null and level != ''">AND r.level = #{level}</if>
-            <if test="studentName != null and studentName != ''">AND s.student_name like concat('%', #{studentName,jdbcType=VARCHAR}, '%')</if>
-            <if test="studentNo != null and studentNo != ''">AND s.student_no like concat('%', #{studentNo,jdbcType=VARCHAR}, '%')</if>
+            <if test="studentName != null and studentName != ''">AND s.student_name like ('%' || #{studentName} || '%')</if>
+            <if test="studentNo != null and studentNo != ''">AND s.student_no like ('%' || #{studentNo} || '%')</if>
+            <if test="subjectId != null">AND r.subject_id = #{subjectId}</if>
+            <if test="deptId != null">
+                AND (s.dept_id = #{deptId} OR s.dept_id IN (
+                    SELECT x.dept_id FROM sys_dept x
+                    WHERE cast(#{deptId} as varchar) = any(string_to_array(x.ancestors, ','))
+                ))
+            </if>
             <choose>
                 <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() > 0">
                     AND s.dept_id in

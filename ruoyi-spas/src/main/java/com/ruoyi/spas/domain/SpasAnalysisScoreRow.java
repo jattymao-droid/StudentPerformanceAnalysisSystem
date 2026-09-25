@@ -18,6 +18,9 @@ public class SpasAnalysisScoreRow
 
     private BigDecimal weight;
 
+    /** '1' = primary knowledge for the question */
+    private String isPrimary;
+
     private String difficulty;
 
     private BigDecimal rate;
@@ -81,6 +84,16 @@ public class SpasAnalysisScoreRow
     public void setWeight(BigDecimal weight)
     {
         this.weight = weight;
+    }
+
+    public String getIsPrimary()
+    {
+        return isPrimary;
+    }
+
+    public void setIsPrimary(String isPrimary)
+    {
+        this.isPrimary = isPrimary;
     }
 
     public String getDifficulty()

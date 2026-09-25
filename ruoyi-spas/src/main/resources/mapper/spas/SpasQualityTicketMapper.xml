@@ -38,8 +38,8 @@
             <if test="priority != null and priority != ''">and t.priority = #{priority}</if>
             <if test="deptId != null">and t.dept_id = #{deptId}</if>
             <if test="subjectId != null">and t.subject_id = #{subjectId}</if>
-            <if test="ownerBy != null and ownerBy != ''">and t.owner_by like concat('%', #{ownerBy}, '%')</if>
-            <if test="title != null and title != ''">and t.title like concat('%', #{title}, '%')</if>
+            <if test="ownerBy != null and ownerBy != ''">and t.owner_by like ('%' || #{ownerBy} || '%')</if>
+            <if test="title != null and title != ''">and t.title like ('%' || #{title} || '%')</if>
         </where>
         order by t.create_time desc, t.ticket_id desc
     </select>

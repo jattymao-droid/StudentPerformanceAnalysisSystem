@@ -35,6 +35,7 @@ REQUIRED = [
     "spas_warning_job.sql",
     "spas_score_revoke_fix.sql",
     "spas_score_source.sql",
+    "spas_score_detail_crud.sql",
     "spas_intervene.sql",
     "spas_intervene_effect_json.sql",
     "spas_intervene_knowledge.sql",
@@ -43,7 +44,6 @@ REQUIRED = [
     "spas_quality_ticket.sql",
     "spas_report.sql",
     "spas_analysis_frequency_menu.sql",
-    "spas_open_seed.sql",
     "spas_phase6_enhance.sql",
     "spas_route_name_fix.sql",
     "spas_ui_trim.sql",
@@ -61,12 +61,18 @@ REQUIRED = [
     "spas_qb_select_center.sql",
     "spas_qb_ai_config.sql",
     "spas_report_hub.sql",
+    "spas_recalc_job.sql",
 ]
 
 OPTIONAL_DEMO = [
+    "spas_open_seed.sql",
     "spas_school_dept_seed.sql",
     "spas_demo_seed.sql",
     "spas_knowledge_chapter_seed.sql",
+    "spas_knowledge_edge_math_seed.sql",
+    "spas_knowledge_edge_physics_seed.sql",
+    "spas_subject_pack_seed.sql",
+    "spas_subject_qtype_backfill.sql",
     "spas_teacher_demo_seed.sql",
     "spas_teacher_multi_class_seed.sql",
     "spas_class2_demo_seed.sql",
@@ -152,14 +158,46 @@ CHECKS = [
 ]
 
 
+def _resolve_prop(raw: str) -> str:
+    """Resolve Spring ${ENV:default} or plain values; prefer process env."""
+    val = (raw or "").strip().strip('"').strip("'")
+    m = re.fullmatch(r"\$\{([^:}]+)(?::([^}]*))?\}", val)
+    if not m:
+        return val
+    key, default = m.group(1), m.group(2) if m.group(2) is not None else ""
+    return os.environ.get(key, default)
+
+
 def read_db_config():
+    # Explicit env wins (also used with .env.local)
+    env_url = os.environ.get("SPAS_DB_URL", "").strip()
+    env_user = os.environ.get("SPAS_DB_USER", "").strip()
+    env_password = os.environ.get("SPAS_DB_PASSWORD", "")
+    if env_url and env_user and env_password is not None and env_password != "":
+        m = re.search(r"jdbc:postgresql://([^:]+):(\d+)/([^\?\s]+)", env_url)
+        if not m:
+            raise SystemExit("Invalid SPAS_DB_URL")
+        return m.group(1), m.group(2), m.group(3), env_user, env_password
+
     text = DRUID_YML.read_text(encoding="utf-8")
-    url = re.search(r"url:\s*jdbc:postgresql://([^:]+):(\d+)/([^\?\s]+)", text)
+    url = re.search(r"url:\s*(\S+)", text)
     user = re.search(r"username:\s*(\S+)", text)
     password = re.search(r"password:\s*(\S+)", text)
     if not (url and user and password):
         raise SystemExit("Failed to parse application-druid.yml")
-    return url.group(1), url.group(2), url.group(3), user.group(1), password.group(1)
+    jdbc = _resolve_prop(url.group(1))
+    db_user = _resolve_prop(user.group(1))
+    db_password = _resolve_prop(password.group(1))
+    if not db_password:
+        db_password = os.environ.get("SPAS_DB_PASSWORD", "")
+    if not db_password:
+        raise SystemExit(
+            "DB password empty. Set SPAS_DB_PASSWORD (e.g. source .env.local) or fill application-druid.yml"
+        )
+    m = re.search(r"jdbc:postgresql://([^:]+):(\d+)/([^\?\s]+)", jdbc)
+    if not m:
+        raise SystemExit("Failed to parse JDBC url from application-druid.yml / SPAS_DB_URL")
+    return m.group(1), m.group(2), m.group(3), db_user, db_password
 
 
 def psql(env, args, check=True):

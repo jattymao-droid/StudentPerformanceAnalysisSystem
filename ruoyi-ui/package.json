@@ -38,6 +38,7 @@
     "js-cookie": "3.0.1",
     "jsencrypt": "3.0.0-rc.1",
     "katex": "^0.16.11",
+    "mathlive": "^0.105.3",
     "nprogress": "0.2.0",
     "quill": "2.0.2",
     "screenfull": "5.0.2",

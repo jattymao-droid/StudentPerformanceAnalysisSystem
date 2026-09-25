@@ -88,7 +88,12 @@ public class SpasOpenServiceImpl implements ISpasOpenService
         data.put("expiresIn", ttl * 60L);
         data.put("parentId", parent.getParentId());
         data.put("parentName", parent.getParentName());
-        data.put("mobile", parent.getMobile());
+        String maskedMobile = parent.getMobile();
+        if (StringUtils.isNotEmpty(maskedMobile))
+        {
+            maskedMobile = com.ruoyi.common.enums.DesensitizedType.PHONE.desensitizer().apply(maskedMobile);
+        }
+        data.put("mobile", maskedMobile);
         return data;
     }
 

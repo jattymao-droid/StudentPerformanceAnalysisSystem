@@ -24,6 +24,10 @@ export function runWarningEngine(window) {
   return request({ url: '/spas/warning/rule/run', method: 'post', params: window ? { window } : {} })
 }
 
+export function warningNotifyStatus() {
+  return request({ url: '/spas/warning/rule/notify-status', method: 'get' })
+}
+
 export function listWarningRecord(query) {
   return request({ url: '/spas/warning/record/list', method: 'get', params: query })
 }

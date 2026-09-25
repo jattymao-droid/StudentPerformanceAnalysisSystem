@@ -81,6 +81,9 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
     @Autowired
     private ISpasKnowledgeEdgeService knowledgeEdgeService;
 
+    @Autowired(required = false)
+    private com.ruoyi.spas.config.SpasAnalysisTuningProperties tuningProperties;
+
     @Value("${spas.analysis.weak-thresholds.watch:0.75}")
     private double watchThreshold;
 
@@ -123,6 +126,9 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
 
     @Value("${spas.analysis.annotation-coverage.confidence-multiplier:0.5}")
     private double annotationConfidenceMultiplier;
+
+    @Value("${spas.analysis.annotation-coverage.apply-on-window:true}")
+    private boolean annotationApplyOnWindow;
 
     @Value("${spas.paper.require-question-type:false}")
     private boolean requireQuestionType;
@@ -223,6 +229,23 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             }
         }
         enrichConfidence(list, pids);
+        if (list != null)
+        {
+            for (Map<String, Object> row : list)
+            {
+                Object gapObj = row.get("gap");
+                if (gapObj != null)
+                {
+                    try
+                    {
+                        knowledgeStatQueryService.annotateRelativeWeak(row, new BigDecimal(gapObj.toString()));
+                    }
+                    catch (Exception ignored)
+                    {
+                    }
+                }
+            }
+        }
         if (list != null && !list.isEmpty())
         {
             knowledgeEdgeService.buildDependencyHints(studentId, subjectId, list);
@@ -289,10 +312,15 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         summary.put("confidence", knowledgeStatCalculator.confidence(att));
         summary.put("confidenceLabel", confidenceLabel(att));
-        applyAnnotationCoveragePenalty(summary, pids, att);
+        List<Long> coveragePids = resolveCoveragePaperIds(subjectId, window, pids);
+        applyAnnotationCoveragePenalty(summary, coveragePids, att);
         summary.put("window", pids != null ? "papers" : (windowHelper.isAll(window) ? "all" : windowHelper.normalize(window)));
         summary.put("dataMode", dataMode);
         summary.put("paperCount", pids == null ? 0 : pids.size());
+        if (coveragePids != null && !coveragePids.isEmpty() && (pids == null || pids.isEmpty()))
+        {
+            summary.put("coveragePaperCount", Integer.valueOf(coveragePids.size()));
+        }
         if (summary.get("calcTime") == null && !"snapshot".equals(dataMode))
         {
             summary.put("calcTime", new Date());
@@ -624,7 +652,18 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
                 sb.append("，与班级持平");
             }
         }
-        sb.append("；严重 ").append(severe).append(" / 薄弱 ").append(weak).append(" / 关注 ").append(watch);
+        sb.append("；正式严重 ").append(severe).append(" / 正式薄弱 ").append(weak).append(" / 关注 ").append(watch);
+        int lowRate = toInt(summary.get("lowRateCount"));
+        int thin = toInt(summary.get("thinSampleCount"));
+        sb.append("；综合低分 ").append(lowRate);
+        if (thin > 0)
+        {
+            sb.append("（其中样本不足 ").append(thin).append("）");
+        }
+        if (Boolean.TRUE.equals(summary.get("formalWeakBlocked")))
+        {
+            sb.append("；标注覆盖不足，薄弱结论仅供参考");
+        }
         return sb.toString();
     }
 
@@ -697,7 +736,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             // 选卷标注覆盖不足：禁止当作正式薄弱结论
             summary.put("formalWeakBlocked", Boolean.TRUE);
             summary.put("formalWeakBlockReason",
-                "\u9009\u5377\u672a\u6807\u6ce8\u77e5\u8bc6\u70b9\u5360\u6bd4\u8fc7\u9ad8\uff0c\u8584\u5f31\u7ed3\u8bba\u4ec5\u4f5c\u53c2\u8003\uff0c\u4e0d\u5f97\u4f5c\u4e3a\u6b63\u5f0f\u5b9a\u7ea7");
+                "\u5f53\u524d\u53e3\u5f84\u5185\u8bd5\u5377\u672a\u6807\u6ce8\u77e5\u8bc6\u70b9\u5360\u6bd4\u8fc7\u9ad8\uff0c\u8584\u5f31\u7ed3\u8bba\u4ec5\u4f5c\u53c2\u8003\uff0c\u4e0d\u5f97\u4f5c\u4e3a\u6b63\u5f0f\u5b9a\u7ea7");
         }
         summary.put("confidence",
             conf.multiply(BigDecimal.valueOf(penalty.multiplier)).setScale(4, RoundingMode.HALF_UP));
@@ -1130,17 +1169,22 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         enrichClassOverviewMetrics(result);
         attachDeptSubjectsWithData(result, deptId, subjectId, from, pids);
-        if (pids != null)
+        List<Long> coveragePids = resolveCoveragePaperIds(subjectId, window, pids);
+        if (coveragePids != null && !coveragePids.isEmpty())
         {
-            applyAnnotationCoveragePenalty(result, pids, 0);
+            applyAnnotationCoveragePenalty(result, coveragePids, 0);
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> ranking = result.get("studentRanking") instanceof List
                 ? (List<Map<String, Object>>) result.get("studentRanking") : null;
-            enrichConfidence(ranking, pids);
+            enrichConfidence(ranking, coveragePids);
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> knowledges = result.get("knowledges") instanceof List
                 ? (List<Map<String, Object>>) result.get("knowledges") : null;
-            enrichConfidence(knowledges, pids);
+            enrichConfidence(knowledges, coveragePids);
+            if (pids == null || pids.isEmpty())
+            {
+                result.put("coveragePaperCount", Integer.valueOf(coveragePids.size()));
+            }
         }
         result.put("headline", buildClassHeadline(result));
         result.put("window", pids != null ? "papers" : (windowHelper.isAll(window) ? "all" : windowHelper.normalize(window)));
@@ -1279,9 +1323,20 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             sb.append("（含严重 ").append(severeStu).append("）");
         }
         sb.append("，综合低分 ").append(lowRateStu);
-        if (thinStu > 0 && weakStu <= 0)
+        if (thinStu > 0)
         {
-            sb.append("（").append(thinStu).append(" 人因作答不足未定正式薄弱）");
+            if (weakStu <= 0)
+            {
+                sb.append("（").append(thinStu).append(" 人因作答不足未定正式薄弱）");
+            }
+            else
+            {
+                sb.append("，样本不足 ").append(thinStu);
+            }
+        }
+        if (Boolean.TRUE.equals(result.get("formalWeakBlocked")))
+        {
+            sb.append("；标注覆盖不足，薄弱结论仅供参考");
         }
         sb.append("，薄弱知识点 ").append(weakKp);
         return sb.toString();
@@ -2015,6 +2070,52 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
     }
 
+    @Override
+    public Map<String, Object> recalculateAll(Boolean useRecency)
+    {
+        applyRecencyOverride(useRecency);
+        try
+        {
+            List<Long> studentIds = analysisMapper.selectStudentIdsForRecalc(null, null);
+            int studentCount = studentIds == null ? 0 : studentIds.size();
+            int upserted = 0;
+            if (studentCount > 0)
+            {
+                upserted = knowledgeStatCalculator.recalculateByStudents(studentIds, null);
+            }
+            int warnings = warningEngine.evaluateAllEnabled();
+            int interveneEval = 0;
+            boolean interveneAsync = false;
+            if (autoEvaluateIntervene && studentCount > 0)
+            {
+                if (asyncEvaluateIntervene)
+                {
+                    interveneService.evaluateOpenForStudentsAsync(studentIds);
+                    interveneAsync = true;
+                }
+                else
+                {
+                    interveneEval = interveneService.evaluateOpenForStudents(studentIds);
+                }
+            }
+            Map<String, Object> result = new HashMap<String, Object>();
+            result.put("studentCount", Integer.valueOf(studentCount));
+            result.put("statRows", Integer.valueOf(upserted));
+            result.put("warningCreated", Integer.valueOf(warnings));
+            result.put("interveneEvaluated", Integer.valueOf(interveneEval));
+            result.put("interveneAsync", Boolean.valueOf(interveneAsync));
+            result.put("scope", "all");
+            result.put("useRecency", useRecency == null ? Boolean.TRUE : useRecency);
+            result.put("recencyHalfLifeDays",
+                Integer.valueOf(knowledgeStatCalculator.effectiveRecencyHalfLifeDays()));
+            return result;
+        }
+        finally
+        {
+            KnowledgeStatCalculator.clearRecencyOverride();
+        }
+    }
+
     private void applyRecencyOverride(Boolean useRecency)
     {
         if (useRecency == null)
@@ -2063,9 +2164,25 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         annot.put("unboundRatioThreshold", Double.valueOf(annotationUnboundThreshold));
         annot.put("forceInsufficient", Boolean.valueOf(annotationForceInsufficient));
         annot.put("confidenceMultiplier", Double.valueOf(annotationConfidenceMultiplier));
+        annot.put("applyOnWindow", Boolean.valueOf(annotationApplyOnWindow));
         annot.put("requireQuestionType", Boolean.valueOf(requireQuestionType));
         annot.put("requireBloomLevel", Boolean.valueOf(requireBloomLevel));
         cfg.put("annotationCoverage", annot);
+        cfg.put("allocationMode", knowledgeStatCalculator.resolveAllocationMode());
+        Map<String, Object> relative = new HashMap<String, Object>();
+        if (tuningProperties != null && tuningProperties.getRelativeWeak() != null)
+        {
+            relative.put("enabled", Boolean.valueOf(tuningProperties.getRelativeWeak().isEnabled()));
+            relative.put("delta", Double.valueOf(tuningProperties.getRelativeWeak().getDelta()));
+        }
+        else
+        {
+            relative.put("enabled", Boolean.TRUE);
+            relative.put("delta", Double.valueOf(0.10));
+        }
+        cfg.put("relativeWeak", relative);
+        cfg.put("subjectOverrides", tuningProperties == null ? java.util.Collections.emptyMap()
+            : tuningProperties.getSubjectOverrides());
         cfg.put("prevSemester", windowHelper.describePrevSemester());
         cfg.put("semesterStart", windowHelper.getSemesterStartConfig());
         return cfg;
@@ -2227,6 +2344,37 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             return normalizePaperIds(ranged);
         }
         return null;
+    }
+
+    /**
+     * Resolve papers for annotation-coverage gate: explicit paperIds, or live window papers when enabled.
+     */
+    private List<Long> resolveCoveragePaperIds(Long subjectId, String window, List<Long> paperIds)
+    {
+        List<Long> pids = normalizePaperIds(paperIds);
+        if (pids != null)
+        {
+            return pids;
+        }
+        if (!annotationApplyOnWindow)
+        {
+            return null;
+        }
+        if (windowHelper.isClosedRangeWindow(window))
+        {
+            Date from = windowHelper.resolveExamDateFrom(window);
+            Date to = windowHelper.resolveExamDateToExclusive(window);
+            List<Long> ranged = analysisMapper.selectPaperIdsByExamDateRange(subjectId, from, to);
+            return (ranged == null || ranged.isEmpty()) ? null : normalizePaperIds(ranged);
+        }
+        Date from = windowHelper.resolveExamDateFrom(window);
+        if (from == null)
+        {
+            // window=all / snapshot: skip coverage gate (no concrete paper set)
+            return null;
+        }
+        List<Long> ranged = analysisMapper.selectPaperIdsByExamDateRange(subjectId, from, null);
+        return (ranged == null || ranged.isEmpty()) ? null : normalizePaperIds(ranged);
     }
 
     private Map<String, Object> buildDimensionBreakdown(List<Map<String, Object>> rows, String codeKey,

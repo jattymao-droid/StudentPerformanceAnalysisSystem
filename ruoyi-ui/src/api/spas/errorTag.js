@@ -7,6 +7,14 @@ export function listErrorTags(studentId) {
   })
 }
 
+export function deptErrorCauseSummary(deptId, query) {
+  return request({
+    url: '/spas/errorTag/dept/' + deptId + '/summary',
+    method: 'get',
+    params: query
+  })
+}
+
 export function saveErrorTag(data) {
   return request({
     url: '/spas/errorTag',

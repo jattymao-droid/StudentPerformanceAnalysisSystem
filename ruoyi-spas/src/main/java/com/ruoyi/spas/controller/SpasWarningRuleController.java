@@ -21,6 +21,9 @@ import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.spas.domain.SpasWarningRule;
 import com.ruoyi.spas.service.ISpasWarningRuleService;
 import com.ruoyi.spas.support.SpasAccessService;
+import com.ruoyi.spas.config.SpasWarningNotifyProperties;
+import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/spas/warning/rule")
@@ -31,6 +34,19 @@ public class SpasWarningRuleController extends BaseController
 
     @Autowired
     private SpasAccessService accessService;
+
+    @Autowired(required = false)
+    private SpasWarningNotifyProperties warningNotifyProperties;
+
+    @PreAuthorize("@ss.hasPermi('spas:warning:rule')")
+    @GetMapping("/notify-status")
+    public AjaxResult notifyStatus()
+    {
+        Map<String, Object> data = new HashMap<String, Object>();
+        boolean configured = warningNotifyProperties != null && warningNotifyProperties.isWebhookEnabled();
+        data.put("webhookConfigured", Boolean.valueOf(configured));
+        return success(data);
+    }
 
     @PreAuthorize("@ss.hasPermi('spas:warning:rule')")
     @GetMapping("/list")

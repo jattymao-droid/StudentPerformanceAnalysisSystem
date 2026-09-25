@@ -88,7 +88,12 @@
       </el-form-item>
     </el-form>
 
-    <el-empty v-if="!queryParams.studentId" description="请选择学生后查看一生一册" />
+    <el-empty v-if="!queryParams.studentId" description="请选择学生后查看一生一册" :image-size="72">
+      <div class="empty-actions">
+        <el-button type="primary" size="mini" @click="focusStudentSelect">搜索学生</el-button>
+        <el-button size="mini" @click="$router.push('/spas/student')" v-hasPermi="['spas:student:list']">去学生档案</el-button>
+      </div>
+    </el-empty>
 
     <div v-else v-loading="loading">
       <el-card shadow="never" class="profile-card">
@@ -454,6 +459,9 @@ export default {
     })
   },
   methods: {
+    focusStudentSelect() {
+      this.$modal.msgInfo('请在上方「学生」框输入学号或姓名搜索')
+    },
     findDeptNode(nodes, id) {
       for (const n of nodes || []) {
         if (n.id === id || n.deptId === id) return n
@@ -853,6 +861,13 @@ export default {
 }
 .spas-portfolio .el-table {
   cursor: default;
+}
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
 }
 </style>
 

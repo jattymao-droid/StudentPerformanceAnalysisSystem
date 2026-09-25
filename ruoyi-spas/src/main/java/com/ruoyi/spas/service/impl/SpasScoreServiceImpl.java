@@ -139,6 +139,241 @@ public class SpasScoreServiceImpl implements ISpasScoreService
     }
 
     @Override
+    public SpasScoreDetail selectSpasScoreDetailById(Long detailId)
+    {
+        SpasScoreDetail detail = scoreMapper.selectSpasScoreDetailById(detailId);
+        if (detail == null)
+        {
+            return null;
+        }
+        SpasPaper paper = paperMapper.selectSpasPaperById(detail.getPaperId());
+        if (paper != null)
+        {
+            accessService.checkDeptAccess(paper.getDeptId());
+        }
+        return detail;
+    }
+
+    @Override
+    @Transactional
+    public int insertSpasScoreDetail(SpasScoreDetail detail)
+    {
+        accessService.assertCanWrite();
+        if (detail == null || detail.getPaperId() == null)
+        {
+            throw new ServiceException("试卷不能为空");
+        }
+        if (detail.getScore() == null)
+        {
+            throw new ServiceException("得分不能为空");
+        }
+        SpasPaper paper = paperMapper.selectSpasPaperById(detail.getPaperId());
+        if (paper == null)
+        {
+            throw new ServiceException("试卷不存在");
+        }
+        accessService.checkDeptAccess(paper.getDeptId());
+
+        SpasStudent student = resolveStudent(detail, paper);
+        SpasPaperQuestion question = resolveQuestion(detail);
+        BigDecimal score = detail.getScore();
+        BigDecimal fullScore = question.getFullScore();
+        if (score.compareTo(BigDecimal.ZERO) < 0 || score.compareTo(fullScore) > 0)
+        {
+            throw new ServiceException("得分须在 0～" + fullScore + " 之间");
+        }
+        int scale = rateScale > 0 ? rateScale : 6;
+        BigDecimal rate = BigDecimal.ZERO;
+        if (fullScore.compareTo(BigDecimal.ZERO) > 0)
+        {
+            rate = score.divide(fullScore, scale, RoundingMode.HALF_UP);
+        }
+        SpasScoreDetail row = new SpasScoreDetail();
+        row.setPaperId(detail.getPaperId());
+        row.setQuestionId(question.getQuestionId());
+        row.setStudentId(student.getStudentId());
+        row.setBatchId(null);
+        row.setScore(score);
+        row.setFullScore(fullScore);
+        row.setRate(rate);
+        row.setScoreSource(StringUtils.isNotEmpty(detail.getScoreSource()) ? detail.getScoreSource() : "1");
+        int rows = scoreMapper.upsertSpasScoreDetail(row);
+        afterScoreWrite(detail.getPaperId(), student.getStudentId());
+        return rows > 0 ? rows : 1;
+    }
+
+    @Override
+    @Transactional
+    public int updateSpasScoreDetail(SpasScoreDetail detail)
+    {
+        accessService.assertCanWrite();
+        if (detail == null || detail.getDetailId() == null)
+        {
+            throw new ServiceException("明细不存在");
+        }
+        SpasScoreDetail exist = scoreMapper.selectSpasScoreDetailById(detail.getDetailId());
+        if (exist == null)
+        {
+            throw new ServiceException("明细不存在");
+        }
+        SpasPaper paper = paperMapper.selectSpasPaperById(exist.getPaperId());
+        if (paper == null)
+        {
+            throw new ServiceException("试卷不存在");
+        }
+        accessService.checkDeptAccess(paper.getDeptId());
+        if (detail.getScore() == null)
+        {
+            throw new ServiceException("得分不能为空");
+        }
+        BigDecimal fullScore = exist.getFullScore();
+        if (fullScore == null)
+        {
+            throw new ServiceException("满分缺失，无法修改");
+        }
+        BigDecimal score = detail.getScore();
+        if (score.compareTo(BigDecimal.ZERO) < 0 || score.compareTo(fullScore) > 0)
+        {
+            throw new ServiceException("得分须在 0～" + fullScore + " 之间");
+        }
+        int scale = rateScale > 0 ? rateScale : 6;
+        BigDecimal rate = BigDecimal.ZERO;
+        if (fullScore.compareTo(BigDecimal.ZERO) > 0)
+        {
+            rate = score.divide(fullScore, scale, RoundingMode.HALF_UP);
+        }
+        exist.setScore(score);
+        exist.setRate(rate);
+        exist.setScoreSource("1");
+        int rows = scoreMapper.updateSpasScoreDetail(exist);
+        afterScoreWrite(exist.getPaperId(), exist.getStudentId());
+        return rows;
+    }
+
+    @Override
+    @Transactional
+    public int deleteSpasScoreDetailByIds(Long[] detailIds)
+    {
+        accessService.assertCanWrite();
+        if (detailIds == null || detailIds.length == 0)
+        {
+            return 0;
+        }
+        Long paperId = null;
+        Set<Long> studentIds = new HashSet<Long>();
+        for (Long detailId : detailIds)
+        {
+            SpasScoreDetail exist = scoreMapper.selectSpasScoreDetailById(detailId);
+            if (exist == null)
+            {
+                continue;
+            }
+            SpasPaper paper = paperMapper.selectSpasPaperById(exist.getPaperId());
+            if (paper != null)
+            {
+                accessService.checkDeptAccess(paper.getDeptId());
+            }
+            paperId = exist.getPaperId();
+            if (exist.getStudentId() != null)
+            {
+                studentIds.add(exist.getStudentId());
+            }
+        }
+        int rows = scoreMapper.deleteSpasScoreDetailByIds(detailIds);
+        if (rows > 0 && paperId != null)
+        {
+            knowledgeStatCalculator.recalculateByPaper(paperId);
+            warningEngine.evaluateAfterPaper(paperId);
+            if (autoEvaluateIntervene && !studentIds.isEmpty())
+            {
+                List<Long> sids = new java.util.ArrayList<Long>(studentIds);
+                if (asyncEvaluateIntervene)
+                {
+                    interveneService.evaluateOpenForStudentsAsync(sids);
+                }
+                else
+                {
+                    interveneService.evaluateOpenForStudents(sids);
+                }
+            }
+        }
+        return rows;
+    }
+
+    private SpasStudent resolveStudent(SpasScoreDetail detail, SpasPaper paper)
+    {
+        SpasStudent student = null;
+        if (detail.getStudentId() != null)
+        {
+            student = studentMapper.selectSpasStudentById(detail.getStudentId());
+        }
+        else if (StringUtils.isNotEmpty(detail.getStudentNo()))
+        {
+            student = studentMapper.selectSpasStudentByStudentNo(detail.getStudentNo().trim());
+        }
+        if (student == null)
+        {
+            throw new ServiceException("学生不存在");
+        }
+        if (!isStudentUnderPaperDept(paper.getDeptId(), student.getDeptId()))
+        {
+            throw new ServiceException("学生班级与试卷所属班级不一致：" + student.getStudentNo());
+        }
+        return student;
+    }
+
+    private SpasPaperQuestion resolveQuestion(SpasScoreDetail detail)
+    {
+        List<SpasPaperQuestion> questions = paperMapper.selectQuestionsByPaperId(detail.getPaperId());
+        if (questions == null || questions.isEmpty())
+        {
+            throw new ServiceException("试卷尚未维护题目");
+        }
+        if (detail.getQuestionId() != null)
+        {
+            for (SpasPaperQuestion q : questions)
+            {
+                if (detail.getQuestionId().equals(q.getQuestionId()))
+                {
+                    return q;
+                }
+            }
+            throw new ServiceException("题目不在该试卷中");
+        }
+        if (StringUtils.isEmpty(detail.getQuestionNo()))
+        {
+            throw new ServiceException("题号不能为空");
+        }
+        String qno = detail.getQuestionNo().trim();
+        for (SpasPaperQuestion q : questions)
+        {
+            if (qno.equals(q.getQuestionNo()))
+            {
+                return q;
+            }
+        }
+        throw new ServiceException("题号不存在：" + qno);
+    }
+
+    private void afterScoreWrite(Long paperId, Long studentId)
+    {
+        knowledgeStatCalculator.recalculateByPaper(paperId);
+        warningEngine.evaluateAfterPaper(paperId);
+        if (autoEvaluateIntervene && studentId != null)
+        {
+            List<Long> sids = java.util.Collections.singletonList(studentId);
+            if (asyncEvaluateIntervene)
+            {
+                interveneService.evaluateOpenForStudentsAsync(sids);
+            }
+            else
+            {
+                interveneService.evaluateOpenForStudents(sids);
+            }
+        }
+    }
+
+    @Override
     public void downloadTemplate(Long paperId, HttpServletResponse response)
     {
         SpasPaper paper = paperMapper.selectSpasPaperById(paperId);

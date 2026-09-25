@@ -3,6 +3,7 @@ package com.ruoyi.spas.warning;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +26,7 @@ import com.ruoyi.spas.mapper.SpasWarningMetricMapper;
 import com.ruoyi.spas.mapper.SpasWarningRecordMapper;
 import com.ruoyi.spas.mapper.SpasWarningRuleMapper;
 import com.ruoyi.spas.support.SpasAnalysisWindowHelper;
+import com.ruoyi.spas.config.SpasWarningNotifyProperties;
 import com.ruoyi.system.domain.SysNotice;
 import com.ruoyi.system.service.ISysNoticeService;
 
@@ -59,6 +61,9 @@ public class WarningEngine
 
     @Autowired
     private ISysNoticeService noticeService;
+
+    @Autowired(required = false)
+    private SpasWarningNotifyProperties warningNotifyProperties;
 
     /** Current analysis window label written into reason_json (e.g. semester / all). */
     private String activeAnalysisWindow = "all";
@@ -280,6 +285,20 @@ public class WarningEngine
     {
         List<Map<String, Object>> students = loadMetricRows("AVG_RATE", subjectId, deptId, examDateFrom);
         int n = rule.getWindowDays() != null && rule.getWindowDays() > 0 ? Math.min(rule.getWindowDays(), 30) : 3;
+        Map<Long, List<Map<String, Object>>> ratesByStudent = new HashMap<>();
+        List<Map<String, Object>> bulk = metricMapper.selectDeptStudentPaperRates(subjectId, deptId, n, examDateFrom);
+        if (bulk != null)
+        {
+            for (Map<String, Object> row : bulk)
+            {
+                Long sid = toLong(row.get("studentId"));
+                if (sid == null)
+                {
+                    continue;
+                }
+                ratesByStudent.computeIfAbsent(sid, k -> new ArrayList<>()).add(row);
+            }
+        }
         Set<Long> matched = new HashSet<>();
         int created = 0;
         for (Map<String, Object> stu : students)
@@ -293,13 +312,15 @@ public class WarningEngine
             {
                 continue;
             }
-            List<Map<String, Object>> rates = metricMapper.selectStudentPaperRates(studentId, subjectId, n,
-                examDateFrom);
+            List<Map<String, Object>> rates = ratesByStudent.get(studentId);
             if (rates == null || rates.size() < n)
             {
                 continue;
             }
             List<BigDecimal> seq = new ArrayList<>();
+            // bulk query returns oldest→newest by rn asc? We ordered by rn ascending (1=most recent).
+            // Original selectStudentPaperRates was exam_date desc; then reversed into chronological seq.
+            // ranked rn=1 is most recent; for chronological first→last we need reverse of rates list.
             for (int i = rates.size() - 1; i >= 0; i--)
             {
                 seq.add(toDecimal(rates.get(i).get("rate")));
@@ -679,23 +700,79 @@ public class WarningEngine
     private void dispatchNotice(SpasWarningRule rule, SpasWarningRecord rec)
     {
         String channels = rule.getNotifyChannels();
-        if (StringUtils.isEmpty(channels) || !channels.contains("system"))
+        if (StringUtils.isEmpty(channels))
         {
             return;
         }
+        if (channels.contains("system"))
+        {
+            try
+            {
+                SysNotice notice = new SysNotice();
+                notice.setNoticeTitle("学情预警：" + rule.getRuleName());
+                notice.setNoticeType("1");
+                notice.setNoticeContent(rec.getContent());
+                notice.setStatus("0");
+                notice.setCreateBy("system");
+                noticeService.insertNotice(notice);
+            }
+            catch (Exception e)
+            {
+                log.warn("Failed to publish warning notice ruleId={}", rule.getRuleId(), e);
+            }
+        }
+        if (channels.contains("webhook"))
+        {
+            dispatchWebhook(rule, rec);
+        }
+    }
+
+    private void dispatchWebhook(SpasWarningRule rule, SpasWarningRecord rec)
+    {
+        if (warningNotifyProperties == null || !warningNotifyProperties.isWebhookEnabled())
+        {
+            log.warn("Warning webhook channel selected but spas.warning.webhook-url is empty; skip ruleId={}",
+                rule.getRuleId());
+            return;
+        }
+        java.net.HttpURLConnection conn = null;
         try
         {
-            SysNotice notice = new SysNotice();
-            notice.setNoticeTitle("学情预警：" + rule.getRuleName());
-            notice.setNoticeType("1");
-            notice.setNoticeContent(rec.getContent());
-            notice.setStatus("0");
-            notice.setCreateBy("system");
-            noticeService.insertNotice(notice);
+            Map<String, Object> body = new LinkedHashMap<String, Object>();
+            body.put("ruleId", rule.getRuleId());
+            body.put("ruleName", rule.getRuleName());
+            body.put("ruleCode", rule.getRuleCode());
+            body.put("level", rule.getLevel());
+            body.put("content", rec.getContent());
+            body.put("studentId", rec.getStudentId());
+            body.put("metricValue", rec.getMetricValue());
+            body.put("recordId", rec.getWarningId());
+            body.put("source", "spas-warning");
+            byte[] bytes = JSON.toJSONBytes(body);
+            java.net.URL url = new java.net.URL(warningNotifyProperties.getWebhookUrl());
+            conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(warningNotifyProperties.getWebhookTimeoutMs());
+            conn.setReadTimeout(warningNotifyProperties.getWebhookTimeoutMs());
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
+            conn.getOutputStream().write(bytes);
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300)
+            {
+                log.warn("Warning webhook HTTP {} ruleId={}", Integer.valueOf(code), rule.getRuleId());
+            }
         }
         catch (Exception e)
         {
-            log.warn("Failed to publish warning notice ruleId={}", rule.getRuleId(), e);
+            log.warn("Warning webhook failed ruleId={}: {}", rule.getRuleId(), e.getMessage());
+        }
+        finally
+        {
+            if (conn != null)
+            {
+                conn.disconnect();
+            }
         }
     }
 

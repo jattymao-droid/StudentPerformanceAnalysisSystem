@@ -74,4 +74,25 @@
         group by t.error_code, d.dict_label
         order by count(1) desc
     </select>
+
+    <select id="selectDeptCauseSummary" resultType="java.util.HashMap">
+        select t.error_code as "errorCode",
+               coalesce(d.dict_label, t.error_code) as "errorLabel",
+               coalesce(d.remark, '') as "category",
+               count(1) as "tagCount",
+               count(distinct t.student_id) as "studentCount"
+        from spas_error_tag t
+        join spas_student st on st.student_id = t.student_id and coalesce(st.del_flag, '0') = '0'
+        left join sys_dict_data d on d.dict_type = 'spas_error_cause' and d.dict_value = t.error_code and d.status = '0'
+        where st.dept_id = #{deptId}
+        <if test="subjectId != null">
+          and exists (
+            select 1 from spas_paper p
+            where p.paper_id = t.paper_id and p.subject_id = #{subjectId}
+          )
+        </if>
+        group by t.error_code, d.dict_label, d.remark
+        order by count(1) desc
+        limit 20
+    </select>
 </mapper>

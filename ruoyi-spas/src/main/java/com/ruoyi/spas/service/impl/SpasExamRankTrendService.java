@@ -49,6 +49,9 @@ public class SpasExamRankTrendService
     @Autowired
     private ISpasAnalysisService analysisService;
 
+    @Autowired
+    private com.ruoyi.spas.analysis.KnowledgeStatCalculator knowledgeStatCalculator;
+
     public Map<String, Object> selectRankTrend(Long studentId)
     {
         return selectRankTrend(studentId, null, null, null);
@@ -141,6 +144,7 @@ public class SpasExamRankTrendService
             Map<String, Object> item = buildSubject(name, series.get(name));
             attachWeakExplain(item, studentId, alias, window, paperIds);
             attachBoundMastery(item, studentId, alias);
+            attachCrossDiagnosis(item);
             subjects.add(item);
             String trend = String.valueOf(item.get("trend"));
             if ("up".equals(trend))
@@ -162,13 +166,53 @@ public class SpasExamRankTrendService
         }
         annotateBias(subjects);
 
+        int dualDown = 0;
+        int rankUpWeak = 0;
+        int dualUp = 0;
+        for (Map<String, Object> item : subjects)
+        {
+            String code = String.valueOf(item.get("crossCode"));
+            if ("dualDown".equals(code))
+            {
+                dualDown++;
+            }
+            else if ("rankUp+weakMastery".equals(code))
+            {
+                rankUpWeak++;
+            }
+            else if ("dualUp".equals(code))
+            {
+                dualUp++;
+            }
+        }
+
         Map<String, Object> summary = new LinkedHashMap<String, Object>();
         summary.put("examCount", exams.size());
         summary.put("improved", up);
         summary.put("declined", down);
         summary.put("flat", flat);
         summary.put("insufficient", insufficient);
+        summary.put("dualDown", Integer.valueOf(dualDown));
+        summary.put("rankUpWeakMastery", Integer.valueOf(rankUpWeak));
+        summary.put("dualUp", Integer.valueOf(dualUp));
         summary.put("headline", headline(exams.size(), up, down, flat));
+        if (dualDown > 0 || rankUpWeak > 0)
+        {
+            StringBuilder cross = new StringBuilder();
+            if (dualDown > 0)
+            {
+                cross.append(dualDown).append(" \u79d1\u6821\u6b21\u4e0e\u638c\u63e1\u53cc\u964d");
+            }
+            if (rankUpWeak > 0)
+            {
+                if (cross.length() > 0)
+                {
+                    cross.append("\uff1b");
+                }
+                cross.append(rankUpWeak).append(" \u79d1\u6821\u6b21\u8fdb\u6b65\u4f46\u638c\u63e1\u4ecd\u5f31");
+            }
+            summary.put("crossHeadline", cross.toString());
+        }
         if (subjectId != null)
         {
             summary.put("subjectId", subjectId);
@@ -637,5 +681,42 @@ public class SpasExamRankTrendService
         {
             // mastery overlay is best-effort
         }
+    }
+
+    /**
+     * Cross diagnosis: school-rank trend × bound mastery.
+     * Codes: dualDown | dualUp | rankUp+weakMastery | rankDown+solidMastery | neutral
+     */
+    private void attachCrossDiagnosis(Map<String, Object> item)
+    {
+        if (item == null || TOTAL.equals(String.valueOf(item.get("subjectName"))))
+        {
+            return;
+        }
+        String trend = String.valueOf(item.get("trend"));
+        Object masteryObj = item.get("boundMasteryRate");
+        if (masteryObj == null || "insufficient".equals(trend) || "null".equals(trend))
+        {
+            item.put("crossCode", "neutral");
+            item.put("crossLabel", "-");
+            return;
+        }
+        double mastery;
+        try
+        {
+            mastery = Double.parseDouble(masteryObj.toString());
+        }
+        catch (Exception e)
+        {
+            item.put("crossCode", "neutral");
+            item.put("crossLabel", "-");
+            return;
+        }
+        double weakLine = knowledgeStatCalculator.resolveWeakThreshold();
+        double solidLine = knowledgeStatCalculator.resolveWatchThreshold();
+        Map<String, String> cross = com.ruoyi.spas.analysis.ExamRankCrossDiagnosis.diagnose(
+            trend, Double.valueOf(mastery), weakLine, solidLine);
+        item.put("crossCode", cross.get("crossCode"));
+        item.put("crossLabel", cross.get("crossLabel"));
     }
 }

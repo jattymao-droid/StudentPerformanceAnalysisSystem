@@ -19,6 +19,8 @@ public class SpasWarningRecord extends BaseEntity
     private Long subjectId;
     private Long knowledgeId;
     private Long paperId;
+    /** Filter: student dept (and descendants) */
+    private Long deptId;
     @Excel(name = "级别", readConverterExp = "1=关注,2=预警,3=严重")
     private String level;
     @Excel(name = "标题")
@@ -57,6 +59,8 @@ public class SpasWarningRecord extends BaseEntity
     public void setKnowledgeId(Long knowledgeId) { this.knowledgeId = knowledgeId; }
     public Long getPaperId() { return paperId; }
     public void setPaperId(Long paperId) { this.paperId = paperId; }
+    public Long getDeptId() { return deptId; }
+    public void setDeptId(Long deptId) { this.deptId = deptId; }
     public String getLevel() { return level; }
     public void setLevel(String level) { this.level = level; }
     public String getTitle() { return title; }

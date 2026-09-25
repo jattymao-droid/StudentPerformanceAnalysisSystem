@@ -114,6 +114,9 @@ public interface ISpasAnalysisService
 
     public Map<String, Object> recalculateByDept(Long deptId, Long subjectId, Boolean useRecency);
 
+    /** Nightly/full-school recalc (deptId null = all students with scores). */
+    public Map<String, Object> recalculateAll(Boolean useRecency);
+
     /** D1 question-type breakdown */
     public Map<String, Object> studentQuestionType(Long studentId, Long subjectId, String window, List<Long> paperIds);
 

@@ -81,6 +81,39 @@
         <if test="limit != null">limit #{limit}</if>
     </select>
 
+    <select id="selectDeptStudentPaperRates" resultType="java.util.HashMap">
+        with paper_rate as (
+            select d.student_id as student_id, d.paper_id as paper_id, p.paper_name as paper_name,
+                   p.exam_date as exam_date,
+                   case when sum(d.full_score) &gt; 0
+                        then sum(d.score) / sum(d.full_score)
+                        else null end as rate
+            from spas_score_detail d
+            join spas_paper p on p.paper_id = d.paper_id
+            join spas_student s on s.student_id = d.student_id and s.del_flag = '0' and s.status = '0'
+            where coalesce(d.score_source, '2') not in ('4', '5')
+            <if test="subjectId != null">AND p.subject_id = #{subjectId}</if>
+            <if test="examDateFrom != null">AND p.exam_date &gt;= #{examDateFrom}</if>
+            <if test="deptId != null">
+                AND (s.dept_id = #{deptId} OR s.dept_id IN (
+                    SELECT t.dept_id FROM sys_dept t
+                    WHERE cast(#{deptId} as varchar) = any(string_to_array(t.ancestors, ','))
+                ))
+            </if>
+            group by d.student_id, d.paper_id, p.paper_name, p.exam_date
+        ),
+        ranked as (
+            select student_id, paper_id, paper_name, exam_date, rate,
+                   row_number() over (partition by student_id order by exam_date desc nulls last, paper_id desc) as rn
+            from paper_rate
+        )
+        select student_id as "studentId", paper_id as "paperId", paper_name as "paperName",
+               exam_date as "examDate", rate as "rate"
+        from ranked
+        where rn &lt;= #{limit}
+        order by student_id, rn
+    </select>
+
     <select id="selectStudentIdsByPaper" resultType="long">
         select distinct student_id from spas_score_detail where paper_id = #{paperId}
     </select>

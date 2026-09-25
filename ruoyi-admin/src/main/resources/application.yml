@@ -7,8 +7,9 @@ spas:
   paper:
     allow-change-knowledge-after-score: false
     # 发布/导入成绩时是否强制题型、Bloom（false=仅软提示，true=硬拦截）
-    require-question-type: false
-    require-bloom-level: false
+    # P0：题型 + Bloom 默认硬门禁，避免题型/能力层分析空转（试点可临时改 false）
+    require-question-type: true
+    require-bloom-level: true
   score:
     # 导入时空单元格跳过、不计入样本（true 则按 0 分计入）
     blank-as-zero: false
@@ -61,6 +62,45 @@ spas:
       empirical-blend: 0.5
       empirical-easy-rate: 0.80
       empirical-hard-rate: 0.40
+    # 一题多点分摊：proportional=按权重分摊（默认）；primary-full=主知识点全额计入掌握，辅点只计曝光次数
+    allocation-mode: proportional
+    # 班级相对薄弱：本人得分率低于班均超过 delta 时打标
+    relative-weak:
+      enabled: true
+      delta: 0.10
+    # 分科阈值覆盖（key=subjectCode）；未配置的学科走 weak-thresholds
+    # MATH：计算步骤多、易粗心，略抬高警戒/薄弱线；PHYS：实验/概念题波动大，略放宽样本门槛
+    subject-overrides:
+      MATH:
+        watch: 0.80
+        weak: 0.65
+        severe: 0.50
+        min-attempts: 3
+        severe-min-attempts: 3
+      PHYS:
+        watch: 0.75
+        weak: 0.60
+        severe: 0.45
+        min-attempts: 2
+        severe-min-attempts: 3
+      CHN:
+        watch: 0.78
+        weak: 0.62
+        severe: 0.48
+        min-attempts: 3
+        severe-min-attempts: 3
+      ENG:
+        watch: 0.80
+        weak: 0.65
+        severe: 0.50
+        min-attempts: 3
+        severe-min-attempts: 3
+      CHEM:
+        watch: 0.75
+        weak: 0.60
+        severe: 0.45
+        min-attempts: 2
+        severe-min-attempts: 3
     weak-thresholds:
       watch: 0.75
       weak: 0.60
@@ -76,11 +116,13 @@ spas:
       # 置信度展示：attempt < mid → 样本不足；mid~high → 中；>= high → 高
       attempt-mid: 3
       attempt-high: 6
-    # 选卷诊断：未标注题目占比过高时自动降置信度
+    # 选卷/时间窗口径：未标注题目占比过高时自动降置信度并禁止正式定级
     annotation-coverage:
       unbound-ratio-threshold: 0.20
       force-insufficient: true
       confidence-multiplier: 0.5
+      # true=对本学期等时间窗内试卷同样做覆盖率门禁（不仅选卷）
+      apply-on-window: true
     # D4 Bloom 叙事阈值（薄弱线默认跟 weak-thresholds.weak）
     bloom-insight:
       # 基础层低于此且高阶不低于 weak → 「基础偏弱」
@@ -99,12 +141,20 @@ spas:
   report:
     # Optional absolute path override; otherwise classpath fonts/spas-cjk.otf then OS fonts
     pdf-font-path:
+  warning:
+    # Extra notify channels beyond system notice. Rule.notifyChannels may include "webhook".
+    # Empty webhook-url = skip. Body JSON: {ruleName, level, content, studentId, metricValue}
+    webhook-url: ${SPAS_WARNING_WEBHOOK_URL:}
+    webhook-timeout-ms: 5000
   open:
     # Parent OpenAPI master switch (see docs/spas-open-api.md).
     # Production: keep false until parent client + secrets are ready; enable only in staging/integration.
     # After flipping enabled, restart backend. Admin UI /spas/open shows runtime status banner.
+    # Product boundary: API-only parent access (no official H5/App yet; N7 deferred).
     enabled: false
     token-ttl-minutes: 120
+    # Audit log all authenticated OpenAPI calls (SPAS_OPEN_AUDIT)
+    audit-log: true
 
 ruoyi:
   # 名称
@@ -114,7 +164,7 @@ ruoyi:
   # 版权年份
   copyrightYear: 2026
   # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
-  profile: D:/ruoyi/uploadPath
+  profile: /Users/maoming/ruoyi/uploadPath
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证

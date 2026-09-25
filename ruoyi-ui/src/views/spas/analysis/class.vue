@@ -174,14 +174,16 @@
         class="mb8"
       >
         <template v-if="overview.emptyKnowledge && suggestedSubjects.length" slot="default">
-          <span>可切换到：</span>
-          <el-button
+          <span style="margin-right:6px">可切换到：</span>
+          <el-tag
             v-for="s in suggestedSubjects"
             :key="'sug-' + s.subjectId"
-            type="text"
-            size="mini"
+            size="small"
+            type="warning"
+            effect="plain"
+            style="margin:2px 4px;cursor:pointer"
             @click="switchToSubject(s.subjectId)"
-          >{{ s.subjectName }}</el-button>
+          >{{ s.subjectName }}</el-tag>
         </template>
       </el-alert>
       <el-alert
@@ -206,7 +208,7 @@
         :closable="false"
         show-icon
         class="mb8"
-        :title="(overview && overview.formalWeakBlockReason) || annotationHint || '选卷标注不足，薄弱结论仅供参考，不得作为正式定级'"
+        :title="(overview && overview.formalWeakBlockReason) || annotationHint || '当前口径内标注不足，薄弱结论仅供参考，不得作为正式定级'"
       />
       <el-alert
         v-else-if="annotationHint"
@@ -340,7 +342,28 @@
         </el-col>
       </el-row>
 
-      <el-card shadow="never" style="margin-top: 16px" class="chart-card" v-loading="loading">
+      <el-card shadow="never" class="chart-card" style="margin-top: 16px" v-loading="errorCauseLoading">
+        <div slot="header" class="card-header">班级错因热度</div>
+        <el-alert
+          class="mb8"
+          type="info"
+          :closable="false"
+          show-icon
+          title="基于教师在学生分析「题目明细」中的错因打标汇总；未打标不计入。用于区分概念弱 / 计算弱 / 审题弱。"
+        />
+        <el-table :data="errorCauseItems" size="mini" empty-text="暂无错因打标。请在学生分析下钻题目后快捷标注。">
+          <el-table-column label="错因" min-width="140" :show-overflow-tooltip="true">
+            <template slot-scope="scope">{{ scope.row.errorLabel || scope.row.errorCode || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="大类" width="120" align="center">
+            <template slot-scope="scope">{{ scope.row.errorCategoryLabel || scope.row.errorCategory || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="标注次数" width="100" align="center" prop="tagCount" />
+          <el-table-column label="涉及学生" width="100" align="center" prop="studentCount" />
+        </el-table>
+      </el-card>
+
+      <el-card ref="chapterDeltaCard" shadow="never" style="margin-top: 16px" class="chart-card" id="spas-chapter-delta" v-loading="loading">
         <div slot="header" class="card-header">章节进退</div>
         <el-alert v-if="chapterDelta.baselineHint" class="mb8" :type="chapterDelta.baselineEmpty ? 'warning' : 'info'" :closable="false" show-icon :title="chapterDelta.baselineHint" />
         <el-alert v-else-if="chapterDelta.headline" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
@@ -583,6 +606,7 @@
 <script>
 import { classInterveneSummary } from '@/api/spas/intervene'
 import { weakTopClass, heatmapClass, overviewClass, recalcDept, trendClass, chapterOverviewClass, analysisConfig, paperAnnotationCoverage, classKnowledgeExamTrend, questionTypeClass, bloomClass, chapterDeltaClass } from '@/api/spas/analysis'
+import { deptErrorCauseSummary } from '@/api/spas/errorTag'
 import { previewClassReport } from '@/api/spas/report'
 import { optionselectSubject } from '@/api/spas/subject'
 import { listPaper } from '@/api/spas/paper'
@@ -613,6 +637,8 @@ export default {
       bloomItems: [],
       bloomSummary: {},
       bloomInsight: '',
+      errorCauseItems: [],
+      errorCauseLoading: false,
       chapterDelta: { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false },
       subjectOptions: [],
       deptOptions: [],
@@ -669,9 +695,13 @@ export default {
       const o = this.overview || {}
       if (o.emptyKnowledge) return ''
       const thin = Number(o.thinSampleStudentCount || 0)
-      const formal = Number(o.weakStudentCount || 0)
+      const formal = Number(o.weakStudentCount != null ? o.weakStudentCount : o.weakCount || 0)
+      const low = Number(o.lowRateStudentCount || 0)
       if (thin > 0 && formal <= 0) {
-        return '有 ' + thin + ' 名学生存在低分知识点，但作答不足 3 题，未计入正式薄弱；请看「综合低分」与排名表中的低分点数。'
+        let tip = '正式薄弱为 0，但有 ' + thin + ' 人存在「样本不足」低分点（作答不足 3 题），不能据此定级。'
+        if (low > 0) tip += ' 请优先看「综合低分」' + low + ' 人与排名表。'
+        tip += ' 增加练习/再考后再采信正式薄弱结论。'
+        return tip
       }
       return ''
     },
@@ -844,6 +874,13 @@ export default {
           value: lowRateStudents != null ? lowRateStudents : '-',
           hint: '综合得分率低于60%',
           tone: 'red'
+        },
+        {
+          key: 'thinStu',
+          label: '样本不足',
+          value: thin != null ? thin : '-',
+          hint: '低分但作答不足，不定级',
+          tone: 'purple'
         },
         {
           key: 'stu',
@@ -1165,6 +1202,7 @@ export default {
       this.bloomItems = []
       this.bloomSummary = {}
       this.bloomInsight = ''
+      this.errorCauseItems = []
       this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false }
       this.chapterRows = []
       this.classTrend = []
@@ -1215,6 +1253,38 @@ export default {
         this.bloomItems = []
         this.bloomSummary = {}
         this.bloomInsight = ''
+      })
+    },
+    loadErrorCauseHeat() {
+      this.errorCauseItems = []
+      if (!this.queryParams.deptId) {
+        return Promise.resolve()
+      }
+      this.errorCauseLoading = true
+      const q = {}
+      if (this.queryParams.subjectId) q.subjectId = this.queryParams.subjectId
+      return deptErrorCauseSummary(this.queryParams.deptId, q).then(res => {
+        this.errorCauseItems = (res && res.data) || []
+      }).catch(() => {
+        this.errorCauseItems = []
+      }).finally(() => {
+        this.errorCauseLoading = false
+      })
+    },
+    focusChapterDeltaIfNeeded() {
+      if ((this.$route.query || {}).focus !== 'chapterDelta') {
+        return
+      }
+      const scroll = () => {
+        const el = document.getElementById('spas-chapter-delta')
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }
+      this.$nextTick(() => {
+        scroll()
+        setTimeout(scroll, 320)
+        setTimeout(scroll, 900)
       })
     },
     loadChapterDelta() {
@@ -1319,7 +1389,8 @@ export default {
         this.loadChapterOverview()
         this.loadQuestionType()
         this.loadBloom()
-        this.loadChapterDelta()
+        this.loadErrorCauseHeat()
+        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
         this.loadAnnotationCoverage()
         this.loadInterveneSummary()
         this.buildWeakBar(this.unwrapList(weakRes))

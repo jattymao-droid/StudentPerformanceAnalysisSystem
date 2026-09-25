@@ -56,12 +56,14 @@
       <el-table-column label="题干" min-width="220">
         <template slot-scope="scope">
           <div class="qb-list-stem qb-list-stem--click" title="点击查看完整题目" @click.stop="openView(scope.row)">
-            <qb-rich-content :content="scope.row.content" />
+            <qb-rich-content compact :content="scope.row.content" />
             <span class="qb-list-stem-more">查看全文</span>
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="题型" prop="questionType" width="90" />
+      <el-table-column label="题型" width="90" align="center">
+        <template slot-scope="scope">{{ viewTypeLabel(scope.row.questionType) }}</template>
+      </el-table-column>
       <el-table-column label="难度" prop="difficulty" width="70" align="center">
         <template slot-scope="scope">
           <span>{{ { '1': '易', '2': '中', '3': '难' }[scope.row.difficulty] || scope.row.difficulty }}</span>
@@ -99,14 +101,14 @@
             live-preview
             paste-as-ocr
             @ocr-image="ocrFromBlob"
-            placeholder="支持 $...$ 公式；可插入图片／粘贴截图 Ctrl+V 自动识别"
+            placeholder="工具栏快捷公式一点即插；「插入公式」可自定义；Ctrl+/ 打开"
             @blur="onContentBlur"
             @image-inserted="onStemInlineImage"
           />
           <div style="margin-top:6px">
             <el-button size="mini" plain icon="el-icon-magic-stick" @click="cleanStemDup">清理题干重复</el-button>
             <el-button size="mini" type="primary" plain icon="el-icon-edit-outline" :loading="formFormulaPolishing" @click="polishFormFormula">整理公式</el-button>
-            <span style="margin-left:8px;font-size:12px;color:#909399">建议用换行分隔题干与解析 + $公式$ 写法</span>
+            <span style="margin-left:8px;font-size:12px;color:#909399">快捷芯片一键插入；双击公式可再编辑</span>
           </div>
           <div v-if="dupHint" style="color:#F56C6C;font-size:12px;margin-top:4px">{{ dupHint }}</div>
         </el-form-item>
@@ -142,17 +144,30 @@
           </el-col>
         </el-row>
         <el-form-item v-if="showOptionsField" label="选项" prop="options">
-          <el-input type="textarea" :rows="2" v-model="form.options" placeholder="选择题选项，如 A. ... B. ..." />
+          <qb-field-editor
+            v-model="form.options"
+            :rows="3"
+            live-preview
+            placeholder="选择题选项，如 A. ... B. ...；可插入公式"
+          />
+        </el-form-item>
+        <el-form-item v-if="showOptionsField" label="选项配图">
+          <image-upload v-model="form.optionsImage" :limit="1" :file-size="5" />
         </el-form-item>
         <el-form-item label="答案" prop="correctAnswer">
-          <el-input v-model="form.correctAnswer" placeholder="正确答案，多选可用 A,B" />
+          <qb-field-editor
+            v-model="form.correctAnswer"
+            :rows="2"
+            live-preview
+            placeholder="正确答案；填空/计算可写公式，多选可用 A,B"
+          />
         </el-form-item>
         <el-form-item label="解析" prop="analysis">
           <qb-field-editor
             v-model="form.analysis"
-            :rows="3"
+            :rows="4"
             live-preview
-            placeholder="解题要点／步骤，支持公式与图片"
+            placeholder="解题要点／步骤；工具栏可插入公式与图片"
           />
         </el-form-item>
         <el-form-item label="解析配图">
@@ -481,6 +496,7 @@ import QbRichContent from '@/components/spas/QbRichContent'
 import QbFieldEditor from '@/components/spas/QbFieldEditor'
 import QbWordPreview from '@/components/spas/QbWordPreview'
 import { renderFormulaHtml, dedupeStemContent, cleanupOcrText, recognizeImage, terminateOcrWorker } from '@/utils/qbFormula'
+import { qbTypeLabel } from '@/utils/qbTypeLabel'
 
 export default {
   name: 'SpasQbQuestion',
@@ -566,7 +582,7 @@ export default {
     },
     showOptionsField() {
       const t = String((this.form && this.form.questionType) || '')
-      return !t || t === 'choice' || t === 'multi' || t.indexOf('choice') >= 0
+      return !t || t === 'choice' || t === 'single' || t === 'multi' || t === 'judge' || t.indexOf('choice') >= 0
     },
 
     importSelectedCount() {
@@ -1087,7 +1103,7 @@ export default {
     },
     viewTypeLabel(code) {
       const hit = (this.typeOptions || []).find(t => t.typeCode === code)
-      return (hit && hit.typeName) || code || '-'
+      return (hit && hit.typeName) || qbTypeLabel(code)
     },
     goSelectCenter() {
       const sid = this.queryParams.subjectId
@@ -1672,8 +1688,9 @@ export default {
 .import-formula { margin-top: 4px; font-size: 12px; line-height: 1.5; color: #303133; }
 .import-imgs { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
 .import-thumb { width: 72px; height: 54px; border: 1px solid #ebeef5; border-radius: 2px; }
-.qb-list-stem { max-height: 72px; overflow: hidden; font-size: 13px; line-height: 1.5; }
+.qb-list-stem { max-height: 88px; overflow: hidden; font-size: 13px; line-height: 1.5; }
 .qb-list-stem .katex { font-size: 1em; }
+.qb-list-stem >>> .qb-rich.is-compact .qb-rich-text { max-height: 4.8em; }
 
 .qb-list-stem--click { cursor: pointer; position: relative; padding-right: 52px; }
 .qb-list-stem--click:hover { color: #409EFF; }

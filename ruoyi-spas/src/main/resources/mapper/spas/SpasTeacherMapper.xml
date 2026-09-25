@@ -34,10 +34,10 @@
         <include refid="selectSpasTeacherVo"/>
         where t.del_flag = '0'
         <if test="teacherNo != null and teacherNo != ''">
-            AND t.teacher_no like concat('%', #{teacherNo,jdbcType=VARCHAR}, '%')
+            AND t.teacher_no like ('%' || #{teacherNo} || '%')
         </if>
         <if test="teacherName != null and teacherName != ''">
-            AND t.teacher_name like concat('%', #{teacherName,jdbcType=VARCHAR}, '%')
+            AND t.teacher_name like ('%' || #{teacherName} || '%')
         </if>
         <if test="teacherType != null and teacherType != ''">
             AND t.teacher_type = #{teacherType}

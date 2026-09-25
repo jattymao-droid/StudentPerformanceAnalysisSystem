@@ -52,8 +52,8 @@
             <if test="subjectId != null">AND t.subject_id = #{subjectId}</if>
             <if test="status != null and status != ''">AND t.status = #{status}</if>
             <if test="sourceType != null and sourceType != ''">AND t.source_type = #{sourceType}</if>
-            <if test="studentName != null and studentName != ''">AND s.student_name like concat('%', #{studentName,jdbcType=VARCHAR}, '%')</if>
-            <if test="studentNo != null and studentNo != ''">AND s.student_no like concat('%', #{studentNo,jdbcType=VARCHAR}, '%')</if>
+            <if test="studentName != null and studentName != ''">AND s.student_name like ('%' || #{studentName} || '%')</if>
+            <if test="studentNo != null and studentNo != ''">AND s.student_no like ('%' || #{studentNo} || '%')</if>
             <if test="deptId != null">
                 AND (s.dept_id = #{deptId} OR s.dept_id IN (
                     SELECT x.dept_id FROM sys_dept x

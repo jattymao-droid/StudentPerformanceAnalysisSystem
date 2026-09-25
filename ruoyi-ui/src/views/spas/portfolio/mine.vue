@@ -22,6 +22,14 @@
           :loading="exportLoading"
           @click="exportMine"
         >导出学情 PDF</el-button>
+        <el-button
+          type="warning"
+          plain
+          icon="el-icon-view"
+          size="mini"
+          :disabled="!(portfolio.student && portfolio.student.studentId)"
+          @click="goMyAnalysis()"
+        >定位薄弱点</el-button>
       </el-form-item>
     </el-form>
 
@@ -30,7 +38,16 @@
       :closable="false"
       show-icon
       class="mb8"
-      title="解读说明：雷达为知识点加权掌握；薄弱列表按得分率从低到高；预警仅展示未关闭项。数据随教师导入与重算更新。"
+      title="解读说明：雷达为知识点加权掌握；薄弱列表按得分率从低到高；预警仅展示未关闭项。点「定位薄弱点」可快速跳到本页薄弱清单。"
+    />
+
+    <el-alert
+      v-if="(portfolio.openWarningCount || 0) > 0"
+      type="error"
+      :closable="false"
+      show-icon
+      class="mb8"
+      :title="'你有 ' + portfolio.openWarningCount + ' 条未关闭预警，请向下查看「我的预警」并配合教师巩固练习。'"
     />
 
     <div v-loading="loading">
@@ -121,7 +138,7 @@
           show-icon
           style="margin-top: 12px"
         />
-        <el-row :gutter="16" style="margin-top: 16px">
+        <el-row id="mine-radar" :gutter="16" style="margin-top: 16px">
           <el-col :xs="24" :lg="12">
             <el-card shadow="never">
               <div slot="header" class="card-header">知识点掌握雷达</div>
@@ -136,9 +153,17 @@
           </el-col>
         </el-row>
 
-        <el-card shadow="never" style="margin-top: 16px">
-          <div slot="header" class="card-header">薄弱知识点</div>
-          <el-table :data="weakList" empty-text="暂无薄弱点">
+        <el-card id="mine-weak" shadow="never" style="margin-top: 16px">
+          <div slot="header" class="card-header">薄弱知识点
+            <el-button
+              v-if="weakList.length"
+              type="text"
+              size="mini"
+              style="float:right;padding:0"
+              @click="focusWeak()"
+            >回到顶部薄弱区 →</el-button>
+          </div>
+          <el-table :data="weakList" empty-text="暂无薄弱点" :row-class-name="weakRowClass">
             <el-table-column label="知识点" align="center" min-width="160">
               <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName }}</template>
             </el-table-column>
@@ -148,6 +173,11 @@
             <el-table-column label="薄弱等级" align="center" width="120">
               <template slot-scope="scope">
                 <dict-tag :options="dict.type.spas_weak_level" :value="scope.row.weakLevel" />
+              </template>
+            </el-table-column>
+            <el-table-column label="建议" align="center" width="140">
+              <template slot-scope="scope">
+                <el-button type="text" size="mini" @click="focusWeak(scope.row)">查看说明</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -241,6 +271,8 @@ export default {
       rankSummary: {},
       radarOption: {},
       trendOption: {},
+      radarEmpty: true,
+      focusKnowledgeId: null,
       queryParams: {
         subjectId: undefined
       }
@@ -248,7 +280,7 @@ export default {
   },
   computed: {
     showEmptyTip() {
-      return !this.loading && !this.weakList.length && !Object.keys(this.radarOption || {}).length
+      return !this.loading && !!this.portfolio.student && this.radarEmpty && !this.weakList.length
     }
   },
   created() {
@@ -314,6 +346,33 @@ export default {
         'my_portfolio_' + sid + '.pdf'
       ).finally(() => { this.exportLoading = false })
     },
+    goMyAnalysis(row) {
+      this.focusWeak(row)
+    },
+    focusWeak(row) {
+      if (!(this.portfolio.student && this.portfolio.student.studentId)) {
+        this.$modal.msgWarning('未绑定学生档案')
+        return
+      }
+      this.focusKnowledgeId = row && (row.knowledgeId || row.id) ? (row.knowledgeId || row.id) : null
+      this.$nextTick(() => {
+        const el = document.getElementById(this.weakList.length || row ? 'mine-weak' : 'mine-radar')
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      })
+      if (row) {
+        const name = row.name || row.knowledgeName || '该知识点'
+        this.$modal.msgSuccess('已定位薄弱点「' + name + '」。请按教师辅导计划巩固练习。')
+      }
+    },
+    weakRowClass({ row }) {
+      const kid = row && (row.knowledgeId || row.id)
+      if (this.focusKnowledgeId != null && String(kid) === String(this.focusKnowledgeId)) {
+        return 'mine-weak-focus'
+      }
+      return ''
+    },
     loadSubjects() {
       return optionselectSubject().then(res => {
         this.subjectOptions = res.data || []
@@ -352,15 +411,18 @@ export default {
         this.rankSummary = {}
         this.radarOption = {}
         this.trendOption = {}
+        this.radarEmpty = true
       }).finally(() => {
         this.loading = false
       })
     },
     buildRadar(list) {
       if (!list.length) {
+        this.radarEmpty = true
         this.radarOption = { title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#64748B', fontSize: 14 } } }
         return
       }
+      this.radarEmpty = false
       const values = list.map(i => this.toPercent(i.rate != null ? i.rate : i.weightedRate))
       const classValues = list.map(i => {
         if (i.classAvgRate == null && i.classRate == null) return null
@@ -423,6 +485,9 @@ export default {
 <style scoped>
 .mb8 {
   margin-bottom: 8px;
+}
+.spas-portfolio-mine >>> .mine-weak-focus > td {
+  background: #FFF7ED !important;
 }
 </style>
 

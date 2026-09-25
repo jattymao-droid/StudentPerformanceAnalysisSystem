@@ -27,10 +27,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <include refid="selectSpasSubjectVo"/>
         <where>
             <if test="subjectName != null and subjectName != ''">
-                AND subject_name like concat('%', #{subjectName,jdbcType=VARCHAR}, '%')
+                AND subject_name like ('%' || #{subjectName} || '%')
             </if>
             <if test="subjectCode != null and subjectCode != ''">
-                AND subject_code like concat('%', #{subjectCode,jdbcType=VARCHAR}, '%')
+                AND subject_code like ('%' || #{subjectCode} || '%')
             </if>
             <if test="status != null and status != ''">
                 AND status = #{status}

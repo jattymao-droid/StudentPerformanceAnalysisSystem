@@ -74,6 +74,7 @@ Vue.use(Element, {
 })
 
 Vue.config.productionTip = false
+Vue.config.ignoredElements = ['math-field']
 
 new Vue({
   el: '#app',

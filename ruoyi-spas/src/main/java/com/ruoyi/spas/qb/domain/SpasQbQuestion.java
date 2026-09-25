@@ -99,5 +99,11 @@ public class SpasQbQuestion extends BaseEntity
     public void setKnowledgeIds(Long[] knowledgeIds) { this.knowledgeIds = knowledgeIds; }
     public Boolean getBoundOnly() { return boundOnly; }
     public void setBoundOnly(Boolean boundOnly) { this.boundOnly = boundOnly; }
+
+    /** Expanded type aliases for list/smart-pick (not persisted) */
+    private java.util.List<String> questionTypes;
+
+    public java.util.List<String> getQuestionTypes() { return questionTypes; }
+    public void setQuestionTypes(java.util.List<String> questionTypes) { this.questionTypes = questionTypes; }
 }
 

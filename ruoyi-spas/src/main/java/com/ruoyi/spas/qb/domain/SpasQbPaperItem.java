@@ -11,6 +11,12 @@ public class SpasQbPaperItem
     private BigDecimal scoreValue;
     private String questionNo;
     private String contentPreview;
+    /** Full stem for preview/print */
+    private String content;
+    private String options;
+    private String correctAnswer;
+    private String stemImage;
+    private String optionsImage;
     private String questionType;
     private String difficulty;
     /** Reviewed knowledge count on bank question */
@@ -30,6 +36,16 @@ public class SpasQbPaperItem
     public void setQuestionNo(String questionNo) { this.questionNo = questionNo; }
     public String getContentPreview() { return contentPreview; }
     public void setContentPreview(String contentPreview) { this.contentPreview = contentPreview; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public String getOptions() { return options; }
+    public void setOptions(String options) { this.options = options; }
+    public String getCorrectAnswer() { return correctAnswer; }
+    public void setCorrectAnswer(String correctAnswer) { this.correctAnswer = correctAnswer; }
+    public String getStemImage() { return stemImage; }
+    public void setStemImage(String stemImage) { this.stemImage = stemImage; }
+    public String getOptionsImage() { return optionsImage; }
+    public void setOptionsImage(String optionsImage) { this.optionsImage = optionsImage; }
     public String getQuestionType() { return questionType; }
     public void setQuestionType(String questionType) { this.questionType = questionType; }
     public String getDifficulty() { return difficulty; }

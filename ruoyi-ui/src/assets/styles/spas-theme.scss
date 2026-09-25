@@ -268,12 +268,8 @@
   pointer-events: none;
 }
 
-.spas-home .hero-title {
+.spas-home .hero-brand {
   color: var(--spas-ink) !important;
-  font-size: 28px !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.025em !important;
-  line-height: 1.2 !important;
 }
 
 .spas-home .hero-sub {
@@ -806,6 +802,19 @@
 
 .spas-home .hero-card .el-card__body {
   padding: 28px 28px 28px 32px;
+}
+
+.spas-home .hero-brand {
+  color: var(--spas-ink) !important;
+}
+
+.spas-home .weak-rank {
+  background: var(--spas-primary-soft-2) !important;
+  color: var(--spas-primary) !important;
+}
+
+.spas-home .kpi-card.is-alert {
+  border-color: #FDBA74 !important;
 }
 
 .spas-home .kpi-card .el-card__body {

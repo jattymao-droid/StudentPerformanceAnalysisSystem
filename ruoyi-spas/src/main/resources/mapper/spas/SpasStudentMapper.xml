@@ -36,10 +36,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <include refid="selectSpasStudentVo"/>
         where s.del_flag = '0'
         <if test="studentNo != null and studentNo != ''">
-            AND s.student_no like concat('%', #{studentNo,jdbcType=VARCHAR}, '%')
+            AND s.student_no like ('%' || #{studentNo} || '%')
         </if>
         <if test="studentName != null and studentName != ''">
-            AND s.student_name like concat('%', #{studentName,jdbcType=VARCHAR}, '%')
+            AND s.student_name like ('%' || #{studentName} || '%')
         </if>
         <if test="status != null and status != ''">
             AND s.status = #{status}

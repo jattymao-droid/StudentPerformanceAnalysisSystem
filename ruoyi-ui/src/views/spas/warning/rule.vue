@@ -43,6 +43,13 @@
       </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
+    <el-alert
+      class="mb8"
+      type="info"
+      :closable="false"
+      show-icon
+      title="执行口径与学情分析页时间窗一致（本学期/近30天等）。校次类规则（RANK_*）仍按实考场次与规则「窗口场数」判定，不受上方时间窗过滤。"
+    />
 
     <el-table v-loading="loading" :data="ruleList" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" align="center" />
@@ -58,6 +65,20 @@
       <el-table-column label="级别" align="center" prop="level" width="100">
         <template slot-scope="scope">
           <dict-tag :options="dict.type.spas_warning_level" :value="scope.row.level" />
+        </template>
+      </el-table-column>
+      <el-table-column label="通知渠道" align="center" min-width="160">
+        <template slot-scope="scope">
+          <template v-for="ch in channelTags(scope.row.notifyChannels)">
+            <el-tag
+              v-if="ch === 'webhook'"
+              :key="ch"
+              size="mini"
+              style="margin:0 2px"
+              :type="webhookConfigured ? 'warning' : 'danger'"
+            >{{ webhookConfigured ? 'Webhook' : 'Webhook未配置' }}</el-tag>
+            <el-tag v-else :key="ch" size="mini" style="margin:0 2px">系统</el-tag>
+          </template>
         </template>
       </el-table-column>
       <el-table-column label="启用" align="center" prop="enabled" width="100">
@@ -157,6 +178,23 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <el-form-item label="通知渠道">
+          <el-checkbox-group v-model="notifyChannelList">
+            <el-checkbox label="system">系统通知</el-checkbox>
+            <el-checkbox label="webhook">Webhook</el-checkbox>
+          </el-checkbox-group>
+          <el-alert
+            v-if="notifyChannelList.indexOf('webhook') >= 0 && !webhookConfigured"
+            style="margin-top:8px"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="当前未配置 spas.warning.webhook-url（环境变量 SPAS_WARNING_WEBHOOK_URL），勾选 Webhook 不会实际推送"
+          />
+          <div v-else-if="notifyChannelList.indexOf('webhook') >= 0 && webhookConfigured" class="el-form-item__tip">
+            Webhook 已配置，触发后将 POST JSON 到该地址
+          </div>
+        </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入备注" />
         </el-form-item>
@@ -170,7 +208,7 @@
 </template>
 
 <script>
-import { listWarningRule, getWarningRule, addWarningRule, updateWarningRule, delWarningRule, runWarningEngine } from '@/api/spas/warning'
+import { listWarningRule, getWarningRule, addWarningRule, updateWarningRule, delWarningRule, runWarningEngine, warningNotifyStatus } from '@/api/spas/warning'
 
 export default {
   name: 'SpasWarningRule',
@@ -188,6 +226,8 @@ export default {
       ruleList: [],
       title: '',
       open: false,
+      webhookConfigured: false,
+      notifyChannelList: ['system'],
       metricOptions: [
         { value: 'AVG_RATE', label: '平均得分率' },
         { value: 'WEAK_COUNT', label: '薄弱知识点数量' },
@@ -254,8 +294,15 @@ export default {
   },
   created() {
     this.getList()
+    warningNotifyStatus().then(res => {
+      this.webhookConfigured = !!(res.data && res.data.webhookConfigured)
+    }).catch(() => { this.webhookConfigured = false })
   },
   methods: {
+    channelTags(raw) {
+      const list = String(raw || 'system').split(',').map(s => s.trim()).filter(Boolean)
+      return list.length ? list : ['system']
+    },
     metricLabel(metric) {
       const hit = this.metricOptions.find(i => i.value === metric)
       return hit ? hit.label : metric
@@ -369,6 +416,7 @@ export default {
         notifyChannels: 'system',
         remark: undefined
       }
+      this.notifyChannelList = ['system']
       this.resetForm('form')
     },
     handleQuery() {
@@ -395,6 +443,8 @@ export default {
       getWarningRule(ruleId).then(response => {
         this.form = response.data || {}
         this.form.operator = this.toOperatorCode(this.form.operator)
+        const ch = (this.form.notifyChannels || 'system').split(',').map(s => s.trim()).filter(Boolean)
+        this.notifyChannelList = ch.length ? ch : ['system']
         this.open = true
         this.title = '修改预警规则'
       })
@@ -410,12 +460,20 @@ export default {
         if (this.form.scopeType === '1') {
           this.form.scopeId = undefined
         }
-        const req = this.form.ruleId != null ? updateWarningRule(this.form) : addWarningRule(this.form)
-        req.then(() => {
-          this.$modal.msgSuccess('操作成功')
-          this.open = false
-          this.getList()
-        })
+        this.form.notifyChannels = (this.notifyChannelList || []).join(',') || 'system'
+        const doSave = () => {
+          const req = this.form.ruleId != null ? updateWarningRule(this.form) : addWarningRule(this.form)
+          req.then(() => {
+            this.$modal.msgSuccess('操作成功')
+            this.open = false
+            this.getList()
+          })
+        }
+        if (this.notifyChannelList.indexOf('webhook') >= 0 && !this.webhookConfigured) {
+          this.$modal.confirm('当前未配置 Webhook URL，勾选后不会实际推送。仍要保存？').then(doSave).catch(() => {})
+          return
+        }
+        doSave()
       })
     },
     handleDelete(row) {

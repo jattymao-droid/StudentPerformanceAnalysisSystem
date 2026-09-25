@@ -127,23 +127,33 @@
         class="mb8"
       >
         <template v-if="summary.emptyKnowledge && suggestedSubjects.length" slot="default">
-          <span>可切换到：</span>
-          <el-button
+          <span style="margin-right:6px">可切换到：</span>
+          <el-tag
             v-for="s in suggestedSubjects"
             :key="'sug-' + s.subjectId"
-            type="text"
-            size="mini"
+            size="small"
+            type="warning"
+            effect="plain"
+            style="margin:2px 4px;cursor:pointer"
             @click="switchToSubject(s.subjectId)"
-          >{{ s.subjectName }}</el-button>
+          >{{ s.subjectName }}</el-tag>
         </template>
       </el-alert>
+      <el-alert
+        v-if="subjectOverrideTip"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb8"
+        :title="subjectOverrideTip"
+      />
       <el-alert
         v-if="summary.formalWeakBlocked"
         type="error"
         :closable="false"
         show-icon
         class="mb8"
-        :title="summary.formalWeakBlockReason || '选卷标注不足，薄弱结论仅供参考，不得作为正式定级'"
+        :title="summary.formalWeakBlockReason || '当前口径内标注不足，薄弱结论仅供参考，不得作为正式定级'"
       />
       <el-alert
         v-if="analysisMode === 'papers'"
@@ -247,6 +257,14 @@
           show-icon
           :title="rankSummary.headline"
         />
+        <el-alert
+          v-if="rankSummary && rankSummary.crossHeadline"
+          class="mb8"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="'交叉诊断：' + rankSummary.crossHeadline"
+        />
         <el-table :data="rankSubjects" size="small" empty-text="暂无实考校次。请先在「实考校次」导入多次成绩。">
           <el-table-column label="科目" prop="subjectName" width="90" fixed />
           <el-table-column label="校次轨迹" prop="track" min-width="180" :show-overflow-tooltip="true" />
@@ -276,9 +294,15 @@
               <el-tag size="mini" :type="rankTag(scope.row.trend)">{{ scope.row.trendLabel }}</el-tag>
             </template>
           </el-table-column>
-                    <el-table-column label="关联掌握" align="center" width="110">
+          <el-table-column label="关联掌握" align="center" width="110">
             <template slot-scope="scope">
               <span v-if="scope.row.boundMasteryRate != null">{{ formatRate(scope.row.boundMasteryRate) }}</span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="交叉诊断" width="160" align="center">
+            <template slot-scope="scope">
+              <el-tag v-if="scope.row.crossLabel && scope.row.crossLabel !== '-'" size="mini" :type="crossTagType(scope.row.crossCode)">{{ scope.row.crossLabel }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -392,7 +416,7 @@
         </el-table>
       </el-card>
 
-      <el-card shadow="never" style="margin-top: 16px" class="chart-card">
+      <el-card ref="chapterDeltaCard" shadow="never" style="margin-top: 16px" class="chart-card" id="spas-chapter-delta">
         <div slot="header" class="card-header">章节进退</div>
         <el-alert v-if="chapterDelta.baselineHint" class="mb8" :type="chapterDelta.baselineEmpty ? 'warning' : 'info'" :closable="false" show-icon :title="chapterDelta.baselineHint" />
         <el-alert v-else-if="chapterDelta.headline" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
@@ -472,6 +496,7 @@
               <el-tag size="mini" :type="confidenceTagType(scope.row)">{{ confidenceText(scope.row) }}</el-tag>
               <el-tag v-if="rowFormalWeak(scope.row)" size="mini" type="danger" style="margin-left:4px">正式薄弱</el-tag>
               <el-tag v-else-if="rowLowEvidence(scope.row)" size="mini" type="info" style="margin-left:4px">证据不足</el-tag>
+              <el-tag v-if="scope.row.relativeWeak" size="mini" type="warning" style="margin-left:4px">低于班均</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="跨场标签" align="center" width="110">
@@ -540,8 +565,19 @@
           <el-table-column label="得分率" width="80" align="center">
             <template slot-scope="scope">{{ formatRate(scope.row.rate) }}</template>
           </el-table-column>
-          <el-table-column label="错因" width="130" align="center">
+          <el-table-column label="错因" width="200" align="center">
             <template slot-scope="scope">
+              <div v-if="isLowRateRow(scope.row)" class="error-quick-tags mb4">
+                <el-button
+                  v-for="chip in quickErrorChips"
+                  :key="chip.code"
+                  size="mini"
+                  :type="scope.row.errorCode === chip.code ? 'primary' : 'default'"
+                  plain
+                  :disabled="!checkPermi(['spas:analysis:student'])"
+                  @click="quickErrorTag(scope.row, chip.code)"
+                >{{ chip.label }}</el-button>
+              </div>
               <el-select
                 v-model="scope.row.errorCode"
                 size="mini"
@@ -691,6 +727,15 @@
             </el-table-column>
           </el-table>
         </template>
+        <template v-if="previewErrorCause.length">
+          <div class="card-header mb8" style="margin-top:12px">错因汇总</div>
+          <el-table :data="previewErrorCause" size="small" empty-text="-" max-height="160">
+            <el-table-column label="类别/错因" min-width="120" :show-overflow-tooltip="true">
+              <template slot-scope="scope">{{ scope.row.errorLabel || scope.row.errorCategoryLabel || scope.row.errorCode || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="次数" width="80" align="center" prop="tagCount" />
+          </el-table>
+        </template>
         <div class="card-header mb8" style="margin-top:12px">开放预警</div>
         <el-table :data="previewWarnings" size="small" empty-text="无" max-height="180">
           <el-table-column label="标题" prop="title" min-width="120" :show-overflow-tooltip="true" />
@@ -771,6 +816,9 @@ export default {
       showAdvancedScope: false,
       defaultWindow: 'semester',
       minAttempts: 3,
+      baseMinAttempts: 3,
+      subjectOverrides: {},
+      subjectOverrideTip: '',
       recencyHalfLifeDays: 60,
       scopeMaxPapers: 30,
       annotationHint: '',
@@ -834,6 +882,14 @@ export default {
       }
       return groups
     },
+    quickErrorChips() {
+      return [
+        { code: 'calc_slip', label: '计算' },
+        { code: 'reading_miss', label: '审题' },
+        { code: 'concept_unclear', label: '概念' },
+        { code: 'careless', label: '粗心' }
+      ]
+    },
     boundClassMode() {
       return Array.isArray(this.myDepts) && this.myDepts.length > 0
     },
@@ -893,9 +949,10 @@ export default {
         { key: 'rank', label: '班级名次', value: this.formatRank(s), hint: '得分率从高到低', tone: 'blue' },
         { key: 'pct', label: '百分位', value: this.formatPercentile(s.percentile), hint: '超过X%同班同学', tone: 'green' },
         { key: 'gap', label: '与班差', value: this.formatGap(s.gap), hint: '负值表示偏低', tone: 'orange' },
-        { key: 'low', label: '低分点数', value: s.lowRateCount != null ? s.lowRateCount : '-', hint: this.lowRateHint(s), tone: 'orange' },
-        { key: 'severe', label: '正式严重', value: s.severeCount != null ? s.severeCount : '-', hint: '作答≥3 且低于45%', tone: 'red' },
         { key: 'weak', label: '正式薄弱', value: s.weakCount != null ? s.weakCount : '-', hint: '作答≥3 且低于60%', tone: 'orange' },
+        { key: 'severe', label: '正式严重', value: s.severeCount != null ? s.severeCount : '-', hint: '作答≥3 且低于45%', tone: 'red' },
+        { key: 'low', label: '综合低分', value: s.lowRateCount != null ? s.lowRateCount : '-', hint: this.lowRateHint(s), tone: 'orange' },
+        { key: 'thin', label: '样本不足', value: s.thinSampleCount != null ? s.thinSampleCount : '-', hint: '低分但作答不足，不定级', tone: 'purple' },
         { key: 'conf', label: '置信度', value: this.summaryConfidenceText, hint: this.summaryConfidenceHint, tone: 'purple' }
       ]
     },
@@ -997,6 +1054,10 @@ export default {
     previewChapterHeadline() {
       const q = this.previewData && this.previewData.chapterDelta
       return (q && q.headline) || ''
+    },
+    previewErrorCause() {
+      const c = this.previewData && this.previewData.errorCauseSummary
+      return Array.isArray(c) ? c : []
     }
   },
   created() {
@@ -1043,10 +1104,10 @@ export default {
     lowRateHint(s) {
       const thin = Number(s && s.thinSampleCount)
       const severe = s && s.lowSevereCount
-      const parts = []
-      if (!isNaN(thin) && thin > 0) parts.push(thin + ' 个样本不足')
+      const parts = ['得分率低于60%的知识点']
+      if (!isNaN(thin) && thin > 0) parts.push('含样本不足 ' + thin)
       if (severe != null && severe !== '') parts.push('低于45% ' + severe)
-      return parts.length ? parts.join(' · ') : '得分率低于60%'
+      return parts.join(' · ')
     },
     checkPermi,
     findDeptNode(nodes, id) {
@@ -1249,6 +1310,7 @@ export default {
       if (!this.autoSwitchingSubject) {
         this.subjectPickedByUser = true
       }
+      this.applySubjectThresholds()
       this.queryParams.paperIds = []
       this.loadPapers()
       if (this.queryParams.studentId) {
@@ -1262,10 +1324,42 @@ export default {
       this.subjectPickedByUser = false
       this.autoSwitchingSubject = true
       this.queryParams.subjectId = Number(subjectId) || subjectId
+      this.applySubjectThresholds()
       this.queryParams.paperIds = []
       this.loadPapers()
       this.autoSwitchingSubject = false
       this.handleQuery()
+    },
+    applySubjectThresholds() {
+      const base = this.baseMinAttempts || 3
+      this.minAttempts = base
+      this.subjectOverrideTip = ''
+      if (this.isAllSubjects) {
+        return
+      }
+      const hit = (this.subjectOptions || []).find(s => Number(s.subjectId) === Number(this.queryParams.subjectId))
+      const code = hit && hit.subjectCode
+      if (!code) {
+        return
+      }
+      const overrides = this.subjectOverrides || {}
+      let o = overrides[code]
+      if (!o) {
+        const key = Object.keys(overrides).find(k => k && k.toLowerCase() === String(code).toLowerCase())
+        o = key ? overrides[key] : null
+      }
+      if (!o) {
+        return
+      }
+      if (o.minAttempts != null && Number(o.minAttempts) > 0) {
+        this.minAttempts = Number(o.minAttempts)
+      }
+      const bits = []
+      if (o.weak != null) bits.push('薄弱线 ' + Number(o.weak).toFixed(2))
+      if (o.minAttempts != null) bits.push('最低练习 ' + o.minAttempts + ' 次')
+      if (bits.length) {
+        this.subjectOverrideTip = (hit.subjectName || code) + '分科口径：' + bits.join('，')
+      }
     },
     handleDeptChange() {
       this.queryParams.studentId = undefined
@@ -1331,8 +1425,11 @@ export default {
           this.scopeMaxPapers = Number(cfg.scopeMaxPapers) || 30
         }
         if (cfg.minAttempts != null) {
-          this.minAttempts = Number(cfg.minAttempts) || 3
+          this.baseMinAttempts = Number(cfg.minAttempts) || 3
+          this.minAttempts = this.baseMinAttempts
         }
+        this.subjectOverrides = cfg.subjectOverrides || {}
+        this.applySubjectThresholds()
         const annot = cfg.annotationCoverage || {}
         if (annot.unboundRatioThreshold != null) {
           this.unboundRatioThreshold = Number(annot.unboundRatioThreshold) || 0.20
@@ -1422,6 +1519,18 @@ export default {
           this.openKnowledgeDrill({ knowledgeId: this._drillKnowledgeId })
         }
       })
+    },
+    isLowRateRow(row) {
+      if (!row) return false
+      const r = Number(row.rate != null ? row.rate : row.attributedRate)
+      if (isNaN(r)) return false
+      const pct = r <= 1 ? r : r / 100
+      return pct < 0.6
+    },
+    quickErrorTag(row, code) {
+      if (!row || !code) return
+      this.$set(row, 'errorCode', row.errorCode === code ? '' : code)
+      this.onErrorTagChange(row)
     },
     openKnowledgeTrend(row) {
       this.openKnowledgeDrill(row)
@@ -1670,9 +1779,29 @@ export default {
         this.bloomInsight = ''
       })
     },
+    focusChapterDeltaIfNeeded() {
+      if ((this.$route.query || {}).focus !== 'chapterDelta') {
+        return
+      }
+      const scroll = () => {
+        const el = document.getElementById('spas-chapter-delta')
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }
+      this.$nextTick(() => {
+        scroll()
+        setTimeout(scroll, 320)
+        setTimeout(scroll, 900)
+      })
+    },
     loadChapterDelta() {
       if (!this.queryParams.studentId || this.isAllSubjects) {
-        this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false }
+        this.chapterDelta = {
+          items: [], improved: [], declined: [], headline: '', baselineWindow: '',
+          baselineHint: this.isAllSubjects ? '章节进退需指定学科，请先选择科目' : '',
+          baselineEmpty: !!this.isAllSubjects
+        }
         return Promise.resolve()
       }
       return chapterDeltaStudent(this.queryParams.studentId, this.scopeQuery({ baselineWindow: 'prev_semester' })).then(res => {
@@ -1744,6 +1873,13 @@ export default {
       if (trend === 'flat') return 'info'
       return 'warning'
     },
+    crossTagType(code) {
+      if (code === 'dualDown') return 'danger'
+      if (code === 'rankUp+weakMastery') return 'warning'
+      if (code === 'rankDown+solidMastery') return 'info'
+      if (code === 'dualUp') return 'success'
+      return ''
+    },
     loadAnalysis() {
       const studentId = this.queryParams.studentId
       if (!studentId) {
@@ -1778,7 +1914,10 @@ export default {
         this.summary = (summaryRes && summaryRes.data) ? summaryRes.data : {}
         // Default subject sort may land on 语文 while this student only has 物理小题数据
         // Skip auto-switch when user chose「所有科目」or manually picked a subject
-        if (!this.isAllSubjects && this.summary.emptyKnowledge && this.summary.suggestedSubjectId != null && !this.subjectPickedByUser) {
+        // Exception: term-compare focus needs a concrete subject for chapterDelta
+        const focusDelta = (this.$route.query || {}).focus === 'chapterDelta'
+        if ((focusDelta && this.isAllSubjects && this.summary.suggestedSubjectId != null)
+          || (!this.isAllSubjects && this.summary.emptyKnowledge && this.summary.suggestedSubjectId != null && !this.subjectPickedByUser)) {
           const sid = Number(this.summary.suggestedSubjectId)
           if (!isNaN(sid) && sid !== Number(this.queryParams.subjectId)) {
             chainedReload = true
@@ -1799,7 +1938,7 @@ export default {
         this.loadChapterRadar()
         this.loadQuestionType()
         this.loadBloom()
-        this.loadChapterDelta()
+        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
         this.loadAnnotationCoverage()
         this.buildWeakBar(weak)
         this.loadRankTrend()
@@ -2021,4 +2160,9 @@ export default {
   font-size: 11px;
 }
 .mb8 { margin-bottom: 8px; }
+.mb4 { margin-bottom: 4px; }
+.error-quick-tags .el-button {
+  margin: 0 2px 2px 0;
+  padding: 4px 6px;
+}
 </style>

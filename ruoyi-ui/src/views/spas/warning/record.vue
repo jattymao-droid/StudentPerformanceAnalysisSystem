@@ -1,6 +1,20 @@
 <template>
   <div class="app-container">
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="80px">
+      <el-form-item label="班级" prop="deptId">
+        <treeselect
+          v-model="queryParams.deptId"
+          :options="deptOptions"
+          :show-count="true"
+          placeholder="全部班级"
+          style="width: 220px"
+        />
+      </el-form-item>
+      <el-form-item label="学科" prop="subjectId">
+        <el-select v-model="queryParams.subjectId" placeholder="全部学科" clearable filterable style="width: 140px">
+          <el-option v-for="s in subjectOptions" :key="s.subjectId" :label="s.subjectName" :value="s.subjectId" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="学号" prop="studentNo">
         <el-input v-model="queryParams.studentNo" placeholder="学号" clearable @keyup.enter.native="handleQuery" />
       </el-form-item>
@@ -37,9 +51,18 @@
     </el-row>
 
 
-    <el-alert v-if="!loading && (!recordList || recordList.length===0)" type="info" :closable="false" show-icon style="margin-bottom:12px"
-      title="暂无预警记录：可前往「预警规则」点击「立即执行」生成（演示规则已预置）" />
-    <el-table v-loading="loading" :data="recordList" @selection-change="handleSelectionChange">
+    <el-empty
+      v-if="!loading && (!recordList || recordList.length===0)"
+      :image-size="72"
+      description="暂无预警记录"
+      class="mb8"
+    >
+      <div class="empty-actions">
+        <el-button type="primary" size="mini" icon="el-icon-video-play" @click="$router.push('/spas/warning/rule')" v-hasPermi="['spas:warning:rule']">去规则立即执行</el-button>
+        <el-button size="mini" @click="resetQuery">清空筛选</el-button>
+      </div>
+    </el-empty>
+    <el-table v-loading="loading" :data="recordList" @selection-change="handleSelectionChange" v-show="loading || (recordList && recordList.length)">
       <el-table-column type="selection" width="50" align="center" :selectable="rowSelectable" />
       <el-table-column label="编号" align="center" prop="warningId" width="80" />
       <el-table-column label="学号" align="center" prop="studentNo" width="120" />
@@ -181,9 +204,16 @@
 import { listWarningRecord, handleWarningRecord } from '@/api/spas/warning'
 import { createFromWarning } from '@/api/spas/intervene'
 import { weakTopStudent } from '@/api/spas/analysis'
+import { optionselectSubject } from '@/api/spas/subject'
+import { listMyTeachingDepts } from '@/api/spas/teacher'
+import { deptTreeSelect } from '@/api/system/user'
+import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDeptTree'
+import Treeselect from '@riophae/vue-treeselect'
+import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 
 export default {
   name: 'SpasWarningRecord',
+  components: { Treeselect },
   dicts: ['spas_warning_level', 'spas_warning_status'],
   data() {
     return {
@@ -193,6 +223,9 @@ export default {
       recordList: [],
       ids: [],
       selectedRows: [],
+      deptOptions: [],
+      myDepts: [],
+      subjectOptions: [],
       viewOpen: false,
       handleOpen: false,
       handleTitle: '',
@@ -210,6 +243,8 @@ export default {
       queryParams: {
         pageNum: 1,
         pageSize: 10,
+        deptId: undefined,
+        subjectId: undefined,
         studentNo: undefined,
         studentName: undefined,
         level: undefined,
@@ -248,16 +283,37 @@ export default {
     }
   },
   created() {
-    this.getList()
+    const q = this.$route.query || {}
+    if (q.deptId) this.queryParams.deptId = isNaN(Number(q.deptId)) ? q.deptId : Number(q.deptId)
+    if (q.subjectId) this.queryParams.subjectId = isNaN(Number(q.subjectId)) ? q.subjectId : Number(q.subjectId)
+    if (q.status !== undefined) this.queryParams.status = q.status
+    this.loadSubjects()
+    this.loadDepts().then(() => this.getList())
   },
   methods: {
+    loadSubjects() {
+      return optionselectSubject().then(res => {
+        this.subjectOptions = res.data || []
+      }).catch(() => { this.subjectOptions = [] })
+    },
+    loadDepts() {
+      return applyTeachingDeptContext(this, listMyTeachingDepts, deptTreeSelect).catch(() => {
+        if (!canLoadSystemDeptTree()) {
+          this.deptOptions = []
+          return Promise.resolve()
+        }
+        return deptTreeSelect().then(res => {
+          this.deptOptions = res.data || []
+        }).catch(() => { this.deptOptions = [] })
+      })
+    },
     getList() {
       this.loading = true
       listWarningRecord(this.queryParams).then(response => {
         this.recordList = response.rows
         this.total = response.total
         this.loading = false
-      })
+      }).catch(() => { this.loading = false })
     },
     handleQuery() {
       this.queryParams.pageNum = 1
@@ -268,6 +324,8 @@ export default {
     },
     resetQuery() {
       this.resetForm('queryForm')
+      this.queryParams.deptId = undefined
+      this.queryParams.subjectId = undefined
       this.queryParams.status = '0'
       this.handleQuery()
     },
@@ -450,3 +508,14 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.mb8 { margin-bottom: 12px; }
+</style>

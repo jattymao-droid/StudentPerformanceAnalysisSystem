@@ -19,4 +19,7 @@ public interface SpasErrorTagMapper
         @Param("questionId") Long questionId);
 
     public List<java.util.Map<String, Object>> selectCauseSummary(@Param("studentId") Long studentId);
+
+    public List<java.util.Map<String, Object>> selectDeptCauseSummary(@Param("deptId") Long deptId,
+        @Param("subjectId") Long subjectId);
 }

@@ -44,6 +44,7 @@ python sql/spas_apply_incremental.py --check
 | 9 | `spas_warning_job.sql` | Warning scheduler |
 | 10 | `spas_score_revoke_fix.sql` | Score revoke |
 | 11 | `spas_score_source.sql` | Score source column |
+| 11b | `spas_score_detail_crud.sql` | 小题得分手工增删改权限 |
 | 12 | `spas_intervene.sql` | Intervene loop |
 | 13 | `spas_intervene_effect_json.sql` | Retest effect_json |
 | 14 | `spas_intervene_knowledge.sql` | Intervene knowledge join (P2) |
@@ -52,7 +53,7 @@ python sql/spas_apply_incremental.py --check
 | 17 | `spas_quality_ticket.sql` | Quality work-orders (P2) |
 | 18 | `spas_report.sql` | Report export |
 | 19 | `spas_analysis_frequency_menu.sql` | Knowledge frequency menu |
-| 20 | `spas_open_seed.sql` | OpenAPI admin seed |
+| 20 | `spas_open_seed.sql` | OpenAPI **演示**客户端（仅 `--with-demo`，生产勿默认灌入） |
 | 20b | `spas_phase6_enhance.sql` | Open 管理菜单 2120–2128 + 学生导入导出按钮 |
 | 21 | `spas_route_name_fix.sql` | Route name fix |
 | 22 | `spas_ui_trim.sql` | UI / menu trim |
@@ -70,6 +71,7 @@ python sql/spas_apply_incremental.py --check
 | 34 | `spas_qb_select_center.sql` | 选题中心菜单 + source_year/region/exam + section_json |
 | 35 | `spas_qb_ai_config.sql` | 大模型配置菜单 118 + spas.qb.ai.* sys_config |
 | 36 | `spas_report_hub.sql` | 报告导出目录可见 + 入口页组件 |
+| 37 | `spas_recalc_job.sql` | 夜间全校掌握度重算定时任务 (job_id=101) |
 
 全新环境也可直接执行 `spas_exam_score.sql`（会 DROP 重建）。旧库若仍含 `subject_id`，`spas_exam_score_init.sql` / `spas_exam_score_alter_subject_name.sql` 均可迁移。
 
@@ -81,7 +83,15 @@ python sql/spas_apply_incremental.py --check
 
 ## Optional demo
 
-`spas_school_dept_seed.sql`, `spas_demo_seed.sql`, `spas_knowledge_chapter_seed.sql`, teacher/class seeds, physics TOC seed.
+`spas_school_dept_seed.sql`, `spas_demo_seed.sql`, `spas_knowledge_chapter_seed.sql`,
+`spas_knowledge_edge_math_seed.sql`, `spas_knowledge_edge_physics_seed.sql`,
+`spas_subject_pack_seed.sql`, teacher/class seeds, physics TOC seed.
+
+### Existing DB patches (idempotent)
+
+| 脚本 | 说明 |
+|------|------|
+| `spas_subject_qtype_backfill.sql` | 为仍缺题型的启用学科补默认题型（含 PHYS）；`pack_seed` 已同步为全学科 |
 
 ## After apply
 

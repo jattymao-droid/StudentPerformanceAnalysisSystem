@@ -15,6 +15,7 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import com.ruoyi.spas.config.SpasAnalysisTuningProperties;
 import com.ruoyi.spas.domain.SpasAnalysisScoreRow;
 import com.ruoyi.spas.domain.SpasKnowledge;
 import com.ruoyi.spas.domain.SpasStudent;
@@ -47,6 +48,9 @@ public class KnowledgeStatQueryService
 
     @Autowired
     private KnowledgeStatCalculator calculator;
+
+    @Autowired(required = false)
+    private SpasAnalysisTuningProperties tuningProperties;
 
     @Value("${spas.analysis.persistent-weak.min-papers:3}")
     private int persistMinPapers;
@@ -181,12 +185,38 @@ public class KnowledgeStatQueryService
                 try
                 {
                     BigDecimal mine = new BigDecimal(String.valueOf(rateObj));
-                    row.put("gap", mine.subtract(classAvg));
+                    BigDecimal gap = mine.subtract(classAvg);
+                    row.put("gap", gap);
+                    annotateRelativeWeak(row, gap);
                 }
                 catch (Exception ignored)
                 {
                 }
             }
+        }
+    }
+
+    /** Flag relativeWeak when student rate is materially below class avg. */
+    public void annotateRelativeWeak(Map<String, Object> row, BigDecimal gap)
+    {
+        if (row == null)
+        {
+            return;
+        }
+        boolean enabled = tuningProperties == null || tuningProperties.getRelativeWeak() == null
+            || tuningProperties.getRelativeWeak().isEnabled();
+        double delta = tuningProperties == null || tuningProperties.getRelativeWeak() == null
+            ? 0.10 : tuningProperties.getRelativeWeak().getDelta();
+        if (delta <= 0)
+        {
+            delta = 0.10;
+        }
+        boolean relative = enabled && gap != null && gap.doubleValue() < -delta;
+        row.put("relativeWeak", Boolean.valueOf(relative));
+        if (relative)
+        {
+            row.put("relativeWeakDelta", gap);
+            row.put("relativeWeakLabel", "\u4f4e\u4e8e\u73ed\u5747");
         }
     }
 
@@ -288,7 +318,16 @@ public class KnowledgeStatQueryService
             }
         }
         Comparator<Map<String, Object>> byRate = (a, b) -> Double.compare(toDouble(a.get("rate")), toDouble(b.get("rate")));
-        formal.sort(byRate);
+        Comparator<Map<String, Object>> byRelativeThenRate = (a, b) -> {
+            boolean ar = Boolean.TRUE.equals(a.get("relativeWeak"));
+            boolean br = Boolean.TRUE.equals(b.get("relativeWeak"));
+            if (ar != br)
+            {
+                return ar ? -1 : 1;
+            }
+            return byRate.compare(a, b);
+        };
+        formal.sort(byRelativeThenRate);
         lowEvidence.sort(byRate);
         List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
         out.addAll(formal);

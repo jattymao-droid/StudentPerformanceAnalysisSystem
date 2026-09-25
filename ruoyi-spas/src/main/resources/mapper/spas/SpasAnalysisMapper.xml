@@ -10,6 +10,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="knowledgeId" column="knowledge_id" />
         <result property="subjectId"   column="subject_id"   />
         <result property="weight"      column="weight"       />
+        <result property="isPrimary"   column="is_primary"   />
         <result property="difficulty"  column="difficulty"   />
         <result property="rate"        column="rate"         />
         <result property="paperId"     column="paper_id"     />
@@ -37,7 +38,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <select id="selectScoreRowsForRecalc" resultMap="SpasAnalysisScoreRowResult">
         select d.student_id, d.question_id, qk.knowledge_id, k.subject_id,
-               qk.weight, q.difficulty, d.rate, d.paper_id, p.exam_date, d.score_source,
+               qk.weight, qk.is_primary, q.difficulty, d.rate, d.paper_id, p.exam_date, d.score_source,
                k.knowledge_name, p.paper_name
         from spas_score_detail d
         join spas_paper_question q on q.question_id = d.question_id
@@ -56,10 +57,25 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         order by d.student_id, qk.knowledge_id, d.question_id
     </select>
 
+    <select id="selectScoreRowsForRecalcByStudents" resultMap="SpasAnalysisScoreRowResult">
+        select d.student_id, d.question_id, qk.knowledge_id, k.subject_id,
+               qk.weight, qk.is_primary, q.difficulty, d.rate, d.paper_id, p.exam_date, d.score_source,
+               k.knowledge_name, p.paper_name
+        from spas_score_detail d
+        join spas_paper_question q on q.question_id = d.question_id
+        join spas_question_knowledge qk on qk.question_id = d.question_id
+        join spas_knowledge k on k.knowledge_id = qk.knowledge_id
+        join spas_paper p on p.paper_id = d.paper_id
+        where coalesce(d.score_source, '2') not in ('4', '5')
+          and d.student_id in
+        <foreach collection="studentIds" item="sid" open="(" separator="," close=")">#{sid}</foreach>
+        order by d.student_id, qk.knowledge_id, d.question_id
+    </select>
+
     <!-- Scoped score rows for live weighted aggregation (window / paper set) -->
     <select id="selectScoreRowsForScope" resultMap="SpasAnalysisScoreRowResult">
         select d.student_id, d.question_id, qk.knowledge_id, k.subject_id,
-               qk.weight, q.difficulty, d.rate, d.paper_id, p.exam_date, d.score_source,
+               qk.weight, qk.is_primary, q.difficulty, d.rate, d.paper_id, p.exam_date, d.score_source,
                k.knowledge_name, p.paper_name
         from spas_score_detail d
         join spas_paper_question q on q.question_id = d.question_id
@@ -167,6 +183,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <delete id="deleteStatByStudent" parameterType="Long">
         delete from spas_student_knowledge_stat where student_id = #{studentId}
+    </delete>
+
+    <delete id="deleteStatByStudents">
+        delete from spas_student_knowledge_stat where student_id in
+        <foreach collection="studentIds" item="sid" open="(" separator="," close=")">#{sid}</foreach>
     </delete>
 
     <!-- Include self + descendant depts (grade -> classes) -->

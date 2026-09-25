@@ -22,7 +22,7 @@ public class SpasPaperProperties
     /**
      * When true, publish/import requires every question to have bloom_level.
      */
-    private boolean requireBloomLevel = false;
+    private boolean requireBloomLevel = true;
 
     public boolean isAllowChangeKnowledgeAfterScore()
     {

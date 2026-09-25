@@ -362,9 +362,17 @@ export default {
   },
   created() {
     this.loadSubjects()
+    const q = this.$route.query || {}
+    const qDept = q.deptId != null && q.deptId !== '' ? Number(q.deptId) : undefined
+    const qSubject = q.subjectId != null && q.subjectId !== '' ? Number(q.subjectId) : undefined
     this.loadMyDepts().then(() => {
-      if (!this.queryParams.deptId && this.preferredDeptId) {
+      if (qDept && !isNaN(qDept)) {
+        this.queryParams.deptId = qDept
+      } else if (!this.queryParams.deptId && this.preferredDeptId) {
         this.queryParams.deptId = this.preferredDeptId
+      }
+      if (qSubject && !isNaN(qSubject)) {
+        this.queryParams.subjectId = qSubject
       }
       this.handleQuery()
     })
@@ -457,6 +465,7 @@ export default {
       if (questionId != null) query.questionId = questionId
       if (this.queryParams.subjectId) query.subjectId = this.queryParams.subjectId
       if (m === 'Q_PARTIAL_PAPER' || m === 'Q_ORPHAN_SCORE' || m === 'Q_BLANK_ZERO') {
+        if (target && target.batchId != null) query.batchId = target.batchId
         this.$router.push({ path: '/spas/biz/score', query })
         return
       }

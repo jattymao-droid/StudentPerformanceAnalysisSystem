@@ -265,7 +265,7 @@ public class SpasQbPaperServiceImpl implements ISpasQbPaperService
                 pq.setQuestionOrder(item.getOrderNum());
                 pq.setFullScore(item.getScoreValue());
                 pq.setDifficulty(StringUtils.isNotEmpty(item.getDifficulty()) ? item.getDifficulty() : "2");
-                pq.setQuestionType(item.getQuestionType());
+                pq.setQuestionType(com.ruoyi.spas.support.SpasQuestionTypeAlias.normalize(item.getQuestionType()));
                 pq.setBankQuestionId(item.getQuestionId());
                 pq.setCreateBy(operator);
                 if (StringUtils.isNotEmpty(item.getContentPreview()))
@@ -333,7 +333,7 @@ public class SpasQbPaperServiceImpl implements ISpasQbPaperService
                 pq.setQuestionId(item.getQuestionId());
                 pq.setQuestionNo(StringUtils.isNotEmpty(item.getQuestionNo())
                         ? item.getQuestionNo() : String.valueOf(item.getOrderNum()));
-                pq.setQuestionType(item.getQuestionType());
+                pq.setQuestionType(com.ruoyi.spas.support.SpasQuestionTypeAlias.normalize(item.getQuestionType()));
                 qs.add(pq);
                 List<SpasQbQuestionKnowledge> bankKs = bankQuestionMapper.selectKnowledgeByQuestionId(item.getQuestionId());
                 if (bankKs == null || bankKs.isEmpty())

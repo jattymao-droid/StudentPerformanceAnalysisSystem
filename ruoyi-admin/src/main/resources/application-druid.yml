@@ -1,4 +1,7 @@
 # 数据源配置
+# 生产请用环境变量覆盖，勿把真实密码提交仓库：
+#   SPAS_DB_URL / SPAS_DB_USER / SPAS_DB_PASSWORD
+#   SPAS_DRUID_USER / SPAS_DRUID_PASSWORD（控制台账号；生产建议关闭或仅本机）
 spring:
     datasource:
         type: com.alibaba.druid.pool.DruidDataSource
@@ -6,9 +9,9 @@ spring:
         druid:
             # 主库数据源
             master:
-                url: jdbc:postgresql://localhost:5432/spas-sql?stringtype=unspecified&TimeZone=Asia/Shanghai
-                username: postgres
-                password: your_password
+                url: ${SPAS_DB_URL:jdbc:postgresql://localhost:5432/spas-sql?stringtype=unspecified&TimeZone=Asia/Shanghai}
+                username: ${SPAS_DB_USER:postgres}
+                password: ${SPAS_DB_PASSWORD:}
             # 从库数据源
             slave:
                 # 从数据源开关/默认关闭
@@ -28,7 +31,7 @@ spring:
             connectTimeout: 30000
             # 配置网络超时时间
             socketTimeout: 60000
-            # 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒
+            # 配置间隔多久才进行一次检测，需要关闭的空闲连接，单位是毫秒
             timeBetweenEvictionRunsMillis: 60000
             # 配置一个连接在池中最小生存的时间，单位是毫秒
             minEvictableIdleTimeMillis: 300000
@@ -42,13 +45,13 @@ spring:
             webStatFilter: 
                 enabled: true
             statViewServlet:
-                enabled: true
-                # 设置白名单，不填则允许所有访问
-                allow:
+                # 生产建议 false；本地调试可 SPAS_DRUID_STAT_ENABLED=true
+                enabled: ${SPAS_DRUID_STAT_ENABLED:false}
+                # 仅本机；勿留空（空=允许全部）
+                allow: ${SPAS_DRUID_ALLOW:127.0.0.1}
                 url-pattern: /druid/*
-                # 控制台管理用户名和密码
-                login-username: ruoyi
-                login-password: 123456
+                login-username: ${SPAS_DRUID_USER:ruoyi}
+                login-password: ${SPAS_DRUID_PASSWORD:}
             filter:
                 stat:
                     enabled: true

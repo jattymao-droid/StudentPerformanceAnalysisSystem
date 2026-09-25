@@ -73,13 +73,10 @@
             <el-table-column label="分区名" min-width="120">
               <template slot-scope="scope"><el-input v-model="scope.row.name" size="mini" /></template>
             </el-table-column>
-            <el-table-column label="题型" width="110">
+            <el-table-column label="题型" width="130">
               <template slot-scope="scope">
                 <el-select v-model="scope.row.questionType" size="mini" clearable>
-                  <el-option label="选择" value="choice" />
-                  <el-option label="填空" value="blank" />
-                  <el-option label="简答" value="short" />
-                  <el-option label="计算" value="calc" />
+                  <el-option v-for="o in typeFilterOptions" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
               </template>
             </el-table-column>
@@ -112,8 +109,14 @@
             <el-table-column label="题号" width="80">
               <template slot-scope="scope"><el-input v-model="scope.row.questionNo" size="mini" /></template>
             </el-table-column>
-            <el-table-column label="题干摘要" prop="contentPreview" min-width="180" :show-overflow-tooltip="true" />
-            <el-table-column label="题型" prop="questionType" width="70" />
+            <el-table-column label="题干摘要" min-width="220">
+              <template slot-scope="scope">
+                <qb-rich-content compact :content="scope.row.content || scope.row.contentPreview" />
+              </template>
+            </el-table-column>
+            <el-table-column label="题型" width="80" align="center">
+              <template slot-scope="scope">{{ typeLabel(scope.row.questionType) }}</template>
+            </el-table-column>
             <el-table-column label="知识点" width="80" align="center">
               <template slot-scope="scope">
                 <el-tag v-if="scope.row.knowledgeCount > 0" size="mini" type="success">{{ scope.row.knowledgeCount }}</el-tag>
@@ -148,8 +151,14 @@
       <el-table :data="pickList" @selection-change="onPickSelect" height="360" style="margin-top:8px" v-loading="pickLoading">
         <el-table-column type="selection" width="45" />
         <el-table-column label="ID" prop="questionId" width="70" />
-        <el-table-column label="题干" prop="content" :show-overflow-tooltip="true" />
-        <el-table-column label="题型" prop="questionType" width="80" />
+        <el-table-column label="题干" min-width="260">
+          <template slot-scope="scope">
+            <qb-rich-content compact :content="scope.row.content" />
+          </template>
+        </el-table-column>
+        <el-table-column label="题型" width="80" align="center">
+          <template slot-scope="scope">{{ typeLabel(scope.row.questionType) }}</template>
+        </el-table-column>
         <el-table-column label="来源" width="120">
           <template slot-scope="scope">
             <span v-if="scope.row.sourceYear">{{ scope.row.sourceYear }} {{ scope.row.sourceRegion || '' }}</span>
@@ -216,11 +225,35 @@
       </div>
     </el-dialog>
 
-    <el-dialog title="发布成功" :visible.sync="doneOpen" width="420px" append-to-body>
+    <el-dialog title="发布成功" :visible.sync="doneOpen" width="520px" append-to-body>
       <p>已生成分析卷 ID={{ donePaperId }}</p>
+      <el-alert
+        v-if="doneNeedBloom"
+        style="margin-top:8px"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="doneHint || ('有 ' + doneNoBloom + ' 题未标认知层级，导分前请先补全 Bloom')"
+      />
+      <el-alert
+        v-else-if="requireBloomLevel"
+        style="margin-top:8px"
+        type="success"
+        :closable="false"
+        show-icon
+        title="认知层级已齐全（或无需补标）。可继续导入成绩。"
+      />
+      <el-alert
+        v-if="doneNoType > 0"
+        style="margin-top:8px"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="'另有 ' + doneNoType + ' 题未选题型，建议一并补全。'"
+      />
       <div slot="footer">
-        <el-button type="primary" @click="goScore">去导入成绩</el-button>
-        <el-button @click="goPaperList">打开试卷列表</el-button>
+        <el-button type="primary" @click="goPaperEdit">去试卷补 Bloom</el-button>
+        <el-button :disabled="doneNeedBloom" @click="goScore">去导入成绩</el-button>
         <el-button @click="doneOpen=false">关闭</el-button>
       </div>
     </el-dialog>
@@ -233,13 +266,19 @@
           <h3>{{ sec.name }}</h3>
           <div v-for="it in sec.items" :key="it.questionId" class="qb-preview-q">
             <div class="qb-preview-qno">{{ it.questionNo || it.orderNum }}.（{{ it.scoreValue }}分）</div>
-            <div class="qb-preview-stem" v-html="formulaHtml(it.contentPreview || it.content || '')"></div>
+            <div class="qb-preview-stem"><qb-rich-content :content="it.content || it.contentPreview || ''" /></div>
+            <div v-if="it.options" class="qb-preview-opts"><qb-rich-content :content="it.options" /></div>
+            <div v-if="it.stemImage" class="qb-preview-img"><img :src="mediaUrl(it.stemImage)" alt="" /></div>
+            <div v-if="it.optionsImage" class="qb-preview-img"><img :src="mediaUrl(it.optionsImage)" alt="" /></div>
           </div>
         </div>
         <div v-if="!previewSections.length">
           <div v-for="it in (previewPaper.items || form.items || [])" :key="it.questionId" class="qb-preview-q">
             <div class="qb-preview-qno">{{ it.questionNo || it.orderNum }}.（{{ it.scoreValue }}分）</div>
-            <div class="qb-preview-stem" v-html="formulaHtml(it.contentPreview || it.content || '')"></div>
+            <div class="qb-preview-stem"><qb-rich-content :content="it.content || it.contentPreview || ''" /></div>
+            <div v-if="it.options" class="qb-preview-opts"><qb-rich-content :content="it.options" /></div>
+            <div v-if="it.stemImage" class="qb-preview-img"><img :src="mediaUrl(it.stemImage)" alt="" /></div>
+            <div v-if="it.optionsImage" class="qb-preview-img"><img :src="mediaUrl(it.optionsImage)" alt="" /></div>
           </div>
         </div>
       </div>
@@ -271,12 +310,10 @@
               <el-table-column label="知识点ID" width="140">
                 <template slot-scope="scope"><el-input v-model.number="scope.row.knowledgeId" size="mini" placeholder="knowledgeId" /></template>
               </el-table-column>
-              <el-table-column label="题型" width="110">
+              <el-table-column label="题型" width="130">
                 <template slot-scope="scope">
                   <el-select v-model="scope.row.questionType" size="mini">
-                    <el-option label="选择" value="choice" />
-                    <el-option label="填空" value="blank" />
-                    <el-option label="简答" value="short" />
+                    <el-option v-for="o in typeFilterOptions" :key="o.value" :label="o.label" :value="o.value" />
                   </el-select>
                 </template>
               </el-table-column>
@@ -316,11 +353,13 @@ import { listQbQuestion, smartPickQbQuestion } from '@/api/spas/qb/question'
 import { optionselectSubject } from '@/api/spas/subject'
 import { deptTreeSelect } from '@/api/system/user'
 import { weakTopClass } from '@/api/spas/analysis'
-import { renderFormulaHtml } from '@/utils/qbFormula'
+import { analysisConfig } from '@/api/spas/analysis'
+import QbRichContent from '@/components/spas/QbRichContent'
+import { qbTypeLabel, qbTypeOptions } from '@/utils/qbTypeLabel'
 
 export default {
   name: 'SpasQbPaper',
-  components: { Treeselect },
+  components: { Treeselect, QbRichContent },
   data() {
     return {
       loading: false,
@@ -348,6 +387,12 @@ export default {
       weakCover: null,
       doneOpen: false,
       donePaperId: null,
+      doneNeedBloom: false,
+      doneNoBloom: 0,
+      doneNoType: 0,
+      doneHint: '',
+      requireBloomLevel: true,
+      typeFilterOptions: qbTypeOptions(),
       previewOpen: false,
       previewPaper: { items: [] },
       sections: [],
@@ -407,6 +452,10 @@ export default {
   created() {
     optionselectSubject().then(r => { this.subjectOptions = r.data || [] })
     deptTreeSelect().then(r => { this.deptOptions = r.data || [] }).catch(() => {})
+    analysisConfig().then(res => {
+      const annot = (res.data && res.data.annotationCoverage) || {}
+      if (annot.requireBloomLevel != null) this.requireBloomLevel = !!annot.requireBloomLevel
+    }).catch(() => {})
     this.getList()
     this.consumeBasketQuery()
   },
@@ -432,7 +481,6 @@ export default {
       this._lastBasketStamp = stamp
       this.$nextTick(() => this.handleAddFromBasket())
     },
-    formulaHtml(text) { return renderFormulaHtml(text || '') },
     getList() {
       this.loading = true
       listQbPaper(this.queryParams).then(res => {
@@ -473,7 +521,11 @@ export default {
         if (!byType[t]) byType[t] = []
         byType[t].push(it)
       })
-      const nameMap = { choice: '一、选择题', blank: '二、填空题', short: '三、简答题', calc: '四、计算题', experiment: '五、实验题', other: '六、其他' }
+      const nameMap = {
+        choice: '一、选择题', single: '一、选择题', multi: '一、选择题',
+        blank: '二、填空题', fill: '二、填空题', judge: '三、判断题',
+        short: '四、简答题', calc: '五、计算题', experiment: '六、实验题', other: '七、其他'
+      }
       const secs = []
       Object.keys(byType).forEach(t => {
         const orders = byType[t].map(i => Number(i.orderNum || 0)).filter(Boolean)
@@ -517,6 +569,9 @@ export default {
           scoreValue: q.scoreValue != null ? Number(q.scoreValue) : 5,
           contentPreview: q.contentPreview || (q.content || '').slice(0, 80),
           content: q.content,
+          options: q.options,
+          stemImage: q.stemImage,
+          optionsImage: q.optionsImage,
           questionType: q.questionType,
           difficulty: q.difficulty,
           knowledgeCount: q.knowledgeCount || 0
@@ -572,6 +627,9 @@ export default {
           scoreValue: 5,
           contentPreview: (q.content || '').slice(0, 80),
           content: q.content,
+          options: q.options,
+          stemImage: q.stemImage,
+          optionsImage: q.optionsImage,
           questionType: q.questionType,
           difficulty: q.difficulty,
           knowledgeCount: q.knowledgeCount || 0,
@@ -684,15 +742,27 @@ export default {
       }
       publishQbPaper(this.pubForm.bankPaperId, this.pubForm).then(res => {
         this.pubOpen = false
-        this.donePaperId = res.data && res.data.paperId
+        const d = (res && res.data) || {}
+        this.donePaperId = d.paperId
+        this.doneNoBloom = Number(d.noBloomCount || 0)
+        this.doneNoType = Number(d.noQuestionTypeCount || 0)
+        this.doneNeedBloom = !!d.needBloomBeforeScore || this.doneNoBloom > 0
+        this.doneHint = d.nextStep || ''
         this.doneOpen = true
       })
     },
-    goPaperList() {
+    goPaperEdit() {
       this.doneOpen = false
-      this.$router.push({ path: '/spas/biz/paper' }).catch(() => {})
+      this.$router.push({ path: '/spas/biz/paper', query: { paperId: this.donePaperId } }).catch(() => {})
+    },
+    goPaperList() {
+      this.goPaperEdit()
     },
     goScore() {
+      if (this.doneNeedBloom) {
+        this.$modal.msgWarning('请先补全认知层级再导分')
+        return
+      }
       this.doneOpen = false
       this.$router.push({ path: '/spas/biz/score', query: { paperId: this.donePaperId } }).catch(() => {})
     },
@@ -720,11 +790,22 @@ export default {
         return
       }
       w.document.write('<html><head><title>' + (this.previewPaper.paperTitle || '试卷预览') + '</title>')
-      w.document.write('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">')
-      w.document.write('<style>body{font-family:SimSun,serif;padding:24px;line-height:1.7}.qb-preview-title{text-align:center}.qb-preview-q{margin:12px 0}.qb-preview-qno{font-weight:600}</style>')
+      // Reuse already-bundled styles (KaTeX etc.) — no CDN
+      Array.from(document.querySelectorAll('link[rel="stylesheet"], style')).forEach(node => {
+        w.document.write(node.outerHTML)
+      })
+      w.document.write('<style>body{font-family:SimSun,"Songti SC",serif;padding:24px;line-height:1.7}.qb-preview-title{text-align:center}.qb-preview-q{margin:12px 0}.qb-preview-qno{font-weight:600}.qb-preview-img img{max-width:100%;margin-top:6px}.qb-preview-opts{margin-top:6px}</style>')
       w.document.write('</head><body>' + html + '</body></html>')
       w.document.close()
-      setTimeout(() => { w.focus(); w.print() }, 400)
+      setTimeout(() => { w.focus(); w.print() }, 500)
+    },
+    mediaUrl(url) {
+      if (!url) return ''
+      if (url.indexOf('http') === 0 || url.indexOf('data:') === 0) return url
+      return process.env.VUE_APP_BASE_API + url
+    },
+    typeLabel(code) {
+      return qbTypeLabel(code)
     },
     openSmartCompose() {
       this.smartForm.subjectId = this.queryParams.subjectId || (this.subjectOptions[0] && this.subjectOptions[0].subjectId)
@@ -750,6 +831,9 @@ export default {
             scoreValue: score,
             contentPreview: (q.content || '').slice(0, 80),
             content: q.content,
+            options: q.options,
+            stemImage: q.stemImage,
+            optionsImage: q.optionsImage,
             questionType: q.questionType,
             difficulty: q.difficulty,
             knowledgeCount: q.knowledgeCount || 0
@@ -827,4 +911,8 @@ export default {
 .qb-preview-q { margin: 10px 0; }
 .qb-preview-qno { font-weight: 600; margin-bottom: 4px; }
 .qb-preview-stem >>> .katex { font-size: 1em; }
+.qb-preview-stem >>> .qb-rich-text { font-size: 14px; }
+.qb-preview-opts { margin-top: 6px; color: #606266; }
+.qb-preview-opts >>> .qb-rich-text { font-size: 13px; }
+.qb-preview-img img { max-width: 100%; margin-top: 6px; border-radius: 4px; }
 </style>

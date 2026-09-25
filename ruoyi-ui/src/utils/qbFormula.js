@@ -154,28 +154,86 @@ export function resolveMediaUrl(url) {
 }
 
 /**
- * Escape HTML then render $...$ / $$...$$ with KaTeX,
+ * Escape HTML then render $...$ / $$...$$ / \(...\) / \[...\] with KaTeX,
  * and markdown images ![alt](url) / [[IMG:url]].
  */
 export function renderFormulaHtml(text) {
   if (!text) return ''
-  const src = softWrapFormulas(text)
-  const escaped = src
+  let src = String(text)
+  // If content already contains rendered katex / html from editors, keep a light path
+  if (/class=["']katex|class=["']ql-formula|<\/?(?:p|br|span|div|img)\b/i.test(src) && src.indexOf('$') < 0) {
+    return normalizeExistingHtml(src)
+  }
+  src = softWrapFormulas(src)
+  // Protect math & images before HTML escape
+  const slots = []
+  const park = (html) => {
+    const i = slots.length
+    slots.push(html)
+    return '\uE000' + i + '\uE001'
+  }
+  src = src.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => park(renderOneMath(expr, true)))
+  src = src.replace(/\\\[([\s\S]+?)\\\]/g, (_, expr) => park(renderOneMath(expr, true)))
+  src = src.replace(/\\\(([\s\S]+?)\\\)/g, (_, expr) => park(renderOneMath(expr, false)))
+  // inline $...$ — allow short multiline (e.g. \frac with newlines)
+  src = src.replace(/\$([^\$]+?)\$/g, (m, expr) => {
+    if (String(expr).length > 800) return m
+    return park(renderOneMath(expr, false))
+  })
+  src = src.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    const u = resolveMediaUrl(url.trim())
+    const a = (alt || 'img').replace(/"/g, '&quot;')
+    return park('<img class="qb-inline-img" src="' + u + '" alt="' + a + '" />')
+  })
+  src = src.replace(/\[\[IMG:([^\]]+)\]\]/gi, (_, url) => {
+    const u = resolveMediaUrl(String(url).trim())
+    return park('<img class="qb-inline-img" src="' + u + '" alt="img" />')
+  })
+  let html = src
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-  let html = escaped.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
-    const u = resolveMediaUrl(url.trim())
-    const a = alt || 'img'
-    return '<img class="qb-inline-img" src="' + u + '" alt="' + a + '" />'
-  })
-  html = html.replace(/\[\[IMG:([^\]]+)\]\]/gi, (_, url) => {
-    const u = resolveMediaUrl(String(url).trim())
-    return '<img class="qb-inline-img" src="' + u + '" alt="img" />'
-  })
-  html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => renderOneMath(expr, true))
-  html = html.replace(/\$([^\$\n]+?)\$/g, (_, expr) => renderOneMath(expr, false))
+  html = html.replace(/\uE000(\d+)\uE001/g, (_, i) => slots[Number(i)] || '')
   return html.replace(/\n/g, '<br/>')
+}
+
+function normalizeExistingHtml(html) {
+  let s = String(html)
+  // Quill formula blot: <span class="ql-formula" data-value="latex">...</span>
+  s = s.replace(/<span[^>]*class="[^"]*ql-formula[^"]*"[^>]*data-value="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi, (_, latex) => {
+    try {
+      return renderOneMath(decodeHtmlEntities(latex), false)
+    } catch (e) {
+      return _
+    }
+  })
+  return s
+}
+
+function decodeHtmlEntities(s) {
+  return String(s || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+/** Plain-text stem for tooltips / search chips (formulas shown as 〔公式〕). */
+export function plainStemText(text, maxLen) {
+  if (!text) return ''
+  let s = String(text)
+    .replace(/\$\$[\s\S]+?\$\$/g, '〔公式〕')
+    .replace(/\$[^\$]+?\$/g, '〔公式〕')
+    .replace(/\\\[[\s\S]+?\\\]/g, '〔公式〕')
+    .replace(/\\\([\s\S]+?\\\)/g, '〔公式〕')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '〔图〕')
+    .replace(/\[\[IMG:[^\]]+\]\]/gi, '〔图〕')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const n = maxLen > 0 ? maxLen : 0
+  if (n && s.length > n) return s.slice(0, n) + '…'
+  return s
 }
 
 /** True math vs Chinese prose wrongly wrapped in $...$ */

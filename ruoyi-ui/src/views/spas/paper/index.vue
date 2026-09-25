@@ -227,6 +227,14 @@
         class="mb8"
       />
       <el-alert
+        v-if="bloomSoftTip"
+        :title="bloomSoftTip"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb8"
+      />
+      <el-alert
         v-if="metaCoverageSummary"
         :title="metaCoverageSummary"
         type="info"
@@ -239,7 +247,23 @@
           <el-button type="primary" plain icon="el-icon-plus" size="mini" :disabled="structureLocked || !form.subjectId" @click="addQuestion">添加小题</el-button>
         </el-col>
       </el-row>
-      <el-table :data="form.questions" border size="mini" max-height="360" empty-text="请添加小题并绑定知识点">
+      <el-alert
+        v-if="focusQuestionId && open"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb8"
+        :title="'已定位质量问题小题（questionId=' + focusQuestionId + '），请补全题型/Bloom/知识点后保存。'"
+      />
+      <el-table
+        ref="questionTable"
+        :data="form.questions"
+        border
+        size="mini"
+        max-height="360"
+        empty-text="请添加小题并绑定知识点"
+        :row-class-name="questionRowClass"
+      >
         <el-table-column label="题号" width="90" align="center">
           <template slot-scope="scope">
             <el-input v-model="scope.row.questionNo" size="mini" placeholder="题号" :disabled="structureLocked" />
@@ -432,6 +456,7 @@ export default {
       metaWarnings: [],
       requireQuestionType: false,
       requireBloomLevel: false,
+      focusQuestionId: null,
       rules: {
         paperName: [{ required: true, message: '试卷名称不能为空', trigger: 'blur' }],
         paperType: [{ required: true, message: '试卷类型不能为空', trigger: 'change' }],
@@ -479,6 +504,14 @@ export default {
         tip += '；发布/导入强制：' + gates.join('、')
       }
       return tip
+    },
+    bloomSoftTip() {
+      if (this.requireBloomLevel) return ''
+      const qs = this.form.questions || []
+      if (!qs.length) return ''
+      const noBloom = qs.filter(q => !q.bloomLevel).length
+      if (noBloom <= 0) return ''
+      return '认知层级仍为软提示：' + noBloom + ' 道题未标。不标则能力层级分析空转/记为未标注；建议本卷补全后再发布（试点学科可开启 require-bloom-level）。'
     }
   },
   created() {
@@ -486,9 +519,12 @@ export default {
     this.loadSubjects()
     this.loadMyDepts()
     this.loadAnnotationPolicy()
-    const qid = this.$route.query && this.$route.query.paperId
-    if (qid) {
-      const paperId = isNaN(Number(qid)) ? qid : Number(qid)
+    const q = this.$route.query || {}
+    if (q.paperId) {
+      const paperId = isNaN(Number(q.paperId)) ? q.paperId : Number(q.paperId)
+      if (q.questionId != null && q.questionId !== '') {
+        this.focusQuestionId = isNaN(Number(q.questionId)) ? q.questionId : Number(q.questionId)
+      }
       this.$nextTick(() => this.handleUpdate({ paperId }))
     }
   },
@@ -551,6 +587,7 @@ export default {
     },
     cancel() {
       this.open = false
+      this.focusQuestionId = null
       this.reset()
     },
     reset() {
@@ -611,7 +648,30 @@ export default {
         this.title = '修改试卷'
         this.loadQuestionTypes(this.form.subjectId)
         this.refreshLocalMetaWarnings()
+        this.$nextTick(() => this.scrollToFocusQuestion())
       })
+    },
+    questionRowClass({ row }) {
+      if (this.focusQuestionId == null || row == null || row.questionId == null) return ''
+      return String(row.questionId) === String(this.focusQuestionId) ? 'focus-question-row' : ''
+    },
+    scrollToFocusQuestion() {
+      if (this.focusQuestionId == null) return
+      const qs = this.form.questions || []
+      const idx = qs.findIndex(q => String(q.questionId) === String(this.focusQuestionId))
+      if (idx < 0) {
+        this.$modal.msgWarning('未在该卷找到 questionId=' + this.focusQuestionId)
+        return
+      }
+      const table = this.$refs.questionTable
+      if (table && table.bodyWrapper) {
+        const rowH = 40
+        table.bodyWrapper.scrollTop = Math.max(0, idx * rowH - 40)
+      }
+      const q = qs[idx]
+      if (q && !q.bloomLevel) {
+        this.$modal.msgWarning('题号 ' + (q.questionNo || idx + 1) + ' 未标认知层级，请补全后保存')
+      }
     },
     refreshLocalMetaWarnings() {
       const qs = this.form.questions || []
@@ -1051,5 +1111,11 @@ export default {
   border: 1px solid #ebeef5;
   border-radius: 6px;
   padding: 8px;
+}
+::v-deep .focus-question-row {
+  background: #FEF3C7 !important;
+}
+::v-deep .focus-question-row:hover > td {
+  background: #FDE68A !important;
 }
 </style>

@@ -138,6 +138,29 @@ public class SpasErrorTagServiceImpl implements ISpasErrorTagService
     }
 
     @Override
+    public List<Map<String, Object>> selectDeptCauseSummary(Long deptId, Long subjectId)
+    {
+        if (deptId == null)
+        {
+            return java.util.Collections.emptyList();
+        }
+        accessService.checkDeptAccess(deptId);
+        List<Map<String, Object>> rows = errorTagMapper.selectDeptCauseSummary(deptId, subjectId);
+        if (rows == null || rows.isEmpty())
+        {
+            return java.util.Collections.emptyList();
+        }
+        for (Map<String, Object> row : rows)
+        {
+            String code = row.get("errorCode") == null ? null : String.valueOf(row.get("errorCode"));
+            String cat = SpasErrorCauseCodes.categoryOf(code);
+            row.put("errorCategory", cat);
+            row.put("errorCategoryLabel", SpasErrorCauseCodes.categoryLabel(cat));
+        }
+        return rows;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteByStudentAndQuestion(Long studentId, Long questionId)
     {

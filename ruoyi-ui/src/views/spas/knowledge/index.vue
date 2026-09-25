@@ -455,7 +455,8 @@ export default {
       optionselectSubject().then(response => {
         this.subjectOptions = response.data || []
         if (!this.queryParams.subjectId && this.subjectOptions.length) {
-          const physics = this.subjectOptions.find(s => s.subjectCode === 'physics' || s.subjectName === '物理')
+          const physics = this.subjectOptions.find(s =>
+            s.subjectCode === 'PHYS' || s.subjectCode === 'physics' || s.subjectName === '物理')
           this.queryParams.subjectId = (physics || this.subjectOptions[0]).subjectId
         }
         this.loadSidebarTree()

@@ -29,8 +29,8 @@
         <include refid="selectVo"/>
         <where>
             <if test="subjectId != null">AND t.subject_id = #{subjectId}</if>
-            <if test="typeCode != null and typeCode != ''">AND t.type_code like concat('%', #{typeCode,jdbcType=VARCHAR}, '%')</if>
-            <if test="typeName != null and typeName != ''">AND t.type_name like concat('%', #{typeName,jdbcType=VARCHAR}, '%')</if>
+            <if test="typeCode != null and typeCode != ''">AND t.type_code like ('%' || #{typeCode} || '%')</if>
+            <if test="typeName != null and typeName != ''">AND t.type_name like ('%' || #{typeName} || '%')</if>
             <if test="status != null and status != ''">AND t.status = #{status}</if>
         </where>
         order by t.sort asc, t.type_id asc

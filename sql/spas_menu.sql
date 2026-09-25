@@ -78,11 +78,11 @@ select 2010, '学科管理', 2001, 1, 'subject', 'spas/subject/index', '', '', 1
 where not exists (select 1 from sys_menu where menu_id=2010);
 
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)
-select 2020, '知识点管理', 2001, 2, 'knowledge', 'spas/knowledge/index', '', '', 1, 0, 'C', '0', '0', 'spas:knowledge:list', 'tree', 'admin', now(), null
+select 2020, '知识点管理', 2001, 2, 'knowledge', 'spas/knowledge/index', '', 'KnowledgeTree', 1, 0, 'C', '0', '0', 'spas:knowledge:list', 'tree', 'admin', now(), null
 where not exists (select 1 from sys_menu where menu_id=2020);
 
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)
-select 2030, '学生档案', 2001, 3, 'student', 'spas/student/index', '', '', 1, 0, 'C', '0', '0', 'spas:student:list', 'peoples', 'admin', now(), null
+select 2030, '学生档案', 2001, 3, 'student', 'spas/student/index', '', 'StudentProfile', 1, 0, 'C', '0', '0', 'spas:student:list', 'peoples', 'admin', now(), null
 where not exists (select 1 from sys_menu where menu_id=2030);
 
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)
@@ -90,7 +90,7 @@ select 2002, '教务业务', 2000, 2, 'biz', null, '', '', 1, 0, 'M', '0', '0', 
 where not exists (select 1 from sys_menu where menu_id=2002);
 
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)
-select 2040, '作业考试', 2002, 1, 'paper', 'spas/paper/index', '', '', 1, 0, 'C', '0', '0', 'spas:paper:list', 'documentation', 'admin', now(), null
+select 2040, '作业考试', 2002, 1, 'paper', 'spas/paper/index', '', 'BizPaper', 1, 0, 'C', '0', '0', 'spas:paper:list', 'documentation', 'admin', now(), null
 where not exists (select 1 from sys_menu where menu_id=2040);
 
 insert into sys_menu(menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, remark)

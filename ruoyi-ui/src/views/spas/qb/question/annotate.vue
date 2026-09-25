@@ -82,12 +82,15 @@
             </el-form-item>
             <el-form-item label="选项">
               <el-input type="textarea" :rows="2" v-model="currentQ.options" />
+              <div v-if="currentQ.options" class="ann-formula-preview" v-html="formulaHtml(currentQ.options)" />
             </el-form-item>
             <el-form-item label="答案">
               <el-input v-model="currentQ.correctAnswer" />
+              <div v-if="currentQ.correctAnswer" class="ann-formula-preview" v-html="formulaHtml(currentQ.correctAnswer)" />
             </el-form-item>
             <el-form-item label="解析">
               <el-input type="textarea" :rows="2" v-model="currentQ.analysis" />
+              <div v-if="currentQ.analysis" class="ann-formula-preview" v-html="formulaHtml(currentQ.analysis)" />
             </el-form-item>
             <el-form-item label="知识点">
               <el-button size="mini" type="primary" plain @click="openKnowledge">树选绑定</el-button>
@@ -103,7 +106,9 @@
                     <img v-if="scope.row.previewUrl || scope.row.imageUrl" :src="mediaSrc(scope.row.previewUrl || scope.row.imageUrl)" style="width:40px;height:40px;object-fit:contain;border:1px solid #eee" />
                   </template>
                 </el-table-column>
-                <el-table-column prop="role" label="角色" width="58" />
+                <el-table-column label="角色" width="58">
+                  <template slot-scope="scope">{{ roleLabel(scope.row.role) }}</template>
+                </el-table-column>
                 <el-table-column label="类型" width="58">
                   <template slot-scope="scope">{{ kindLabel(scope.row.kind) }}</template>
                 </el-table-column>
@@ -261,7 +266,7 @@ export default {
       }).finally(() => { this.uploading = false })
     },
     newCard() {
-      return { content: '', options: '', correctAnswer: '', analysis: '', questionType: 'choice', difficulty: '2', regions: [], knowledgeList: [] }
+      return { content: '', options: '', correctAnswer: '', analysis: '', questionType: 'single', difficulty: '2', regions: [], knowledgeList: [] }
     },
     addQuestionCard() { this.questions.push(this.newCard()); this.activeQ = this.questions.length - 1 },
     fitWidth() {

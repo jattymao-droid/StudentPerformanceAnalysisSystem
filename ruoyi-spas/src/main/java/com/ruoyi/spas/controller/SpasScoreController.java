@@ -8,9 +8,10 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import com.ruoyi.common.utils.poi.ExcelUtil;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
@@ -47,6 +48,37 @@ public class SpasScoreController extends BaseController
         startPage();
         List<SpasScoreDetail> list = scoreService.selectSpasScoreDetailList(detail);
         return getDataTable(list);
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:score:list')")
+    @GetMapping("/detail/{detailId}")
+    public AjaxResult getDetail(@PathVariable Long detailId)
+    {
+        return success(scoreService.selectSpasScoreDetailById(detailId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:score:edit')")
+    @Log(title = "Score Detail", businessType = BusinessType.INSERT)
+    @PostMapping("/detail")
+    public AjaxResult addDetail(@RequestBody SpasScoreDetail detail)
+    {
+        return toAjax(scoreService.insertSpasScoreDetail(detail));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:score:edit')")
+    @Log(title = "Score Detail", businessType = BusinessType.UPDATE)
+    @PutMapping("/detail")
+    public AjaxResult editDetail(@RequestBody SpasScoreDetail detail)
+    {
+        return toAjax(scoreService.updateSpasScoreDetail(detail));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:score:remove')")
+    @Log(title = "Score Detail", businessType = BusinessType.DELETE)
+    @DeleteMapping("/detail/{detailIds}")
+    public AjaxResult removeDetail(@PathVariable Long[] detailIds)
+    {
+        return toAjax(scoreService.deleteSpasScoreDetailByIds(detailIds));
     }
 
     @PreAuthorize("@ss.hasPermi('spas:score:import')")

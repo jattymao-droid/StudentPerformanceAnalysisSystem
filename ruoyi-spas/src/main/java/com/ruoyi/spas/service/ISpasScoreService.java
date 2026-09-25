@@ -15,6 +15,14 @@ public interface ISpasScoreService
 
     public List<SpasScoreDetail> selectSpasScoreDetailList(SpasScoreDetail detail);
 
+    public SpasScoreDetail selectSpasScoreDetailById(Long detailId);
+
+    public int insertSpasScoreDetail(SpasScoreDetail detail);
+
+    public int updateSpasScoreDetail(SpasScoreDetail detail);
+
+    public int deleteSpasScoreDetailByIds(Long[] detailIds);
+
     public void downloadTemplate(Long paperId, HttpServletResponse response);
 
     public SpasScoreBatch importScores(Long paperId, MultipartFile file, String operName);

@@ -19,7 +19,13 @@ public interface SpasScoreMapper
 
     public List<SpasScoreDetail> selectSpasScoreDetailList(SpasScoreDetail detail);
 
+    public SpasScoreDetail selectSpasScoreDetailById(Long detailId);
+
     public int upsertSpasScoreDetail(SpasScoreDetail detail);
+
+    public int updateSpasScoreDetail(SpasScoreDetail detail);
+
+    public int deleteSpasScoreDetailByIds(Long[] detailIds);
 
     public int countScoreDetailByPaperId(Long paperId);
 

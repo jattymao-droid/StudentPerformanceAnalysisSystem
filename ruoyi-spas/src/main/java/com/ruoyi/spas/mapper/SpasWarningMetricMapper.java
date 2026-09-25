@@ -20,5 +20,12 @@ public interface SpasWarningMetricMapper
         @Param("subjectId") Long subjectId, @Param("limit") Integer limit,
         @Param("examDateFrom") java.util.Date examDateFrom);
 
+    /**
+     * Recent paper rates for all students in scope (dept descendants + subject), capped per student.
+     */
+    List<Map<String, Object>> selectDeptStudentPaperRates(@Param("subjectId") Long subjectId,
+        @Param("deptId") Long deptId, @Param("limit") Integer limit,
+        @Param("examDateFrom") java.util.Date examDateFrom);
+
     List<Long> selectStudentIdsByPaper(@Param("paperId") Long paperId);
 }

@@ -109,6 +109,11 @@ public class SpasStudentServiceImpl implements ISpasStudentService
     @Transactional
     public int updateSpasStudent(SpasStudent student)
     {
+        // Avoid persisting masked values (e.g. 138****8000) when non-admin edits the form
+        if (student.getParentMobile() != null && student.getParentMobile().indexOf('*') >= 0)
+        {
+            student.setParentMobile(null);
+        }
         int rows = studentMapper.updateSpasStudent(student);
         SpasStudent db = studentMapper.selectSpasStudentById(student.getStudentId());
         if (db != null && db.getUserId() != null)

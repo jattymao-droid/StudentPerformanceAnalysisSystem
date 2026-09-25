@@ -48,6 +48,7 @@ public class SpasDashboardServiceImpl implements ISpasDashboardService
         data.put("weakKnowledgeTop", dashboardMapper.selectWeakKnowledgeTop(scope, 3));
         data.put("openInterveneCount", dashboardMapper.countOpenIntervenes(scope));
         data.put("qualityAlertCount", dashboardMapper.countQualityAlerts(scope));
+        data.put("generatedAt", new java.util.Date());
         return data;
     }
 }

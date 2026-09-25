@@ -21,6 +21,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
+import com.ruoyi.common.enums.DesensitizedType;
 import com.ruoyi.spas.domain.SpasStudent;
 import com.ruoyi.spas.service.ISpasStudentService;
 import com.ruoyi.spas.support.SpasAccessService;
@@ -53,8 +54,31 @@ public class SpasStudentController extends BaseController
     public void export(HttpServletResponse response, SpasStudent student)
     {
         List<SpasStudent> list = studentService.selectSpasStudentList(student);
+        // Non-admin exports mask parent mobile (JSON list already uses @Sensitive)
+        if (!isAdminUser())
+        {
+            for (SpasStudent row : list)
+            {
+                if (row != null && StringUtils.isNotEmpty(row.getParentMobile()))
+                {
+                    row.setParentMobile(DesensitizedType.PHONE.desensitizer().apply(row.getParentMobile()));
+                }
+            }
+        }
         ExcelUtil<SpasStudent> util = new ExcelUtil<SpasStudent>(SpasStudent.class);
         util.exportExcel(response, list, "student");
+    }
+
+    private boolean isAdminUser()
+    {
+        try
+        {
+            return getLoginUser() != null && getLoginUser().getUser() != null && getLoginUser().getUser().isAdmin();
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
     }
 
     @PreAuthorize("@ss.hasPermi('spas:student:query')")

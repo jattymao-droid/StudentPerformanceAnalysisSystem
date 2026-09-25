@@ -32,6 +32,14 @@ public class SpasErrorTagController extends BaseController
         return success(list);
     }
 
+    @PreAuthorize("@ss.hasPermi('spas:analysis:class')")
+    @GetMapping("/dept/{deptId}/summary")
+    public AjaxResult deptSummary(@PathVariable Long deptId,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) Long subjectId)
+    {
+        return success(errorTagService.selectDeptCauseSummary(deptId, subjectId));
+    }
+
     @PreAuthorize("@ss.hasPermi('spas:analysis:student')")
     @Log(title = "Error Tag", businessType = BusinessType.UPDATE)
     @PutMapping

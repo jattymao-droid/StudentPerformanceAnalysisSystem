@@ -6,8 +6,19 @@
       :closable="false"
       show-icon
       title="各科实考分与校次请用「实考校次」导入。本页仅导入单张试卷的小题得分，用于知识点分析。"
-      description="导入前请确保该卷题目已绑知识点且权重之和为1；否则后端会拦截。若提示「标注未通过」，请到「作业/考试」编辑该卷或查看质量看板。"
+      description="导入前请确保该卷题目已绑知识点、权重之和为1、且已选题型；否则后端会拦截。导分成功后请先核对质量看板，再看分析结论。"
     />
+    <el-alert
+      v-if="postImportQualityTip"
+      class="mb8"
+      type="warning"
+      show-icon
+      closable
+      :title="postImportQualityTip"
+      @close="postImportQualityTip = ''"
+    >
+      <el-button type="text" size="mini" @click="goQuality" v-hasPermi="['spas:quality:list']">前往质量看板</el-button>
+    </el-alert>
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
       <el-form-item label="试卷" prop="paperId">
         <el-select
@@ -24,6 +35,22 @@
             :label="item.paperName"
             :value="item.paperId"
           />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="学号" prop="studentNo">
+        <el-input v-model="detailQuery.studentNo" placeholder="学号" clearable style="width: 140px" @keyup.enter.native="handleDetailQuery" />
+      </el-form-item>
+      <el-form-item label="姓名" prop="studentName">
+        <el-input v-model="detailQuery.studentName" placeholder="姓名" clearable style="width: 120px" @keyup.enter.native="handleDetailQuery" />
+      </el-form-item>
+      <el-form-item label="题号" prop="questionNo">
+        <el-input v-model="detailQuery.questionNo" placeholder="题号" clearable style="width: 100px" @keyup.enter.native="handleDetailQuery" />
+      </el-form-item>
+      <el-form-item label="来源" prop="scoreSource">
+        <el-select v-model="detailQuery.scoreSource" placeholder="全部" clearable style="width: 120px">
+          <el-option label="手工" value="1" />
+          <el-option label="导入" value="2" />
+          <el-option label="空作0" value="3" />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -72,6 +99,9 @@
         <el-button type="info" plain icon="el-icon-data-analysis" size="mini" :disabled="!queryParams.paperId" @click="goAnalysis" v-hasPermi="['spas:analysis:class']">去分析</el-button>
       </el-col>
       <el-col :span="1.5">
+        <el-button type="danger" plain icon="el-icon-s-data" size="mini" :disabled="!queryParams.paperId" @click="goQuality" v-hasPermi="['spas:quality:list']">去质量</el-button>
+      </el-col>
+      <el-col :span="1.5">
         <el-button type="warning" plain icon="el-icon-bell" size="mini" @click="goWarning" v-hasPermi="['spas:warning:record']">预警记录</el-button>
       </el-col>
       <el-col :span="1.5">
@@ -84,6 +114,28 @@
           @click="handleExport"
           v-hasPermi="['spas:score:export']"
         >导出明细</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
+          type="primary"
+          plain
+          icon="el-icon-plus"
+          size="mini"
+          :disabled="!queryParams.paperId"
+          @click="handleAddDetail"
+          v-hasPermi="['spas:score:edit']"
+        >手工录入</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
+          type="danger"
+          plain
+          icon="el-icon-delete"
+          size="mini"
+          :disabled="multiple"
+          @click="handleDeleteDetail"
+          v-hasPermi="['spas:score:remove']"
+        >删除明细</el-button>
       </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getBatchList"></right-toolbar>
     </el-row>
@@ -145,7 +197,8 @@
     />
 
     <el-divider content-position="left">成绩明细</el-divider>
-    <el-table v-loading="detailLoading" :data="detailList" class="score-detail-anchor">
+    <el-table v-loading="detailLoading" :data="detailList" class="score-detail-anchor" @selection-change="handleDetailSelectionChange">
+      <el-table-column type="selection" width="50" align="center" />
       <el-table-column label="学号" align="center" prop="studentNo" min-width="120" />
       <el-table-column label="姓名" align="center" prop="studentName" min-width="100" />
       <el-table-column label="题号" align="center" prop="questionNo" width="90" />
@@ -156,7 +209,21 @@
           <span>{{ formatRate(scope.row.rate) }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="来源" align="center" prop="scoreSource" width="90">
+        <template slot-scope="scope">
+          <el-tag v-if="scope.row.scoreSource === '1'" size="mini">手工</el-tag>
+          <el-tag v-else-if="scope.row.scoreSource === '2'" type="success" size="mini">导入</el-tag>
+          <el-tag v-else-if="scope.row.scoreSource === '3'" type="info" size="mini">空作0</el-tag>
+          <span v-else>{{ scope.row.scoreSource || '-' }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="批次" align="center" prop="batchId" width="90" />
+      <el-table-column label="操作" align="center" width="140" class-name="small-padding fixed-width">
+        <template slot-scope="scope">
+          <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdateDetail(scope.row)" v-hasPermi="['spas:score:edit']">修改</el-button>
+          <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDeleteDetail(scope.row)" v-hasPermi="['spas:score:remove']">删除</el-button>
+        </template>
+      </el-table-column>
     </el-table>
     <pagination
       v-show="detailTotal > 0"
@@ -205,13 +272,35 @@
         <el-button type="primary" @click="errorLogOpen = false">OK</el-button>
       </div>
     </el-dialog>
+
+    <el-dialog :title="detailFormTitle" :visible.sync="detailOpen" width="480px" append-to-body>
+      <el-form ref="detailForm" :model="detailForm" :rules="detailRules" label-width="80px" size="small">
+        <el-form-item label="学号" prop="studentNo">
+          <el-input v-model="detailForm.studentNo" placeholder="学号" :disabled="detailForm.detailId != null" />
+        </el-form-item>
+        <el-form-item label="题号" prop="questionNo">
+          <el-input v-model="detailForm.questionNo" placeholder="题号" :disabled="detailForm.detailId != null" />
+        </el-form-item>
+        <el-form-item label="得分" prop="score">
+          <el-input-number v-model="detailForm.score" :min="0" :precision="2" :step="0.5" controls-position="right" style="width: 100%" />
+        </el-form-item>
+        <el-form-item v-if="detailForm.fullScore != null" label="满分">
+          <span>{{ detailForm.fullScore }}</span>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" :loading="detailSaving" @click="submitDetailForm">确 定</el-button>
+        <el-button @click="detailOpen = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script>
-import { listScoreBatch, listScoreDetail, revokeScoreBatch } from '@/api/spas/score'
+import { listScoreBatch, listScoreDetail, addScoreDetail, updateScoreDetail, delScoreDetail, revokeScoreBatch } from '@/api/spas/score'
 import { listPaper } from '@/api/spas/paper'
 import { recalcPaper } from '@/api/spas/analysis'
+import { qualityOverview } from '@/api/spas/quality'
 import { getToken } from '@/utils/auth'
 
 export default {
@@ -226,6 +315,10 @@ export default {
       batchTotal: 0,
       detailTotal: 0,
       paperOptions: [],
+      postImportQualityTip: '',
+      ids: [],
+      single: true,
+      multiple: true,
       queryParams: {
         pageNum: 1,
         pageSize: 10,
@@ -235,11 +328,24 @@ export default {
         pageNum: 1,
         pageSize: 10,
         paperId: undefined,
-        batchId: undefined
+        batchId: undefined,
+        studentNo: undefined,
+        studentName: undefined,
+        questionNo: undefined,
+        scoreSource: undefined
       },
       recalcLoading: false,
       errorLogOpen: false,
       errorLogText: '',
+      detailOpen: false,
+      detailSaving: false,
+      detailFormTitle: '',
+      detailForm: {},
+      detailRules: {
+        studentNo: [{ required: true, message: '学号不能为空', trigger: 'blur' }],
+        questionNo: [{ required: true, message: '题号不能为空', trigger: 'blur' }],
+        score: [{ required: true, message: '得分不能为空', trigger: 'blur' }]
+      },
       upload: {
         open: false,
         isUploading: false,
@@ -300,7 +406,87 @@ export default {
     resetQuery() {
       this.resetForm('queryForm')
       this.detailQuery.batchId = undefined
+      this.detailQuery.studentNo = undefined
+      this.detailQuery.studentName = undefined
+      this.detailQuery.questionNo = undefined
+      this.detailQuery.scoreSource = undefined
       this.handleQuery()
+    },
+    handleDetailQuery() {
+      this.detailQuery.pageNum = 1
+      this.getDetailList()
+    },
+    handleDetailSelectionChange(selection) {
+      this.ids = selection.map(item => item.detailId)
+      this.single = selection.length !== 1
+      this.multiple = !selection.length
+    },
+    resetDetailForm() {
+      this.detailForm = {
+        detailId: undefined,
+        paperId: this.queryParams.paperId,
+        studentNo: undefined,
+        questionNo: undefined,
+        score: undefined,
+        fullScore: undefined
+      }
+      this.resetForm('detailForm')
+    },
+    handleAddDetail() {
+      if (!this.queryParams.paperId) {
+        this.$modal.msgWarning('请先选择试卷')
+        return
+      }
+      this.resetDetailForm()
+      this.detailFormTitle = '手工录入小题得分'
+      this.detailOpen = true
+    },
+    handleUpdateDetail(row) {
+      this.resetDetailForm()
+      this.detailForm = {
+        detailId: row.detailId,
+        paperId: row.paperId,
+        studentNo: row.studentNo,
+        questionNo: row.questionNo,
+        score: row.score != null ? Number(row.score) : undefined,
+        fullScore: row.fullScore
+      }
+      this.detailFormTitle = '修改小题得分'
+      this.detailOpen = true
+    },
+    submitDetailForm() {
+      this.$refs.detailForm.validate(valid => {
+        if (!valid) return
+        this.detailSaving = true
+        const req = this.detailForm.detailId != null
+          ? updateScoreDetail({ detailId: this.detailForm.detailId, score: this.detailForm.score })
+          : addScoreDetail({
+            paperId: this.queryParams.paperId,
+            studentNo: this.detailForm.studentNo,
+            questionNo: this.detailForm.questionNo,
+            score: this.detailForm.score
+          })
+        req.then(() => {
+          this.$modal.msgSuccess(this.detailForm.detailId != null ? '修改成功' : '录入成功')
+          this.detailOpen = false
+          this.getDetailList()
+        }).finally(() => {
+          this.detailSaving = false
+        })
+      })
+    },
+    handleDeleteDetail(row) {
+      const detailIds = row && row.detailId != null ? row.detailId : this.ids
+      if (detailIds == null || (Array.isArray(detailIds) && !detailIds.length)) {
+        this.$modal.msgWarning('请选择要删除的明细')
+        return
+      }
+      this.$modal.confirm('确认删除所选小题得分？删除后将重算知识点。').then(() => {
+        return delScoreDetail(detailIds)
+      }).then(() => {
+        this.$modal.msgSuccess('删除成功')
+        this.getDetailList()
+      }).catch(() => {})
     },
     getBatchList() {
       if (!this.queryParams.paperId) {
@@ -393,6 +579,7 @@ export default {
       html += '<div>失败：<strong>' + (data.failRows != null ? data.failRows : '-') + '</strong> 行</div>'
       if (Number(data.successRows) > 0) {
         html += '<div style="margin-top:8px;color:#10B981;">已自动重算该卷相关学生的知识点快照（全部口径）。本学期即时分析无需额外重算。</div>'
+        html += '<div style="margin-top:6px;color:#D97706;">建议先核对质量看板（权重/题型/标注覆盖），再查看分析结论。</div>'
       }
       if (data.errorLog) {
         html += '<div style="margin-top:8px;color:#D97706;">部分行失败，可在批次中查看错误日志。</div>'
@@ -400,9 +587,43 @@ export default {
         html += '<div style="margin-top:8px;">' + response.msg + '</div>'
       }
       html += '</div>'
-      this.$alert(html, '导入结果', { dangerouslyUseHTMLString: true })
+      const success = Number(data.successRows) > 0
+      this.$alert(html, '导入结果', { dangerouslyUseHTMLString: true }).then(() => {
+        if (success) this.afterImportQualityGate()
+      }).catch(() => {
+        if (success) this.afterImportQualityGate()
+      })
       this.getBatchList()
       this.getDetailList()
+    },
+    afterImportQualityGate() {
+      const paper = this.paperOptions.find(p => p.paperId === this.queryParams.paperId)
+      const query = {}
+      if (paper && paper.deptId) query.deptId = paper.deptId
+      if (paper && paper.subjectId) query.subjectId = paper.subjectId
+      qualityOverview(query).then(res => {
+        const d = (res && res.data) || {}
+        const alertCount = Number(d.alertCount != null ? d.alertCount : 0)
+        if (alertCount > 0) {
+          this.postImportQualityTip = '质量看板发现 ' + alertCount + ' 项告警，请处理后再采信正式薄弱结论。'
+          this.$confirm(
+            '导入成功，但质量看板仍有 ' + alertCount + ' 项告警。\n建议先处理标注/权重等问题，再查看学情分析。',
+            '质量核对',
+            { type: 'warning', confirmButtonText: '去质量看板', cancelButtonText: '稍后' }
+          ).then(() => {
+            this.goQuality()
+          }).catch(() => {})
+        } else {
+          this.postImportQualityTip = '导入成功，质量看板暂无告警。可继续查看分析或预警。'
+        }
+      }).catch(() => {
+        this.postImportQualityTip = '导入成功。请打开质量看板核对标注与权重后再看分析。'
+        this.$confirm('导入成功。是否前往质量看板核对？', '质量核对', {
+          type: 'info', confirmButtonText: '去质量看板', cancelButtonText: '稍后'
+        }).then(() => {
+          this.goQuality()
+        }).catch(() => {})
+      })
     },
     handleFileError() {
       this.upload.isUploading = false
@@ -439,6 +660,13 @@ export default {
       if (paper && paper.deptId) query.deptId = paper.deptId
       if (paper && paper.subjectId) query.subjectId = paper.subjectId
       this.$router.push({ path: '/spas/analysis/class', query })
+    },
+    goQuality() {
+      const paper = this.paperOptions.find(p => p.paperId === this.queryParams.paperId)
+      const query = {}
+      if (paper && paper.deptId) query.deptId = paper.deptId
+      if (paper && paper.subjectId) query.subjectId = paper.subjectId
+      this.$router.push({ path: '/spas/quality', query }).catch(() => {})
     },
     goWarning() {
       this.$router.push({ path: '/spas/warning/record' })
