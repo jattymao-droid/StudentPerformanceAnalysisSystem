@@ -170,6 +170,11 @@ public class SysConfigController extends BaseController
         {
             return false;
         }
+        // 用户管理页需读取初始密码参数，不属于密钥类敏感项
+        if ("sys.user.initPassword".equals(configKey))
+        {
+            return false;
+        }
         String k = configKey.toLowerCase();
         return k.contains("api-key") || k.contains("apikey") || k.contains("secret")
                 || k.contains("password") || k.endsWith(".token");

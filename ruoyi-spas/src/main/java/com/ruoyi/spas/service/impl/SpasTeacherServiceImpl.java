@@ -637,7 +637,8 @@ public class SpasTeacherServiceImpl implements ISpasTeacherService
             throw new ServiceException("\u8bf7\u9009\u62e9\u73ed\u7ea7");
         }
         SysDept dept = deptMapper.selectDeptById(deptId);
-        if (dept == null || !"0".equals(dept.getDelFlag()))
+        // del_flag 可能因历史查询未选出而为 null；仅显式删除标记才视为不存在
+        if (dept == null || "2".equals(dept.getDelFlag()))
         {
             throw new ServiceException("\u73ed\u7ea7\u4e0d\u5b58\u5728");
         }

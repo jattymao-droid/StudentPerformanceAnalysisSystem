@@ -1,0 +1,42 @@
+# Production overrides. Activate with: --spring.profiles.active=druid,prod
+# Secrets come from environment (deploy/xq.xmls.vip/config/env.sh).
+
+ruoyi:
+  profile: ${RUOYI_PROFILE:/www/wwwroot/xq.xmls.vip/uploadPath}
+
+server:
+  port: ${SERVER_PORT:9093}
+
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:26739}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:1}
+  devtools:
+    restart:
+      enabled: false
+
+token:
+  secret: ${TOKEN_SECRET:Zhimaixq.xmls.vip-ChangeMe-2026!}
+  expireTime: ${TOKEN_EXPIRE_MINUTES:480}
+
+spas:
+  open:
+    enabled: false
+  qb:
+    ai:
+      enabled: ${SPAS_QB_AI_ENABLED:false}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  level:
+    com.ruoyi: info
+    org.springframework: warn
+    root: warn

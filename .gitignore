@@ -58,6 +58,21 @@ tmp_*.py
 
 ruoyi-vue-postgresql-version/
 
+# Cloud deploy packaging artifacts (keep scripts/config/nginx in git)
+deploy/xq.xmls.vip/app/
+deploy/xq.xmls.vip/web/
+deploy/xq.xmls.vip/sql/
+deploy/xq.xmls.vip/logs/
+deploy/xq.xmls.vip/uploadPath/
+deploy/*.zip
+bj.xmls.vip*.zip
+
+# Scrape tooling / bulky page dumps
+.venv-scrape/
+data/xkw_phys/page.html
+data/xkw_phys/api_*.json
+data/xkw_phys/apis.json
+
 # Local / recovery / logs
 _recover/
 _gen_*.py
@@ -65,3 +80,18 @@ logs/
 sql/__pycache__/
 **/__pycache__/
 *.pyc
+
+data/xkw_chn/captured_*.json
+data/xkw_chn/apis.json
+data/xkw_chn/page_preview.txt
+
+data/xkw_math/captured.json
+
+data/xkw_eng/captured.json
+
+data/xkw_chem/captured.json
+
+data/xkw_bio/captured.json
+
+# Local cloud secrets (use env.sh.example)
+deploy/xq.xmls.vip/config/env.sh
