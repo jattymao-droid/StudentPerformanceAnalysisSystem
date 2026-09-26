@@ -72,6 +72,7 @@ python sql/spas_apply_incremental.py --check
 | 35 | `spas_qb_ai_config.sql` | 大模型配置菜单 118 + spas.qb.ai.* sys_config |
 | 36 | `spas_report_hub.sql` | 报告导出目录可见 + 入口页组件 |
 | 37 | `spas_recalc_job.sql` | 夜间全校掌握度重算定时任务 (job_id=101) |
+| 38 | `spas_site_info.sql` | 登录页版权/ICP 参数 + 系统管理「站点信息」菜单 119 |
 
 全新环境也可直接执行 `spas_exam_score.sql`（会 DROP 重建）。旧库若仍含 `subject_id`，`spas_exam_score_init.sql` / `spas_exam_score_alter_subject_name.sql` 均可迁移。
 

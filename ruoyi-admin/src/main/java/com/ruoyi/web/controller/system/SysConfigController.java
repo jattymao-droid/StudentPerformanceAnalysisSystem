@@ -1,6 +1,8 @@
 package com.ruoyi.web.controller.system;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -13,30 +15,33 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.SysConfig;
 import com.ruoyi.system.service.ISysConfigService;
 
 /**
  * 参数配置 信息操作处理
- * 
+ *
  * @author ruoyi
  */
 @RestController
 @RequestMapping("/system/config")
 public class SysConfigController extends BaseController
 {
+    public static final String KEY_SITE_COPYRIGHT = "sys.site.copyright";
+    public static final String KEY_SITE_ICP = "sys.site.icp";
+    public static final String KEY_SITE_ICP_URL = "sys.site.icpUrl";
+
     @Autowired
     private ISysConfigService configService;
 
-    /**
-     * 获取参数配置列表
-     */
     @PreAuthorize("@ss.hasPermi('system:config:list')")
     @GetMapping("/list")
     public TableDataInfo list(SysConfig config)
@@ -56,25 +61,105 @@ public class SysConfigController extends BaseController
         util.exportExcel(response, list, "参数数据");
     }
 
-    /**
-     * 根据参数编号获取详细信息
-     */
     @PreAuthorize("@ss.hasPermi('system:config:query')")
-    @GetMapping(value = "/{configId}")
+    @GetMapping(value = "/{configId:\\d+}")
     public AjaxResult getInfo(@PathVariable Long configId)
     {
         return success(configService.selectConfigById(configId));
     }
 
     /**
-     * 根据参数键名查询参数值（敏感键不返回明文）
+     * 登录页站点信息（版权 / ICP），匿名可读
      */
+    @Anonymous
+    @GetMapping("/siteInfo")
+    public AjaxResult getSiteInfo()
+    {
+        Map<String, Object> data = new HashMap<>();
+        data.put("copyright", configService.selectConfigByKey(KEY_SITE_COPYRIGHT));
+        data.put("icp", configService.selectConfigByKey(KEY_SITE_ICP));
+        String icpUrl = configService.selectConfigByKey(KEY_SITE_ICP_URL);
+        if (StringUtils.isEmpty(icpUrl))
+        {
+            icpUrl = "https://beian.miit.gov.cn/";
+        }
+        data.put("icpUrl", icpUrl);
+        return success(data);
+    }
+
+    /**
+     * 保存站点信息（系统管理 · 站点信息）
+     */
+    @PreAuthorize("@ss.hasPermi('system:site:edit')")
+    @Log(title = "站点信息", businessType = BusinessType.UPDATE)
+    @PutMapping("/siteInfo")
+    public AjaxResult saveSiteInfo(@RequestBody Map<String, Object> body)
+    {
+        String copyright = body == null ? "" : strVal(body.get("copyright"));
+        String icp = body == null ? "" : strVal(body.get("icp"));
+        String icpUrl = body == null ? "" : strVal(body.get("icpUrl"));
+        if (StringUtils.isEmpty(icpUrl))
+        {
+            icpUrl = "https://beian.miit.gov.cn/";
+        }
+        upsertSiteKey(KEY_SITE_COPYRIGHT, copyright, "站点版权文案", "登录页与页脚版权文字");
+        upsertSiteKey(KEY_SITE_ICP, icp, "ICP备案号", "空则登录页不显示备案行");
+        upsertSiteKey(KEY_SITE_ICP_URL, icpUrl, "ICP备案链接", "备案号点击跳转");
+        return success();
+    }
+
+    private static String strVal(Object v)
+    {
+        if (v == null)
+        {
+            return "";
+        }
+        String s = String.valueOf(v);
+        return "null".equals(s) ? "" : s;
+    }
+
+    private void upsertSiteKey(String key, String value, String name, String remark)
+    {
+        SysConfig probe = new SysConfig();
+        probe.setConfigKey(key);
+        List<SysConfig> list = configService.selectConfigList(probe);
+        SysConfig exist = null;
+        if (list != null)
+        {
+            for (SysConfig c : list)
+            {
+                if (c != null && key.equals(c.getConfigKey()))
+                {
+                    exist = c;
+                    break;
+                }
+            }
+        }
+        if (exist == null)
+        {
+            SysConfig row = new SysConfig();
+            row.setConfigName(name);
+            row.setConfigKey(key);
+            row.setConfigValue(value == null ? "" : value);
+            row.setConfigType("Y");
+            row.setRemark(remark);
+            row.setCreateBy(getUsername());
+            configService.insertConfig(row);
+        }
+        else
+        {
+            exist.setConfigValue(value == null ? "" : value);
+            exist.setUpdateBy(getUsername());
+            configService.updateConfig(exist);
+        }
+    }
+
     @GetMapping(value = "/configKey/{configKey}")
     public AjaxResult getConfigKey(@PathVariable String configKey)
     {
         if (isSensitiveConfigKey(configKey))
         {
-            return error("\u654f\u611f\u53c2\u6570\u4e0d\u53ef\u901a\u8fc7\u8be5\u63a5\u53e3\u8bfb\u53d6");
+            return error("敏感参数不可通过该接口读取");
         }
         return success(configService.selectConfigByKey(configKey));
     }
@@ -90,9 +175,6 @@ public class SysConfigController extends BaseController
                 || k.contains("password") || k.endsWith(".token");
     }
 
-    /**
-     * 新增参数配置
-     */
     @PreAuthorize("@ss.hasPermi('system:config:add')")
     @Log(title = "参数管理", businessType = BusinessType.INSERT)
     @PostMapping
@@ -106,9 +188,6 @@ public class SysConfigController extends BaseController
         return toAjax(configService.insertConfig(config));
     }
 
-    /**
-     * 修改参数配置
-     */
     @PreAuthorize("@ss.hasPermi('system:config:edit')")
     @Log(title = "参数管理", businessType = BusinessType.UPDATE)
     @PutMapping
@@ -122,9 +201,6 @@ public class SysConfigController extends BaseController
         return toAjax(configService.updateConfig(config));
     }
 
-    /**
-     * 删除参数配置
-     */
     @PreAuthorize("@ss.hasPermi('system:config:remove')")
     @Log(title = "参数管理", businessType = BusinessType.DELETE)
     @DeleteMapping("/{configIds}")
@@ -134,9 +210,6 @@ public class SysConfigController extends BaseController
         return success();
     }
 
-    /**
-     * 刷新参数缓存
-     */
     @PreAuthorize("@ss.hasPermi('system:config:remove')")
     @Log(title = "参数管理", businessType = BusinessType.CLEAN)
     @DeleteMapping("/refreshCache")

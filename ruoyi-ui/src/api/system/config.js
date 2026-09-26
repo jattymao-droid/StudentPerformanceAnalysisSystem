@@ -58,3 +58,21 @@ export function refreshCache() {
     method: 'delete'
   })
 }
+
+/** 登录页站点信息（版权 / ICP），可匿名 */
+export function getSiteInfo() {
+  return request({
+    url: '/system/config/siteInfo',
+    method: 'get',
+    headers: { isToken: false }
+  })
+}
+
+/** 保存站点信息（需 system:site:edit） */
+export function updateSiteInfo(data) {
+  return request({
+    url: '/system/config/siteInfo',
+    method: 'put',
+    data: data
+  })
+}

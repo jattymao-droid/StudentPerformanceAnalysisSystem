@@ -206,12 +206,18 @@
       </el-form>
     </div>
 
-    <footer class="login-foot">{{ footerContent }}</footer>
+    <footer class="login-foot">
+      <div v-if="footerContent" class="foot-copy">{{ footerContent }}</div>
+      <div v-if="icp" class="foot-icp">
+        <a :href="icpUrl" target="_blank" rel="noopener noreferrer">{{ icp }}</a>
+      </div>
+    </footer>
   </div>
 </template>
 
 <script>
 import { getCodeImg } from "@/api/login"
+import { getSiteInfo } from "@/api/system/config"
 import Cookies from "js-cookie"
 import { encrypt, decrypt } from '@/utils/jsencrypt'
 import defaultSettings from '@/settings'
@@ -221,6 +227,8 @@ export default {
   data() {
     return {
       footerContent: defaultSettings.footerContent,
+      icp: "",
+      icpUrl: "https://beian.miit.gov.cn/",
       codeUrl: "",
       codeLoading: false,
       loginForm: {
@@ -251,6 +259,7 @@ export default {
   created() {
     this.getCode()
     this.getCookie()
+    this.loadSiteInfo()
   },
   mounted() {
     this.initAgField()
@@ -259,6 +268,17 @@ export default {
     this.destroyAgField()
   },
   methods: {
+    loadSiteInfo() {
+      getSiteInfo().then(res => {
+        const d = (res && res.data) || {}
+        if (d.copyright != null && String(d.copyright).trim() !== '') {
+          this.footerContent = String(d.copyright).trim()
+        }
+        this.icp = (d.icp && String(d.icp).trim()) || ''
+        const url = (d.icpUrl && String(d.icpUrl).trim()) || ''
+        this.icpUrl = url || 'https://beian.miit.gov.cn/'
+      }).catch(() => { /* 匿名接口失败时保留默认版权 */ })
+    },
     /** Soft rising orb field — float up; cursor creates a luminous wake. */
     initAgField() {
       if (typeof window === 'undefined') return
@@ -957,6 +977,19 @@ export default {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-shadow: 0 1px 4px rgba(26, 51, 199, 0.35);
+  line-height: 1.5;
+}
+.login-foot .foot-copy + .foot-icp {
+  margin-top: 4px;
+}
+.login-foot .foot-icp a {
+  color: rgba(255, 255, 255, 0.88);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+.login-foot .foot-icp a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 @keyframes card-in {

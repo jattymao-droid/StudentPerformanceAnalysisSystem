@@ -62,6 +62,7 @@ REQUIRED = [
     "spas_qb_ai_config.sql",
     "spas_report_hub.sql",
     "spas_recalc_job.sql",
+    "spas_site_info.sql",
 ]
 
 OPTIONAL_DEMO = [
@@ -144,6 +145,8 @@ CHECKS = [
     ("menu", "qb select menu_id=2320", "select 1 from sys_menu where menu_id=2320"),
     ("menu", "open admin menu_id=2120", "select 1 from sys_menu where menu_id=2120"),
     ("menu", "llm menu_id=118", "select 1 from sys_menu where menu_id=118"),
+    ("menu", "site info menu_id=119", "select 1 from sys_menu where menu_id=119"),
+    ("config", "sys.site.copyright", "select 1 from sys_config where config_key='sys.site.copyright'"),
     ("menu", "report hub menu_id=2130 visible", "select 1 from sys_menu where menu_id=2130 and visible='0'"),
     (
         "column",
