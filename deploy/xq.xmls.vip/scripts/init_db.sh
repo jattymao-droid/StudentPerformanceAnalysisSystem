@@ -146,6 +146,9 @@ INCREMENTAL_SQL=(
   spas_report_hub.sql
   spas_recalc_job.sql
   spas_site_info.sql
+  spas_group_practice.sql
+  spas_student_points.sql
+  spas_practice_checkout.sql
 )
 
 run_incremental_sql() {

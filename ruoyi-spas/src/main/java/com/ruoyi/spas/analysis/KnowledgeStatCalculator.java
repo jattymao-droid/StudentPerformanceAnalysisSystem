@@ -24,6 +24,7 @@ import com.ruoyi.spas.domain.SpasStudentKnowledgeStat;
 import com.ruoyi.spas.domain.SpasSubject;
 import com.ruoyi.spas.mapper.SpasAnalysisMapper;
 import com.ruoyi.spas.mapper.SpasSubjectMapper;
+import com.ruoyi.spas.service.ISpasStudentPointService;
 
 /**
  * Multi-knowledge weighted rate calculator and snapshot writer.
@@ -42,6 +43,9 @@ public class KnowledgeStatCalculator
 
     @Autowired(required = false)
     private SpasSubjectMapper subjectMapper;
+
+    @Autowired(required = false)
+    private ISpasStudentPointService studentPointService;
 
     @Value("${spas.analysis.difficulty-weight.easy:1.0}")
     private double difficultyEasy;
@@ -182,6 +186,18 @@ public class KnowledgeStatCalculator
         {
             return 0;
         }
+        Map<String, Double> beforeRates = null;
+        if (studentPointService != null)
+        {
+            try
+            {
+                beforeRates = studentPointService.snapshotRates(ids);
+            }
+            catch (Exception ignored)
+            {
+                beforeRates = null;
+            }
+        }
         int upserted = 0;
         final int chunkSize = 200;
         for (int from = 0; from < ids.size(); from += chunkSize)
@@ -217,6 +233,17 @@ public class KnowledgeStatCalculator
                     analysisMapper.upsertStat(stat);
                     upserted++;
                 }
+            }
+        }
+        if (studentPointService != null && beforeRates != null && !beforeRates.isEmpty())
+        {
+            try
+            {
+                studentPointService.awardMasteryGains(ids, beforeRates);
+            }
+            catch (Exception ignored)
+            {
+                // points must not break mastery recalc
             }
         }
         return upserted;

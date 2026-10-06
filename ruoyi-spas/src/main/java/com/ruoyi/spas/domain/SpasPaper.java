@@ -35,6 +35,9 @@ public class SpasPaper extends BaseEntity
     @Excel(name = "Dept Id")
     private Long deptId;
 
+    /** Multi-class create (not persisted; one paper per dept) */
+    private Long[] deptIds;
+
     /** Exam date */
     @JsonFormat(pattern = "yyyy-MM-dd")
     @Excel(name = "Exam Date", width = 30, dateFormat = "yyyy-MM-dd")
@@ -118,6 +121,16 @@ public class SpasPaper extends BaseEntity
     public void setDeptId(Long deptId)
     {
         this.deptId = deptId;
+    }
+
+    public Long[] getDeptIds()
+    {
+        return deptIds;
+    }
+
+    public void setDeptIds(Long[] deptIds)
+    {
+        this.deptIds = deptIds;
     }
 
     public Date getExamDate()

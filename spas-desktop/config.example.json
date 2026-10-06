@@ -1,0 +1,11 @@
+{
+  "apiBase": "https://xq.xmls.vip/prod-api",
+  "deviceCode": "KIOSK-CLASS-01",
+  "kiosk": true,
+  "autoLaunch": true,
+  "idleMinutes": 8,
+  "title": "知脉 · 每日自主练",
+  "windowWidth": 0,
+  "windowHeight": 0,
+  "maximize": null
+}

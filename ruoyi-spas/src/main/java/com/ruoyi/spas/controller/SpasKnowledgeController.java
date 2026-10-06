@@ -34,8 +34,8 @@ public class SpasKnowledgeController extends BaseController
     @Autowired
     private SpasAccessService accessService;
 
-    /** Read APIs: knowledge managers + analysis/paper teachers who only need the tree/list */
-    @PreAuthorize("@ss.hasAnyPermi('spas:knowledge:list,spas:analysis:knowledge,spas:analysis:frequency,spas:analysis:student,spas:analysis:class,spas:paper:list,spas:portfolio:list')")
+    /** Read APIs: knowledge managers + analysis/paper teachers + practice (student self-practice) */
+    @PreAuthorize("@ss.hasAnyPermi('spas:knowledge:list,spas:analysis:knowledge,spas:analysis:frequency,spas:analysis:student,spas:analysis:class,spas:paper:list,spas:portfolio:list,spas:practice:mine,spas:practice:add')")
     @GetMapping("/list")
     public TableDataInfo list(SpasKnowledge knowledge)
     {
@@ -44,7 +44,7 @@ public class SpasKnowledgeController extends BaseController
         return getDataTable(list);
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('spas:knowledge:list,spas:analysis:knowledge,spas:analysis:frequency,spas:analysis:student,spas:analysis:class,spas:paper:list,spas:portfolio:list')")
+    @PreAuthorize("@ss.hasAnyPermi('spas:knowledge:list,spas:analysis:knowledge,spas:analysis:frequency,spas:analysis:student,spas:analysis:class,spas:paper:list,spas:portfolio:list,spas:practice:mine,spas:practice:add')")
     @GetMapping("/tree/{subjectId}")
     public AjaxResult tree(@PathVariable Long subjectId)
     {

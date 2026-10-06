@@ -1,0 +1,62 @@
+{
+  "name": "spas-desktop",
+  "version": "1.5.9",
+  "description": "知脉 · Windows 一体机自主练打卡客户端",
+  "main": "main.js",
+  "author": "知脉",
+  "license": "MIT",
+  "scripts": {
+    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
+    "start:win": "set ELECTRON_RUN_AS_NODE=&& electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win nsis",
+    "dist:win": "electron-builder --win nsis --x64",
+    "dist:dir": "electron-builder --win dir --x64"
+  },
+  "build": {
+    "appId": "vip.xmls.xq.spas.desktop",
+    "productName": "知脉自主练",
+    "copyright": "Copyright © 知脉",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "config.example.json",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "config.example.json",
+        "to": "config.example.json"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "知脉自主练",
+      "uninstallDisplayName": "知脉自主练",
+      "language": "2052"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "24.13.3"
+  }
+}

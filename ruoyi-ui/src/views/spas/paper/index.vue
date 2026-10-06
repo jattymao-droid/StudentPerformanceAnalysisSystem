@@ -159,8 +159,23 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="班级" prop="deptId">
-              <treeselect v-model="form.deptId" :options="deptOptions" :show-count="true" :disabled="structureLocked" placeholder="请选择班级/部门" />
+            <el-form-item label="班级" :prop="form.paperId ? 'deptId' : 'deptIds'">
+              <treeselect
+                v-if="!form.paperId"
+                v-model="form.deptIds"
+                :options="deptOptions"
+                :multiple="true"
+                :show-count="true"
+                placeholder="请选择班级（可多选，每个班级各生成一份）"
+              />
+              <treeselect
+                v-else
+                v-model="form.deptId"
+                :options="deptOptions"
+                :show-count="true"
+                :disabled="structureLocked"
+                placeholder="请选择班级/部门"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -461,7 +476,8 @@ export default {
         paperName: [{ required: true, message: '试卷名称不能为空', trigger: 'blur' }],
         paperType: [{ required: true, message: '试卷类型不能为空', trigger: 'change' }],
         subjectId: [{ required: true, message: '学科不能为空', trigger: 'change' }],
-        deptId: [{ required: true, message: '班级不能为空', trigger: 'change' }]
+        deptId: [{ required: true, message: '班级不能为空', trigger: 'change' }],
+        deptIds: [{ type: 'array', required: true, min: 1, message: '请至少选择一个班级', trigger: 'change' }]
       }
     }
   },
@@ -598,6 +614,7 @@ export default {
         paperType: '1',
         subjectId: undefined,
         deptId: undefined,
+        deptIds: [],
         examDate: undefined,
         remark: undefined,
         questions: []
@@ -951,12 +968,11 @@ export default {
       })
     },
     buildPayload() {
-      return {
+      const payload = {
         paperId: this.form.paperId,
         paperName: this.form.paperName,
         paperType: this.form.paperType,
         subjectId: this.form.subjectId,
-        deptId: this.form.deptId,
         examDate: this.form.examDate,
         remark: this.form.remark,
         questions: (this.form.questions || []).map((q, idx) => ({
@@ -974,6 +990,14 @@ export default {
           }))
         }))
       }
+      if (this.form.paperId != undefined) {
+        payload.deptId = this.form.deptId
+      } else {
+        const ids = (this.form.deptIds || []).filter(id => id != null && id !== '')
+        payload.deptIds = ids
+        payload.deptId = ids.length ? ids[0] : undefined
+      }
+      return payload
     },
     validateQuestions() {
       if (!this.form.questions || !this.form.questions.length) {
@@ -1022,8 +1046,9 @@ export default {
             this.getList()
           })
         } else {
+          const classCount = (payload.deptIds || []).length
           addPaper(payload).then(() => {
-            this.$modal.msgSuccess('新增成功')
+            this.$modal.msgSuccess(classCount > 1 ? ('已为 ' + classCount + ' 个班级各创建一份试卷') : '新增成功')
             this.open = false
             this.getList()
           })

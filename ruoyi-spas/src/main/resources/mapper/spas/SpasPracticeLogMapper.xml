@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasPracticeLogMapper">
+
+    <resultMap id="SpasPracticeLogResult" type="SpasPracticeLog">
+        <id property="logId" column="log_id"/>
+        <result property="practiceDate" column="practice_date"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="groupId" column="group_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="subjectId" column="subject_id"/>
+        <result property="bookName" column="book_name"/>
+        <result property="pageFrom" column="page_from"/>
+        <result property="pageTo" column="page_to"/>
+        <result property="questionText" column="question_text"/>
+        <result property="finishStatus" column="finish_status"/>
+        <result property="difficultyNote" column="difficulty_note"/>
+        <result property="selfCorrectRate" column="self_correct_rate"/>
+        <result property="hardestQuestion" column="hardest_question"/>
+        <result property="durationMin" column="duration_min"/>
+        <result property="submitSlot" column="submit_slot"/>
+        <result property="submitByStudentId" column="submit_by_student_id"/>
+        <result property="proxyFlag" column="proxy_flag"/>
+        <result property="confirmStatus" column="confirm_status"/>
+        <result property="confirmTime" column="confirm_time"/>
+        <result property="clientType" column="client_type"/>
+        <result property="deviceCode" column="device_code"/>
+        <result property="spotStatus" column="spot_status"/>
+        <result property="spotBy" column="spot_by"/>
+        <result property="spotTime" column="spot_time"/>
+        <result property="spotRemark" column="spot_remark"/>
+        <result property="status" column="status"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+        <result property="studentName" column="student_name"/>
+        <result property="studentNo" column="student_no"/>
+        <result property="deptName" column="dept_name"/>
+        <result property="groupName" column="group_name"/>
+        <result property="subjectName" column="subject_name"/>
+        <result property="submitByName" column="submit_by_name"/>
+        <result property="knowledgeNames" column="knowledge_names"/>
+    </resultMap>
+
+    <resultMap id="SpasPracticeLogKnowledgeResult" type="SpasPracticeLogKnowledge">
+        <id property="id" column="id"/>
+        <result property="logId" column="log_id"/>
+        <result property="knowledgeId" column="knowledge_id"/>
+        <result property="isPrimary" column="is_primary"/>
+        <result property="knowledgeName" column="knowledge_name"/>
+    </resultMap>
+
+    <sql id="selectVo">
+        select p.log_id, p.practice_date, p.dept_id, p.group_id, p.student_id, p.subject_id,
+               p.book_name, p.page_from, p.page_to, p.question_text, p.finish_status, p.difficulty_note,
+               p.self_correct_rate, p.hardest_question, p.duration_min, p.submit_slot,
+               p.submit_by_student_id, p.proxy_flag, p.confirm_status, p.confirm_time,
+               p.client_type, p.device_code,
+               p.spot_status, p.spot_by, p.spot_time, p.spot_remark, p.status,
+               p.create_time, p.update_time, p.remark,
+               s.student_name, s.student_no, d.dept_name, g.group_name, sub.subject_name,
+               sb.student_name as submit_by_name,
+               (select string_agg(k.knowledge_name, '、' order by pk.id)
+                  from spas_practice_log_knowledge pk
+                  left join spas_knowledge k on k.knowledge_id = pk.knowledge_id
+                 where pk.log_id = p.log_id) as knowledge_names
+        from spas_practice_log p
+        left join spas_student s on s.student_id = p.student_id
+        left join spas_student sb on sb.student_id = p.submit_by_student_id
+        left join sys_dept d on d.dept_id = p.dept_id
+        left join spas_study_group g on g.group_id = p.group_id
+        left join spas_subject sub on sub.subject_id = p.subject_id
+    </sql>
+
+    <select id="selectSpasPracticeLogList" parameterType="SpasPracticeLog" resultMap="SpasPracticeLogResult">
+        <include refid="selectVo"/>
+        <where>
+            and p.status = '0'
+            <if test="deptId != null">and p.dept_id = #{deptId}</if>
+            <if test="groupId != null">and p.group_id = #{groupId}</if>
+            <if test="studentId != null">and p.student_id = #{studentId}</if>
+            <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+            <if test="practiceDate != null">and p.practice_date = #{practiceDate}</if>
+            <if test="finishStatus != null and finishStatus != ''">and p.finish_status = #{finishStatus}</if>
+            <if test="proxyFlag != null and proxyFlag != ''">and p.proxy_flag = #{proxyFlag}</if>
+            <if test="spotStatus != null and spotStatus != ''">and p.spot_status = #{spotStatus}</if>
+            <if test="studentName != null and studentName != ''">and s.student_name like ('%' || #{studentName} || '%')</if>
+            <if test="studentNo != null and studentNo != ''">and s.student_no like ('%' || #{studentNo} || '%')</if>
+            <if test="params != null and params.beginPracticeDate != null and params.beginPracticeDate != ''">
+                and p.practice_date &gt;= cast(#{params.beginPracticeDate} as date)
+            </if>
+            <if test="params != null and params.endPracticeDate != null and params.endPracticeDate != ''">
+                and p.practice_date &lt;= cast(#{params.endPracticeDate} as date)
+            </if>
+            <choose>
+                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() &gt; 0">
+                    and p.dept_id in
+                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                </when>
+                <otherwise>${params.dataScope}</otherwise>
+            </choose>
+        </where>
+        order by p.practice_date desc, p.create_time desc
+    </select>
+
+    <select id="selectSpasPracticeLogById" resultMap="SpasPracticeLogResult">
+        <include refid="selectVo"/>
+        where p.log_id = #{logId}
+    </select>
+
+    <insert id="insertSpasPracticeLog" parameterType="SpasPracticeLog" useGeneratedKeys="true" keyProperty="logId">
+        insert into spas_practice_log(
+            practice_date, dept_id, group_id, student_id, subject_id,
+            book_name, page_from, page_to, question_text, finish_status, difficulty_note,
+            self_correct_rate, hardest_question, duration_min, submit_slot,
+            submit_by_student_id, proxy_flag, confirm_status, client_type, device_code,
+            spot_status, status, create_time, remark
+        ) values (
+            #{practiceDate}, #{deptId}, #{groupId}, #{studentId}, #{subjectId},
+            #{bookName}, #{pageFrom}, #{pageTo}, #{questionText}, #{finishStatus}, #{difficultyNote},
+            #{selfCorrectRate}, #{hardestQuestion}, #{durationMin}, coalesce(#{submitSlot}, '0'),
+            #{submitByStudentId}, coalesce(#{proxyFlag}, '0'), coalesce(#{confirmStatus}, '0'),
+            #{clientType}, #{deviceCode},
+            coalesce(#{spotStatus}, '0'), coalesce(#{status}, '0'), now(), #{remark}
+        )
+    </insert>
+
+    <update id="updateSpasPracticeLog" parameterType="SpasPracticeLog">
+        update spas_practice_log
+        <set>
+            <if test="bookName != null">book_name = #{bookName},</if>
+            <if test="pageFrom != null">page_from = #{pageFrom},</if>
+            <if test="pageTo != null">page_to = #{pageTo},</if>
+            <if test="questionText != null">question_text = #{questionText},</if>
+            <if test="finishStatus != null">finish_status = #{finishStatus},</if>
+            <if test="difficultyNote != null">difficulty_note = #{difficultyNote},</if>
+            <if test="selfCorrectRate != null">self_correct_rate = #{selfCorrectRate},</if>
+            <if test="hardestQuestion != null">hardest_question = #{hardestQuestion},</if>
+            <if test="durationMin != null">duration_min = #{durationMin},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = now()
+        </set>
+        where log_id = #{logId} and status = '0'
+    </update>
+
+    <update id="softDeleteSpasPracticeLog">
+        update spas_practice_log set status = '1', update_time = now() where log_id = #{logId}
+    </update>
+
+    <delete id="deleteKnowledgeByLogId">
+        delete from spas_practice_log_knowledge where log_id = #{logId}
+    </delete>
+
+    <insert id="insertKnowledge" parameterType="SpasPracticeLogKnowledge" useGeneratedKeys="true" keyProperty="id">
+        insert into spas_practice_log_knowledge(log_id, knowledge_id, is_primary)
+        values (#{logId}, #{knowledgeId}, coalesce(#{isPrimary}, '0'))
+    </insert>
+
+    <select id="selectKnowledgeByLogId" resultMap="SpasPracticeLogKnowledgeResult">
+        select pk.id, pk.log_id, pk.knowledge_id, pk.is_primary, k.knowledge_name
+        from spas_practice_log_knowledge pk
+        left join spas_knowledge k on k.knowledge_id = pk.knowledge_id
+        where pk.log_id = #{logId}
+    </select>
+
+    <insert id="upsertBookStat">
+        insert into spas_practice_book_stat(dept_id, subject_id, book_name, use_count, last_used)
+        values (#{deptId}, #{subjectId}, #{bookName}, 1, now())
+        on conflict (dept_id, subject_id, book_name) do update
+        set use_count = spas_practice_book_stat.use_count + 1, last_used = now()
+    </insert>
+
+    <select id="suggestBooks" resultType="java.util.HashMap">
+        select book_name as "bookName", use_count as "useCount"
+        from spas_practice_book_stat
+        where dept_id = #{deptId} and subject_id = #{subjectId}
+        <if test="q != null and q != ''">and book_name like ('%' || #{q} || '%')</if>
+        order by use_count desc, last_used desc
+        limit #{limit}
+    </select>
+
+    <select id="selectTodayByStudent" resultMap="SpasPracticeLogResult">
+        <include refid="selectVo"/>
+        where p.status = '0' and p.student_id = #{studentId} and p.practice_date = #{practiceDate}
+        order by p.create_time desc
+    </select>
+
+    <select id="selectRecentByStudent" resultMap="SpasPracticeLogResult">
+        <include refid="selectVo"/>
+        where p.status = '0' and p.student_id = #{studentId}
+          and p.practice_date between #{beginDate} and #{endDate}
+        order by p.practice_date desc, p.create_time desc
+    </select>
+
+    <select id="selectGroupTodayProgress" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               m.role_in_group as "roleInGroup",
+               case when exists (
+                   select 1 from spas_practice_log p
+                   where p.student_id = s.student_id and p.practice_date = #{practiceDate} and p.status = '0'
+               ) then true else false end as "submitted"
+        from spas_study_group_member m
+        inner join spas_student s on s.student_id = m.student_id
+        where m.group_id = #{groupId} and m.leave_time is null
+        order by m.role_in_group desc, s.student_no
+    </select>
+
+    <select id="selectMissingStudents" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               g.group_id as "groupId", g.group_name as "groupName"
+        from spas_student s
+        left join spas_study_group_member m on m.student_id = s.student_id and m.leave_time is null
+        left join spas_study_group g on g.group_id = m.group_id and g.status = '0' and g.dept_id = s.dept_id
+          <choose>
+            <when test="subjectId != null">and g.subject_id = #{subjectId}</when>
+            <otherwise>and (g.subject_id is null or g.group_id is null)</otherwise>
+          </choose>
+        where s.del_flag = '0' and s.status = '0' and s.dept_id = #{deptId}
+          and not exists (
+            select 1 from spas_practice_log p
+            where p.student_id = s.student_id and p.practice_date = #{practiceDate} and p.status = '0'
+            <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+          )
+        order by g.group_name nulls last, s.student_no
+    </select>
+
+    <select id="selectDifficultyLogs" resultType="java.util.HashMap">
+        select p.log_id as "logId", p.student_id as "studentId", s.student_no as "studentNo",
+               s.student_name as "studentName", p.difficulty_note as "difficultyNote",
+               p.book_name as "bookName", p.question_text as "questionText",
+               (select string_agg(k.knowledge_name, '、')
+                  from spas_practice_log_knowledge pk
+                  left join spas_knowledge k on k.knowledge_id = pk.knowledge_id
+                 where pk.log_id = p.log_id) as "knowledgeNames"
+        from spas_practice_log p
+        left join spas_student s on s.student_id = p.student_id
+        where p.status = '0' and p.finish_status = '3' and p.practice_date = #{practiceDate}
+          and p.dept_id = #{deptId}
+          <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+        order by p.create_time desc
+    </select>
+
+    <select id="selectProxyHeavyStudents" resultType="java.util.HashMap">
+        select p.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               count(distinct p.practice_date) as "proxyDays"
+        from spas_practice_log p
+        left join spas_student s on s.student_id = p.student_id
+        where p.status = '0' and p.proxy_flag = '1' and p.dept_id = #{deptId}
+          and p.practice_date &gt;= #{sinceDate}
+          <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+        group by p.student_id, s.student_no, s.student_name
+        having count(distinct p.practice_date) &gt;= #{minDays}
+        order by count(distinct p.practice_date) desc
+    </select>
+
+    <select id="selectContinuousMissing" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               #{days} as "missingDays"
+        from spas_student s
+        where s.del_flag = '0' and s.status = '0' and s.dept_id = #{deptId}
+          and (
+            select count(1) from generate_series(
+              (#{endDate}::date - (#{days} - 1)), #{endDate}::date, '1 day'::interval
+            ) d(day)
+            where not exists (
+              select 1 from spas_practice_log p
+              where p.student_id = s.student_id and p.practice_date = d.day::date and p.status = '0'
+              <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+            )
+          ) &gt;= #{days}
+        order by s.student_no
+    </select>
+
+    <select id="selectDailyStat" resultType="java.util.HashMap">
+        select
+          (select count(1) from spas_student s where s.del_flag='0' and s.status='0' and s.dept_id=#{deptId}) as "studentTotal",
+          (select count(distinct p.student_id) from spas_practice_log p
+            where p.dept_id=#{deptId} and p.practice_date=#{practiceDate} and p.status='0'
+            <if test="subjectId != null">and p.subject_id=#{subjectId}</if>
+          ) as "submittedCount",
+          (select count(1) from spas_practice_log p
+            where p.dept_id=#{deptId} and p.practice_date=#{practiceDate} and p.status='0' and p.finish_status='3'
+            <if test="subjectId != null">and p.subject_id=#{subjectId}</if>
+          ) as "difficultyCount",
+          (select count(1) from spas_practice_log p
+            where p.dept_id=#{deptId} and p.practice_date=#{practiceDate} and p.status='0' and p.proxy_flag='1'
+            <if test="subjectId != null">and p.subject_id=#{subjectId}</if>
+          ) as "proxyCount"
+    </select>
+
+    <select id="selectWeekThemeOverlap" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               coalesce(prac.theme_count, 0) as "themeCount",
+               coalesce(weak.weak_count, 0) as "weakCount",
+               case when coalesce(weak.weak_count, 0) = 0 then null
+                    else round(coalesce(hit.hit_count, 0)::numeric / weak.weak_count, 4)
+               end as "overlapRate"
+        from spas_student s
+        left join (
+            select p.student_id, count(distinct pk.knowledge_id) as theme_count
+            from spas_practice_log p
+            join spas_practice_log_knowledge pk on pk.log_id = p.log_id
+            where p.dept_id = #{deptId} and p.status = '0'
+              and p.practice_date between #{beginDate} and #{endDate}
+              <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+            group by p.student_id
+        ) prac on prac.student_id = s.student_id
+        left join (
+            select st.student_id, count(1) as weak_count
+            from (
+                select sk.student_id, sk.knowledge_id,
+                       row_number() over (partition by sk.student_id order by sk.weighted_rate asc nulls last) as rn
+                from spas_student_knowledge_stat sk
+                join spas_knowledge k on k.knowledge_id = sk.knowledge_id
+                where sk.student_id in (select student_id from spas_student where dept_id = #{deptId} and del_flag='0')
+                  <if test="subjectId != null">and k.subject_id = #{subjectId}</if>
+            ) st where st.rn &lt;= 5
+            group by st.student_id
+        ) weak on weak.student_id = s.student_id
+        left join (
+            select p.student_id, count(distinct pk.knowledge_id) as hit_count
+            from spas_practice_log p
+            join spas_practice_log_knowledge pk on pk.log_id = p.log_id
+            where p.dept_id = #{deptId} and p.status = '0'
+              and p.practice_date between #{beginDate} and #{endDate}
+              <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+              and pk.knowledge_id in (
+                select sk.knowledge_id from (
+                  select sk2.student_id, sk2.knowledge_id,
+                         row_number() over (partition by sk2.student_id order by sk2.weighted_rate asc nulls last) rn
+                  from spas_student_knowledge_stat sk2
+                  join spas_knowledge k2 on k2.knowledge_id = sk2.knowledge_id
+                  where 1=1
+                  <if test="subjectId != null">and k2.subject_id = #{subjectId}</if>
+                ) sk where sk.rn &lt;= 5 and sk.student_id = p.student_id
+              )
+            group by p.student_id
+        ) hit on hit.student_id = s.student_id
+        where s.del_flag = '0' and s.status = '0' and s.dept_id = #{deptId}
+        order by case when coalesce(weak.weak_count, 0) = 0 then null
+                      else round(coalesce(hit.hit_count, 0)::numeric / weak.weak_count, 4)
+                 end nulls first, s.student_no
+    </select>
+
+    <select id="selectSpotSample" resultType="java.util.HashMap">
+        select p.log_id as "logId", p.student_id as "studentId", s.student_no as "studentNo",
+               s.student_name as "studentName", p.book_name as "bookName",
+               p.page_from as "pageFrom", p.page_to as "pageTo", p.question_text as "questionText",
+               p.practice_date as "practiceDate", p.spot_status as "spotStatus"
+        from spas_practice_log p
+        left join spas_student s on s.student_id = p.student_id
+        where p.status = '0' and p.dept_id = #{deptId}
+          and p.practice_date between #{beginDate} and #{endDate}
+          and coalesce(p.spot_status, '0') = '0'
+          <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+        order by random()
+        limit #{limit}
+    </select>
+
+    <update id="updateSpot" parameterType="SpasPracticeLog">
+        update spas_practice_log
+        set spot_status = #{spotStatus},
+            spot_by = #{spotBy},
+            spot_time = now(),
+            spot_remark = #{spotRemark},
+            update_time = now()
+        where log_id = #{logId}
+    </update>
+
+    <insert id="upsertKioskDevice">
+        insert into spas_kiosk_device(device_code, device_name, dept_id, status, last_seen, last_student_id, app_version, create_time, update_time)
+        values (#{deviceCode}, #{deviceName}, #{deptId}, '0', now(), #{lastStudentId}, #{appVersion}, now(), now())
+        on conflict (device_code) do update
+        set device_name = coalesce(excluded.device_name, spas_kiosk_device.device_name),
+            dept_id = coalesce(excluded.dept_id, spas_kiosk_device.dept_id),
+            last_seen = now(),
+            last_student_id = coalesce(excluded.last_student_id, spas_kiosk_device.last_student_id),
+            app_version = coalesce(excluded.app_version, spas_kiosk_device.app_version),
+            update_time = now()
+    </insert>
+
+    <select id="selectKioskDevices" resultType="java.util.HashMap">
+        select d.device_id as "deviceId", d.device_code as "deviceCode", d.device_name as "deviceName",
+               d.dept_id as "deptId", dept.dept_name as "deptName", d.status as "status",
+               d.last_seen as "lastSeen", d.last_student_id as "lastStudentId",
+               s.student_name as "lastStudentName", d.app_version as "appVersion"
+        from spas_kiosk_device d
+        left join sys_dept dept on dept.dept_id = d.dept_id
+        left join spas_student s on s.student_id = d.last_student_id
+        <where>
+            <if test="deptId != null">and d.dept_id = #{deptId}</if>
+        </where>
+        order by d.last_seen desc nulls last
+    </select>
+
+    <select id="selectPracticedStillWeak" resultType="java.util.HashMap">
+        select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
+               count(distinct pk.knowledge_id) as "stillWeakCount",
+               string_agg(distinct k.knowledge_name, '、') as "knowledgeNames"
+        from spas_practice_log p
+        join spas_practice_log_knowledge pk on pk.log_id = p.log_id
+        join spas_student_knowledge_stat sk on sk.student_id = p.student_id and sk.knowledge_id = pk.knowledge_id
+        join spas_knowledge k on k.knowledge_id = pk.knowledge_id
+        join spas_student s on s.student_id = p.student_id
+        where p.status = '0' and p.dept_id = #{deptId}
+          and p.practice_date between #{beginDate} and #{endDate}
+          and coalesce(sk.weighted_rate, sk.avg_rate, 1) &lt; #{weakRate}
+          <if test="subjectId != null">and p.subject_id = #{subjectId}</if>
+        group by s.student_id, s.student_no, s.student_name
+        having count(distinct pk.knowledge_id) &gt;= 1
+        order by count(distinct pk.knowledge_id) desc, s.student_no
+    </select>
+
+    <select id="selectPendingProxyConfirm" resultMap="SpasPracticeLogResult">
+        <include refid="selectVo"/>
+        where p.status = '0' and p.proxy_flag = '1' and p.confirm_status = '1'
+          and p.student_id = #{studentId}
+        order by p.practice_date desc, p.create_time desc
+    </select>
+
+    <update id="updateConfirmStatus">
+        update spas_practice_log
+        set confirm_status = #{confirmStatus},
+            confirm_time = now(),
+            update_time = now(),
+            status = case when #{confirmStatus} = '3' then '1' else status end
+        where log_id = #{logId} and status = '0' and proxy_flag = '1' and confirm_status = '1'
+    </update>
+</mapper>

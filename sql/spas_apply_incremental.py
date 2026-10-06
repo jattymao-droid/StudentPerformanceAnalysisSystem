@@ -63,6 +63,9 @@ REQUIRED = [
     "spas_report_hub.sql",
     "spas_recalc_job.sql",
     "spas_site_info.sql",
+    "spas_group_practice.sql",
+    "spas_student_points.sql",
+    "spas_practice_checkout.sql",
 ]
 
 OPTIONAL_DEMO = [
@@ -158,6 +161,12 @@ CHECKS = [
         "spas_qb_paper.section_json",
         "select 1 from information_schema.columns where table_name='spas_qb_paper' and column_name='section_json'",
     ),
+    ("table", "spas_student_point_account", "select to_regclass('public.spas_student_point_account')"),
+    ("table", "spas_student_point_ledger", "select to_regclass('public.spas_student_point_ledger')"),
+    ("table", "spas_practice_assignment", "select to_regclass('public.spas_practice_assignment')"),
+    ("table", "spas_practice_checkout", "select to_regclass('public.spas_practice_checkout')"),
+    ("table", "spas_practice_checkout_item", "select to_regclass('public.spas_practice_checkout_item')"),
+    ("table", "spas_practice_spot", "select to_regclass('public.spas_practice_spot')"),
 ]
 
 

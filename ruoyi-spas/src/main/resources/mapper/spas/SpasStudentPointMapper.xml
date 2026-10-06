@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasStudentPointMapper">
+
+    <resultMap id="AccountResult" type="SpasStudentPointAccount">
+        <id property="studentId" column="student_id"/>
+        <result property="totalPoints" column="total_points"/>
+        <result property="levelNo" column="level_no"/>
+        <result property="dayStreak" column="day_streak"/>
+        <result property="lastPracticeDate" column="last_practice_date"/>
+        <result property="weekPoints" column="week_points"/>
+        <result property="weekStart" column="week_start"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="studentName" column="student_name"/>
+        <result property="studentNo" column="student_no"/>
+        <result property="rankNo" column="rank_no"/>
+    </resultMap>
+
+    <resultMap id="LedgerResult" type="SpasStudentPointLedger">
+        <id property="ledgerId" column="ledger_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="subjectId" column="subject_id"/>
+        <result property="points" column="points"/>
+        <result property="reasonCode" column="reason_code"/>
+        <result property="refType" column="ref_type"/>
+        <result property="refId" column="ref_id"/>
+        <result property="bizKey" column="biz_key"/>
+        <result property="remark" column="remark"/>
+        <result property="createTime" column="create_time"/>
+        <result property="studentName" column="student_name"/>
+        <result property="studentNo" column="student_no"/>
+    </resultMap>
+
+    <select id="selectAccount" resultMap="AccountResult">
+        select student_id, total_points, level_no, day_streak, last_practice_date,
+               week_points, week_start, update_time
+        from spas_student_point_account
+        where student_id = #{studentId}
+    </select>
+
+    <insert id="upsertAccount" parameterType="SpasStudentPointAccount">
+        insert into spas_student_point_account(
+            student_id, total_points, level_no, day_streak, last_practice_date,
+            week_points, week_start, update_time)
+        values (
+            #{studentId}, coalesce(#{totalPoints}, 0), coalesce(#{levelNo}, 1),
+            coalesce(#{dayStreak}, 0), #{lastPracticeDate},
+            coalesce(#{weekPoints}, 0), #{weekStart}, now())
+        on conflict (student_id) do update set
+            total_points = excluded.total_points,
+            level_no = excluded.level_no,
+            day_streak = excluded.day_streak,
+            last_practice_date = excluded.last_practice_date,
+            week_points = excluded.week_points,
+            week_start = excluded.week_start,
+            update_time = now()
+    </insert>
+
+    <insert id="insertLedger" parameterType="SpasStudentPointLedger" useGeneratedKeys="true" keyProperty="ledgerId">
+        insert into spas_student_point_ledger(
+            student_id, dept_id, subject_id, points, reason_code, ref_type, ref_id, biz_key, remark, create_time)
+        values (
+            #{studentId}, #{deptId}, #{subjectId}, #{points}, #{reasonCode}, #{refType}, #{refId},
+            #{bizKey}, #{remark}, now())
+    </insert>
+
+    <select id="selectLedgerByBizKey" resultMap="LedgerResult">
+        select ledger_id, student_id, dept_id, subject_id, points, reason_code, ref_type, ref_id,
+               biz_key, remark, create_time
+        from spas_student_point_ledger
+        where biz_key = #{bizKey}
+    </select>
+
+    <select id="sumPointsToday" resultType="int">
+        select coalesce(sum(points), 0)
+        from spas_student_point_ledger
+        where student_id = #{studentId}
+          and create_time::date = #{day}::date
+    </select>
+
+    <select id="countReasonToday" resultType="int">
+        select count(1)
+        from spas_student_point_ledger
+        where student_id = #{studentId}
+          and reason_code = #{reasonCode}
+          and create_time::date = #{day}::date
+        <if test="subjectId != null">
+          and subject_id = #{subjectId}
+        </if>
+    </select>
+
+    <select id="countLogsOnDay" resultType="int">
+        select count(1)
+        from spas_practice_log
+        where student_id = #{studentId}
+          and subject_id = #{subjectId}
+          and practice_date = #{practiceDate}::date
+          and coalesce(status, '0') = '0'
+          and (proxy_flag = '0' or confirm_status = '2')
+    </select>
+
+    <select id="selectLedgerByStudent" resultMap="LedgerResult">
+        select ledger_id, student_id, dept_id, subject_id, points, reason_code, ref_type, ref_id,
+               biz_key, remark, create_time
+        from spas_student_point_ledger
+        where student_id = #{studentId}
+        order by create_time desc, ledger_id desc
+        limit #{limit}
+    </select>
+
+    <select id="selectLeaderboardAll" resultMap="AccountResult">
+        select a.student_id, a.total_points, a.level_no, a.day_streak, a.last_practice_date,
+               a.week_points, a.week_start, a.update_time,
+               s.student_name, s.student_no,
+               row_number() over (order by a.total_points desc, a.update_time asc, a.student_id) as rank_no
+        from spas_student_point_account a
+        join spas_student s on s.student_id = a.student_id
+        where s.dept_id = #{deptId}
+          and coalesce(s.status, '0') = '0'
+          and a.total_points &gt; 0
+        order by a.total_points desc, a.update_time asc, a.student_id
+        limit #{limit}
+    </select>
+
+    <select id="selectLeaderboardWeek" resultMap="AccountResult">
+        select a.student_id, a.total_points, a.level_no, a.day_streak, a.last_practice_date,
+               a.week_points, a.week_start, a.update_time,
+               s.student_name, s.student_no,
+               row_number() over (order by a.week_points desc, a.update_time asc, a.student_id) as rank_no
+        from spas_student_point_account a
+        join spas_student s on s.student_id = a.student_id
+        where s.dept_id = #{deptId}
+          and coalesce(s.status, '0') = '0'
+          and a.week_start = #{weekStart}::date
+          and a.week_points &gt; 0
+        order by a.week_points desc, a.update_time asc, a.student_id
+        limit #{limit}
+    </select>
+
+    <select id="selectRankAll" resultType="java.lang.Integer">
+        select rank_no from (
+            select a.student_id,
+                   row_number() over (order by a.total_points desc, a.update_time asc, a.student_id) as rank_no
+            from spas_student_point_account a
+            join spas_student s on s.student_id = a.student_id
+            where s.dept_id = #{deptId}
+              and coalesce(s.status, '0') = '0'
+              and a.total_points &gt; 0
+        ) t where t.student_id = #{studentId}
+    </select>
+
+    <select id="selectRankWeek" resultType="java.lang.Integer">
+        select rank_no from (
+            select a.student_id,
+                   row_number() over (order by a.week_points desc, a.update_time asc, a.student_id) as rank_no
+            from spas_student_point_account a
+            join spas_student s on s.student_id = a.student_id
+            where s.dept_id = #{deptId}
+              and coalesce(s.status, '0') = '0'
+              and a.week_start = #{weekStart}::date
+              and a.week_points &gt; 0
+        ) t where t.student_id = #{studentId}
+    </select>
+
+    <select id="selectRatesByStudents" resultType="java.util.HashMap">
+        select student_id as "studentId", knowledge_id as "knowledgeId",
+               coalesce(avg_rate, weighted_rate, 0) as "avgRate"
+        from spas_student_knowledge_stat
+        where student_id in
+        <foreach collection="studentIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="selectPracticedKnowledgeIds" resultType="java.lang.Long">
+        select distinct pk.knowledge_id
+        from spas_practice_log p
+        join spas_practice_log_knowledge pk on pk.log_id = p.log_id
+        where p.student_id = #{studentId}
+          and p.practice_date &gt;= #{beginDate}::date
+          and p.practice_date &lt;= #{endDate}::date
+          and coalesce(p.status, '0') = '0'
+          and (p.proxy_flag = '0' or p.confirm_status = '2')
+    </select>
+</mapper>

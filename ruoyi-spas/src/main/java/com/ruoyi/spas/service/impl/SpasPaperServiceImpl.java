@@ -6,8 +6,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -108,6 +110,37 @@ public class SpasPaperServiceImpl implements ISpasPaperService
     @Transactional
     public int insertSpasPaper(SpasPaper paper)
     {
+        Set<Long> deptIds = resolveCreateDeptIds(paper);
+        if (deptIds.size() > 1)
+        {
+            int rows = 0;
+            List<SpasPaperQuestion> template = paper.getQuestions();
+            for (Long deptId : deptIds)
+            {
+                SpasPaper one = new SpasPaper();
+                one.setPaperName(paper.getPaperName());
+                one.setPaperType(paper.getPaperType());
+                one.setSubjectId(paper.getSubjectId());
+                one.setDeptId(deptId);
+                one.setExamDate(paper.getExamDate());
+                one.setStatus(paper.getStatus());
+                one.setRemark(paper.getRemark());
+                one.setCreateBy(paper.getCreateBy());
+                one.setBankPaperId(paper.getBankPaperId());
+                one.setQuestions(cloneQuestions(template));
+                rows += insertSpasPaperSingle(one);
+            }
+            return rows;
+        }
+        if (!deptIds.isEmpty())
+        {
+            paper.setDeptId(deptIds.iterator().next());
+        }
+        return insertSpasPaperSingle(paper);
+    }
+
+    private int insertSpasPaperSingle(SpasPaper paper)
+    {
         if (paper.getDeptId() != null)
         {
             accessService.checkDeptAccess(paper.getDeptId());
@@ -122,6 +155,61 @@ public class SpasPaperServiceImpl implements ISpasPaperService
         int rows = paperMapper.insertSpasPaper(paper);
         saveQuestionsInternal(paper.getPaperId(), paper.getQuestions(), paper.getCreateBy());
         return rows;
+    }
+
+    private Set<Long> resolveCreateDeptIds(SpasPaper paper)
+    {
+        Set<Long> ids = new LinkedHashSet<Long>();
+        if (paper.getDeptIds() != null)
+        {
+            for (Long id : paper.getDeptIds())
+            {
+                if (id != null)
+                {
+                    ids.add(id);
+                }
+            }
+        }
+        if (ids.isEmpty() && paper.getDeptId() != null)
+        {
+            ids.add(paper.getDeptId());
+        }
+        return ids;
+    }
+
+    private List<SpasPaperQuestion> cloneQuestions(List<SpasPaperQuestion> questions)
+    {
+        if (questions == null)
+        {
+            return null;
+        }
+        List<SpasPaperQuestion> cloned = new ArrayList<SpasPaperQuestion>();
+        for (SpasPaperQuestion q : questions)
+        {
+            SpasPaperQuestion nq = new SpasPaperQuestion();
+            nq.setQuestionNo(q.getQuestionNo());
+            nq.setQuestionOrder(q.getQuestionOrder());
+            nq.setQuestionType(q.getQuestionType());
+            nq.setFullScore(q.getFullScore());
+            nq.setDifficulty(q.getDifficulty());
+            nq.setBloomLevel(q.getBloomLevel());
+            nq.setRemark(q.getRemark());
+            if (q.getKnowledgeList() != null)
+            {
+                List<SpasQuestionKnowledge> links = new ArrayList<SpasQuestionKnowledge>();
+                for (SpasQuestionKnowledge link : q.getKnowledgeList())
+                {
+                    SpasQuestionKnowledge nl = new SpasQuestionKnowledge();
+                    nl.setKnowledgeId(link.getKnowledgeId());
+                    nl.setWeight(link.getWeight());
+                    nl.setIsPrimary(link.getIsPrimary());
+                    links.add(nl);
+                }
+                nq.setKnowledgeList(links);
+            }
+            cloned.add(nq);
+        }
+        return cloned;
     }
 
     @Override
@@ -276,35 +364,7 @@ public class SpasPaperServiceImpl implements ISpasPaperService
         copy.setStatus("0");
         copy.setRemark(source.getRemark());
         copy.setCreateBy(operName);
-        List<SpasPaperQuestion> questions = source.getQuestions();
-        if (questions != null)
-        {
-            List<SpasPaperQuestion> cloned = new ArrayList<SpasPaperQuestion>();
-            for (SpasPaperQuestion q : questions)
-            {
-                SpasPaperQuestion nq = new SpasPaperQuestion();
-                nq.setQuestionNo(q.getQuestionNo());
-                nq.setQuestionOrder(q.getQuestionOrder());
-                nq.setFullScore(q.getFullScore());
-                nq.setDifficulty(q.getDifficulty());
-                nq.setRemark(q.getRemark());
-                if (q.getKnowledgeList() != null)
-                {
-                    List<SpasQuestionKnowledge> links = new ArrayList<SpasQuestionKnowledge>();
-                    for (SpasQuestionKnowledge link : q.getKnowledgeList())
-                    {
-                        SpasQuestionKnowledge nl = new SpasQuestionKnowledge();
-                        nl.setKnowledgeId(link.getKnowledgeId());
-                        nl.setWeight(link.getWeight());
-                        nl.setIsPrimary(link.getIsPrimary());
-                        links.add(nl);
-                    }
-                    nq.setKnowledgeList(links);
-                }
-                cloned.add(nq);
-            }
-            copy.setQuestions(cloned);
-        }
+        copy.setQuestions(cloneQuestions(source.getQuestions()));
         return insertSpasPaper(copy);
     }
 

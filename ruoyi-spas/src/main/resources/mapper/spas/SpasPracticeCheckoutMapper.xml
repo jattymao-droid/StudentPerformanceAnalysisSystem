@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasPracticeCheckoutMapper">
+
+    <resultMap id="AssignmentResult" type="com.ruoyi.spas.domain.SpasPracticeAssignment">
+        <id property="assignmentId" column="assignment_id"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="subjectId" column="subject_id"/>
+        <result property="assignDate" column="assign_date"/>
+        <result property="knowledgeId" column="knowledge_id"/>
+        <result property="bookName" column="book_name"/>
+        <result property="pageFrom" column="page_from"/>
+        <result property="pageTo" column="page_to"/>
+        <result property="questionText" column="question_text"/>
+        <result property="completeDefinition" column="complete_definition"/>
+        <result property="dueCountWeek" column="due_count_week"/>
+        <result property="status" column="status"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="deptName" column="dept_name"/>
+        <result property="subjectName" column="subject_name"/>
+        <result property="knowledgeName" column="knowledge_name"/>
+    </resultMap>
+
+    <resultMap id="CheckoutResult" type="com.ruoyi.spas.domain.SpasPracticeCheckout">
+        <id property="checkoutId" column="checkout_id"/>
+        <result property="assignmentId" column="assignment_id"/>
+        <result property="groupId" column="group_id"/>
+        <result property="practiceDate" column="practice_date"/>
+        <result property="leaderStudentId" column="leader_student_id"/>
+        <result property="checkerStudentId" column="checker_student_id"/>
+        <result property="submitTime" column="submit_time"/>
+        <result property="deviceCode" column="device_code"/>
+        <result property="status" column="status"/>
+        <result property="groupName" column="group_name"/>
+        <result property="leaderStudentName" column="leader_student_name"/>
+        <result property="checkerStudentName" column="checker_student_name"/>
+    </resultMap>
+
+    <resultMap id="ItemResult" type="com.ruoyi.spas.domain.SpasPracticeCheckoutItem">
+        <id property="itemId" column="item_id"/>
+        <result property="checkoutId" column="checkout_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="finishStatus" column="finish_status"/>
+        <result property="difficultyNote" column="difficulty_note"/>
+        <result property="memberAck" column="member_ack"/>
+        <result property="ackTime" column="ack_time"/>
+        <result property="voided" column="voided"/>
+        <result property="followStatus" column="follow_status"/>
+        <result property="spotResult" column="spot_result"/>
+        <result property="studentNo" column="student_no"/>
+        <result property="studentName" column="student_name"/>
+        <result property="groupId" column="group_id"/>
+        <result property="groupName" column="group_name"/>
+    </resultMap>
+
+    <sql id="assignmentVo">
+        select a.assignment_id, a.dept_id, a.subject_id, a.assign_date, a.knowledge_id,
+               a.book_name, a.page_from, a.page_to, a.question_text, a.complete_definition,
+               a.due_count_week, a.status, a.create_by, a.create_time,
+               d.dept_name, sub.subject_name, k.knowledge_name
+        from spas_practice_assignment a
+        left join sys_dept d on d.dept_id = a.dept_id
+        left join spas_subject sub on sub.subject_id = a.subject_id
+        left join spas_knowledge k on k.knowledge_id = a.knowledge_id
+    </sql>
+
+    <select id="selectAssignmentById" resultMap="AssignmentResult">
+        <include refid="assignmentVo"/>
+        where a.assignment_id = #{assignmentId}
+    </select>
+
+    <select id="selectAssignmentByDay" resultMap="AssignmentResult">
+        <include refid="assignmentVo"/>
+        where a.dept_id = #{deptId} and a.subject_id = #{subjectId}
+          and a.assign_date = #{assignDate} and coalesce(a.status,'0') = '0'
+    </select>
+
+    <select id="selectAssignmentList" resultMap="AssignmentResult">
+        <include refid="assignmentVo"/>
+        <where>
+            <if test="deptId != null">and a.dept_id = #{deptId}</if>
+            <if test="subjectId != null">and a.subject_id = #{subjectId}</if>
+            <if test="assignDate != null">and a.assign_date = #{assignDate}</if>
+            and coalesce(a.status,'0') = '0'
+        </where>
+        order by a.assign_date desc, a.assignment_id desc
+    </select>
+
+    <select id="selectLastAssignment" resultMap="AssignmentResult">
+        <include refid="assignmentVo"/>
+        where a.dept_id = #{deptId} and a.subject_id = #{subjectId}
+          and a.assign_date &lt; #{beforeDate} and coalesce(a.status,'0') = '0'
+        order by a.assign_date desc
+        limit 1
+    </select>
+
+    <insert id="insertAssignment" useGeneratedKeys="true" keyProperty="assignmentId">
+        insert into spas_practice_assignment(
+            dept_id, subject_id, assign_date, knowledge_id, book_name, page_from, page_to,
+            question_text, complete_definition, due_count_week, status, create_by, create_time, remark
+        ) values (
+            #{deptId}, #{subjectId}, #{assignDate}, #{knowledgeId}, #{bookName}, #{pageFrom}, #{pageTo},
+            #{questionText}, #{completeDefinition}, coalesce(#{dueCountWeek}, 3), coalesce(#{status}, '0'),
+            #{createBy}, now(), #{remark}
+        )
+    </insert>
+
+    <update id="updateAssignment">
+        update spas_practice_assignment
+        <set>
+            <if test="knowledgeId != null">knowledge_id = #{knowledgeId},</if>
+            <if test="bookName != null">book_name = #{bookName},</if>
+            <if test="pageFrom != null">page_from = #{pageFrom},</if>
+            <if test="pageTo != null">page_to = #{pageTo},</if>
+            <if test="questionText != null">question_text = #{questionText},</if>
+            <if test="completeDefinition != null">complete_definition = #{completeDefinition},</if>
+            <if test="dueCountWeek != null">due_count_week = #{dueCountWeek},</if>
+            <if test="status != null">status = #{status},</if>
+            update_by = #{updateBy},
+            update_time = now()
+        </set>
+        where assignment_id = #{assignmentId}
+    </update>
+
+    <sql id="checkoutVo">
+        select c.checkout_id, c.assignment_id, c.group_id, c.practice_date, c.leader_student_id,
+               c.checker_student_id, c.submit_time, c.device_code, c.status,
+               g.group_name, ls.student_name as leader_student_name, cs.student_name as checker_student_name
+        from spas_practice_checkout c
+        left join spas_study_group g on g.group_id = c.group_id
+        left join spas_student ls on ls.student_id = c.leader_student_id
+        left join spas_student cs on cs.student_id = c.checker_student_id
+    </sql>
+
+    <select id="selectCheckoutById" resultMap="CheckoutResult">
+        <include refid="checkoutVo"/>
+        where c.checkout_id = #{checkoutId}
+    </select>
+
+    <select id="selectCheckoutByGroupDay" resultMap="CheckoutResult">
+        <include refid="checkoutVo"/>
+        where c.group_id = #{groupId} and c.practice_date = #{practiceDate}
+          and c.assignment_id = #{assignmentId} and coalesce(c.status,'0') = '0'
+    </select>
+
+    <insert id="insertCheckout" useGeneratedKeys="true" keyProperty="checkoutId">
+        insert into spas_practice_checkout(
+            assignment_id, group_id, practice_date, leader_student_id, checker_student_id,
+            submit_time, device_code, status, create_time
+        ) values (
+            #{assignmentId}, #{groupId}, #{practiceDate}, #{leaderStudentId}, #{checkerStudentId},
+            now(), #{deviceCode}, coalesce(#{status}, '0'), now()
+        )
+    </insert>
+
+    <update id="updateCheckout">
+        update spas_practice_checkout
+        set checker_student_id = #{checkerStudentId},
+            device_code = #{deviceCode},
+            submit_time = now(),
+            update_time = now()
+        where checkout_id = #{checkoutId}
+    </update>
+
+    <delete id="deleteItems">
+        delete from spas_practice_checkout_item where checkout_id = #{checkoutId}
+    </delete>
+
+    <insert id="insertItem" useGeneratedKeys="true" keyProperty="itemId">
+        insert into spas_practice_checkout_item(
+            checkout_id, student_id, finish_status, difficulty_note, member_ack, voided, follow_status
+        ) values (
+            #{checkoutId}, #{studentId}, #{finishStatus}, #{difficultyNote},
+            coalesce(#{memberAck}, '0'), coalesce(#{voided}, '0'), coalesce(#{followStatus}, '0')
+        )
+    </insert>
+
+    <update id="updateItemAck">
+        update spas_practice_checkout_item
+        set member_ack = #{memberAck}, ack_time = now()
+        where item_id = #{itemId}
+    </update>
+
+    <update id="updateItemSpot">
+        update spas_practice_checkout_item
+        set spot_result = #{spotResult},
+            voided = #{voided}
+        where item_id = #{itemId}
+    </update>
+
+    <update id="updateItemFollow">
+        update spas_practice_checkout_item set follow_status = #{followStatus} where item_id = #{itemId}
+    </update>
+
+    <select id="selectItemById" resultMap="ItemResult">
+        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note,
+               i.member_ack, i.ack_time, i.voided, i.follow_status, i.spot_result,
+               s.student_no, s.student_name, c.group_id, g.group_name
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        left join spas_student s on s.student_id = i.student_id
+        left join spas_study_group g on g.group_id = c.group_id
+        where i.item_id = #{itemId}
+    </select>
+
+    <select id="selectItems" resultMap="ItemResult">
+        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note,
+               i.member_ack, i.ack_time, i.voided, i.follow_status, i.spot_result,
+               s.student_no, s.student_name, c.group_id, g.group_name
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        left join spas_student s on s.student_id = i.student_id
+        left join spas_study_group g on g.group_id = c.group_id
+        where i.checkout_id = #{checkoutId}
+        order by s.student_no
+    </select>
+
+    <select id="selectMyPendingAck" resultMap="ItemResult">
+        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note,
+               i.member_ack, i.ack_time, i.voided, i.follow_status, i.spot_result,
+               s.student_no, s.student_name, c.group_id, g.group_name
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        left join spas_student s on s.student_id = i.student_id
+        left join spas_study_group g on g.group_id = c.group_id
+        where i.student_id = #{studentId} and c.practice_date = #{practiceDate}
+          and coalesce(c.status,'0') = '0' and coalesce(i.voided,'0') = '0'
+          and coalesce(i.member_ack,'0') = '0'
+    </select>
+
+    <sql id="deptFilter">
+        and g.dept_id = #{deptId}
+        <if test="subjectId != null">
+            and (g.subject_id = #{subjectId} or g.subject_id is null)
+        </if>
+    </sql>
+
+    <select id="selectSpotQueue" resultType="java.util.HashMap">
+        select i.item_id as "itemId", i.student_id as "studentId", i.finish_status as "finishStatus",
+               i.difficulty_note as "difficultyNote", i.member_ack as "memberAck", i.spot_result as "spotResult",
+               i.voided as "voided", s.student_no as "studentNo", s.student_name as "studentName",
+               c.group_id as "groupId", g.group_name as "groupName", c.checker_student_id as "checkerStudentId",
+               a.book_name as "bookName", a.page_from as "pageFrom", a.page_to as "pageTo",
+               a.question_text as "questionText", a.knowledge_id as "knowledgeId", k.knowledge_name as "knowledgeName",
+               a.complete_definition as "completeDefinition",
+               (select count(1) from spas_practice_spot sp where sp.student_id = i.student_id) as "spotHistCount"
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_practice_assignment a on a.assignment_id = c.assignment_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        left join spas_student s on s.student_id = i.student_id
+        left join spas_knowledge k on k.knowledge_id = a.knowledge_id
+        where c.practice_date = #{practiceDate} and coalesce(c.status,'0') = '0'
+          and coalesce(i.voided,'0') = '0' and coalesce(i.spot_result,'') = ''
+        <include refid="deptFilter"/>
+        order by i.item_id
+    </select>
+
+    <select id="selectMissingCheckout" resultType="java.util.HashMap">
+        select g.group_id as "groupId", g.group_name as "groupName",
+               g.leader_student_id as "leaderStudentId", ls.student_name as "leaderStudentName",
+               (select count(1) from spas_study_group_member m where m.group_id = g.group_id and m.leave_time is null) as "memberCount"
+        from spas_study_group g
+        left join spas_student ls on ls.student_id = g.leader_student_id
+        where coalesce(g.status,'0') = '0'
+        <include refid="deptFilter"/>
+          and not exists (
+            select 1 from spas_practice_checkout c
+            inner join spas_practice_assignment a on a.assignment_id = c.assignment_id
+            where c.group_id = g.group_id and c.practice_date = #{practiceDate}
+              and coalesce(c.status,'0') = '0'
+              and a.dept_id = #{deptId}
+              <if test="subjectId != null">and a.subject_id = #{subjectId}</if>
+          )
+        order by g.sort_order, g.group_id
+    </select>
+
+    <select id="selectPendingAck" resultType="java.util.HashMap">
+        select i.item_id as "itemId", s.student_no as "studentNo", s.student_name as "studentName",
+               g.group_name as "groupName", i.finish_status as "finishStatus"
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        left join spas_student s on s.student_id = i.student_id
+        where c.practice_date = #{practiceDate} and coalesce(c.status,'0') = '0'
+          and coalesce(i.member_ack,'0') = '0' and coalesce(i.voided,'0') = '0'
+        <include refid="deptFilter"/>
+    </select>
+
+    <select id="selectDisputes" resultType="java.util.HashMap">
+        select i.item_id as "itemId", i.student_id as "studentId", s.student_no as "studentNo",
+               s.student_name as "studentName", g.group_name as "groupName", i.finish_status as "finishStatus"
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        left join spas_student s on s.student_id = i.student_id
+        where c.practice_date = #{practiceDate} and coalesce(i.member_ack,'0') = '2'
+        <include refid="deptFilter"/>
+    </select>
+
+    <select id="selectDifficultySummary" resultType="java.util.HashMap">
+        select coalesce(k.knowledge_name, '未标主题') as "knowledgeName",
+               a.knowledge_id as "knowledgeId",
+               count(1) as "studentCount"
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_practice_assignment a on a.assignment_id = c.assignment_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        left join spas_knowledge k on k.knowledge_id = a.knowledge_id
+        where c.practice_date = #{practiceDate} and i.finish_status = '3'
+          and coalesce(c.status,'0') = '0' and coalesce(i.voided,'0') = '0'
+        <include refid="deptFilter"/>
+        group by a.knowledge_id, k.knowledge_name
+        order by count(1) desc
+    </select>
+
+    <select id="selectDifficultyItems" resultType="java.util.HashMap">
+        select i.item_id as "itemId", i.student_id as "studentId", s.student_name as "studentName", s.student_no as "studentNo",
+               i.difficulty_note as "difficultyNote", g.group_name as "groupName",
+               i.follow_status as "followStatus", a.knowledge_id as "knowledgeId"
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_practice_assignment a on a.assignment_id = c.assignment_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        left join spas_student s on s.student_id = i.student_id
+        where c.practice_date = #{practiceDate} and i.finish_status = '3'
+          and coalesce(c.status,'0') = '0' and coalesce(i.voided,'0') = '0'
+        <include refid="deptFilter"/>
+        order by i.follow_status, i.item_id
+    </select>
+
+    <select id="countWeekCheckout" resultType="int">
+        select count(1) from spas_practice_checkout
+        where group_id = #{groupId} and practice_date between #{beginDate} and #{endDate}
+          and coalesce(status,'0') = '0'
+    </select>
+
+    <select id="countWeekLoose" resultType="int">
+        select count(1)
+        from spas_practice_spot sp
+        inner join spas_practice_checkout_item i on i.item_id = sp.item_id
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        where c.group_id = #{groupId} and sp.spot_result = '2'
+          and c.practice_date between #{beginDate} and #{endDate}
+    </select>
+
+    <select id="countUnfollowedDifficulty" resultType="int">
+        select count(1)
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        where c.group_id = #{groupId} and i.finish_status = '3'
+          and coalesce(i.follow_status,'0') = '0' and coalesce(i.voided,'0') = '0'
+          and c.practice_date between #{beginDate} and #{endDate}
+    </select>
+
+    <select id="countSpotsThisWeek" resultType="int">
+        select count(1)
+        from spas_practice_spot sp
+        inner join spas_practice_checkout_item i on i.item_id = sp.item_id
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        where g.dept_id = #{deptId}
+          <if test="subjectId != null">and (g.subject_id = #{subjectId} or g.subject_id is null)</if>
+          and c.practice_date between #{beginDate} and #{endDate}
+    </select>
+
+    <select id="selectActiveGroups" resultType="java.util.HashMap">
+        select g.group_id as "groupId", g.group_name as "groupName"
+        from spas_study_group g
+        where coalesce(g.status,'0') = '0'
+        <include refid="deptFilter"/>
+        order by g.sort_order, g.group_id
+    </select>
+
+    <select id="selectLooseCheckerIds" resultType="long">
+        select distinct c.checker_student_id
+        from spas_practice_spot sp
+        inner join spas_practice_checkout_item i on i.item_id = sp.item_id
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        where sp.spot_result = '2' and g.dept_id = #{deptId}
+          and c.practice_date &gt;= #{beginDate}
+    </select>
+
+    <insert id="insertSpot">
+        insert into spas_practice_spot(
+            item_id, student_id, group_id, checker_student_id, spot_result, spot_by, spot_time, spot_remark
+        ) values (
+            #{itemId}, #{studentId}, #{groupId}, #{checkerStudentId}, #{spotResult}, #{spotBy}, now(), #{spotRemark}
+        )
+    </insert>
+</mapper>

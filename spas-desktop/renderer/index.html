@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>知脉 · 每日自主练</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body class="mode-auth">
+  <div class="desk-bg" aria-hidden="true"></div>
+  <div id="netBanner" class="banner warn" hidden>网络不可用：提交将暂存本地，恢复后自动同步</div>
+  <div id="idleBanner" class="banner idle" hidden>
+    <span id="idleText">即将因长时间未操作退出登录</span>
+    <button type="button" class="btn pill ok" id="btnIdleKeep">继续使用</button>
+  </div>
+
+  <div id="app" class="shell">
+    <!-- Left rail -->
+    <aside class="rail" id="appRail" hidden>
+      <div class="rail-logo" title="知脉">知</div>
+      <nav class="rail-nav">
+        <button type="button" class="rail-btn active" id="navHome" title="首页" data-nav="home" aria-label="首页">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z"/></svg>
+          <span>首页</span>
+        </button>
+        <button type="button" class="rail-btn" id="navPractice" title="打卡" data-nav="practice" aria-label="打卡">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3h8v4H8zM6 7h12v14H6z"/><path d="M9 12h6M9 16h4"/></svg>
+          <span>打卡</span>
+        </button>
+        <button type="button" class="rail-btn" id="navHistory" title="近7日" data-nav="history" aria-label="近7日">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/></svg>
+          <span>历史</span>
+        </button>
+        <button type="button" class="rail-btn" id="navProxy" title="代提" data-nav="proxy" hidden aria-label="代提">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3.5 19c1-3.5 3.2-5 5.5-5s4.5 1.5 5.5 5M14 14c1.6 0 3.2.8 4.5 3"/></svg>
+          <span>代提</span>
+        </button>
+        <button type="button" class="rail-btn" id="navSettings" title="设置" data-nav="settings" aria-label="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M3 12h2M19 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <span>设置</span>
+        </button>
+      </nav>
+      <div class="rail-bottom">
+        <button type="button" class="rail-plus" id="navQuickAdd" title="本人打卡" aria-label="本人打卡">+</button>
+        <button type="button" class="rail-btn" id="navLogout" title="退出" aria-label="退出">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 7V5a1 1 0 0 1 1-1h8v16h-8a1 1 0 0 1-1-1v-2"/><path d="M14 12H4m0 0 3-3m-3 3 3 3"/></svg>
+          <span>退出</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Center -->
+    <div class="workspace">
+      <header class="workspace-head" id="workspaceHead" hidden>
+        <div>
+          <h1 class="page-title" id="pageTitle">每日自主练</h1>
+          <p class="page-sub" id="pageSub">针对薄弱点登记今日练习</p>
+        </div>
+        <div class="head-actions">
+          <span id="queueBadge" class="badge" hidden>离线 0</span>
+          <span class="status-dot" id="onlineDot" title="在线"></span>
+          <span class="clock" id="clockLabel"></span>
+          <button type="button" class="icon-btn" id="btnFlushQueue" hidden title="同步离线" aria-label="同步离线">⟳</button>
+          <button type="button" class="icon-btn" id="btnHeadSettings" title="设置" aria-label="设置">⚙</button>
+        </div>
+      </header>
+
+      <div class="workspace-body">
+        <!-- Auth: login -->
+        <section id="viewLogin" class="view view-auth">
+          <div class="auth-card glass">
+            <div class="auth-brand">
+              <div class="auth-logo">知</div>
+              <div>
+                <div class="auth-name">知脉</div>
+                <div class="auth-tag">每日薄弱自主练</div>
+              </div>
+            </div>
+            <h2>学生登录</h2>
+            <p class="hint">学号 + PIN（推荐），快速登记今日练习</p>
+            <div class="seg" id="loginModeSeg">
+              <button type="button" class="seg-item active" data-mode="pin">PIN 快捷</button>
+              <button type="button" class="seg-item" data-mode="pwd">密码登录</button>
+              <input type="radio" name="loginMode" value="pin" checked hidden />
+              <input type="radio" name="loginMode" value="pwd" hidden />
+            </div>
+            <label for="loginUser">学号</label>
+            <input id="loginUser" class="input lg" autocomplete="username" placeholder="请输入学号" inputmode="text" />
+            <div id="recentUsers" class="recent-users" hidden></div>
+            <div id="pinFields">
+              <label>PIN</label>
+              <button type="button" class="pin-dots" id="pinDots" aria-label="输入 PIN">
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+              </button>
+              <input id="loginPin" class="input lg pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off" tabindex="-1" />
+            </div>
+            <div id="pwdFields" hidden>
+              <label for="loginPwd">密码</label>
+              <input id="loginPwd" class="input lg" type="password" autocomplete="current-password" placeholder="密码" />
+              <div class="captcha-row">
+                <input id="loginCode" class="input lg" placeholder="验证码" maxlength="6" />
+                <img id="captchaImg" class="captcha" alt="验证码" />
+              </div>
+            </div>
+            <button type="button" class="btn ghost block" id="btnToggleKb">隐藏软键盘</button>
+            <div id="softKb" class="soft-kb num"></div>
+            <button type="button" class="btn primary xl block" id="btnLogin">登 录</button>
+            <p class="err" id="loginErr" role="alert"></p>
+            <p class="meta" id="deviceMeta"></p>
+            <button type="button" class="linkish" id="btnSettingsLogin">一体机设置</button>
+          </div>
+        </section>
+
+        <!-- Auth: setup -->
+        <section id="viewSetup" class="view view-auth" hidden>
+          <div class="auth-card glass wide">
+            <h2>一体机设置</h2>
+            <p class="hint">配置服务器与设备后即可登录打卡</p>
+            <label for="cfgApiBase">API 地址</label>
+            <input id="cfgApiBase" class="input lg kb-field" data-kb="full" placeholder="https://xq.xmls.vip/prod-api" />
+            <label for="cfgDeviceCode">设备编号</label>
+            <input id="cfgDeviceCode" class="input lg kb-field" data-kb="full" placeholder="KIOSK-CLASS-01" />
+            <label for="cfgTitle">窗口标题</label>
+            <input id="cfgTitle" class="input lg kb-field" data-kb="full" placeholder="知脉 · 每日自主练" />
+            <label for="cfgIdleMinutes">空闲退出（分钟）</label>
+            <input id="cfgIdleMinutes" class="input lg kb-field" data-kb="num" type="number" min="2" max="60" value="8" />
+            <div class="check-list">
+              <label class="check"><input type="checkbox" id="cfgKiosk" /><span>Kiosk 全屏</span></label>
+              <label class="check"><input type="checkbox" id="cfgAutoLaunch" /><span>开机自动启动</span></label>
+            </div>
+            <div class="row2 mt">
+              <button type="button" class="btn ghost" id="btnTestApi">测试连接</button>
+              <button type="button" class="btn primary" id="btnSaveSetup">保存并进入登录</button>
+            </div>
+            <button type="button" class="linkish mt" id="btnSetupBack" hidden>返回</button>
+            <button type="button" class="linkish mt" id="btnOpenLog" hidden>打开日志目录</button>
+            <p class="err" id="setupErr" role="alert"></p>
+            <p class="meta" id="setupMeta"></p>
+          </div>
+        </section>
+
+        <!-- Home: student-first quick path -->
+        <section id="viewHome" class="view" hidden>
+          <div id="homeAlerts" class="home-alerts" hidden></div>
+
+          <div id="quickHero" class="quick-hero glass card">
+            <div class="quick-top">
+              <div>
+                <div class="quick-hello" id="hello">你好</div>
+                <p class="quick-status" id="homeStatus">今日尚未打卡</p>
+              </div>
+              <div class="quick-meta" id="quickMeta">
+                <button type="button" class="meta-tap" id="metaDone" title="查看今日记录">今日 <b id="statDone">0</b></button>
+                <button type="button" class="meta-tap" id="metaConfirm" title="查看待确认">待确认 <b id="statConfirm">0</b></button>
+                <button type="button" class="meta-tap" id="metaMiss" title="查看本组未交">未交 <b id="statGroupMiss">-</b></button>
+              </div>
+            </div>
+            <div class="level-bar" id="levelBar">
+              <div class="level-badge" id="levelBadge">Lv.1</div>
+              <div class="level-track-wrap">
+                <div class="level-meta">
+                  <span id="levelPointsText">0 积分</span>
+                  <span id="levelTodayText">今日 +0 · 本周 0 · 连打 0 天</span>
+                </div>
+                <div class="level-track"><i id="levelFill" style="width:0%"></i></div>
+                <div class="level-sub" id="levelNextText">距下一级还需 50</div>
+              </div>
+            </div>
+            <details class="points-rules" id="pointsRules">
+              <summary>积分怎么算？</summary>
+              <ul>
+                <li>组员确认检查属实：完成/部分 <b>+10</b>，如实报困难 <b>+8</b></li>
+                <li>组长线下查完后按时上机登记 <b>+5</b></li>
+                <li>教师抽检一致再 <b>+5</b></li>
+                <li>加练另计：当日首条 <b>+10</b>（连打额外 +2×天数，最多 7 天），同日再交最多 2 条每条 <b>+3</b></li>
+                <li>掌握度明显进步 <b>+15</b>（系统自动）</li>
+                <li>每日积分上限 <b>40</b>；未做/请假/未到不发分</li>
+              </ul>
+            </details>
+            <div class="hero-actions">
+              <button type="button" class="btn primary hero-cta" id="btnGoPractice">登记今日练习</button>
+              <div class="hero-secondary">
+                <button type="button" class="btn reuse-btn" id="btnGoExtra">加练（不计入达标）</button>
+                <button type="button" class="btn reuse-btn" id="btnReuseLast" hidden>复用上次记录</button>
+                <button type="button" class="btn ghost warn-btn" id="btnGoProxy" hidden>帮组员登记</button>
+              </div>
+            </div>
+            <div class="quick-links">
+              <button type="button" class="linkish" id="btnRefreshHome">刷新</button>
+              <button type="button" class="linkish" id="btnHomeHistory">近7日</button>
+              <button type="button" class="linkish" id="btnToggleDash">更多明细</button>
+            </div>
+          </div>
+
+          <div class="home-grid" id="homeModules">
+            <div class="glass card home-mod" id="homeWeekMod">
+              <div class="mod-head">
+                <div>
+                  <div class="muted">本周练习节奏</div>
+                  <div class="mod-title" id="weekDaysText">已练 0 天</div>
+                </div>
+                <span class="pill dark" id="weekPill">0 条今日</span>
+              </div>
+              <div class="week-bars" id="weekBars"></div>
+              <div class="week-labels"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+              <p class="hint tiny" id="weekTip">点柱状可看近7日</p>
+            </div>
+
+            <div class="glass card home-mod" id="homeWeakMod">
+              <div class="mod-head">
+                <div>
+                  <div class="muted">建议先练</div>
+                  <div class="mod-title">薄弱主题</div>
+                </div>
+                <button type="button" class="linkish" id="btnWeakPractice">去打卡</button>
+              </div>
+              <div id="homeWeakList" class="chips"></div>
+            </div>
+
+            <div class="glass card home-mod" id="homeTodayMod" hidden>
+              <div class="mod-head">
+                <div>
+                  <div class="muted">今日记录</div>
+                  <div class="mod-title" id="homeTodayTitle">已交 0 条</div>
+                </div>
+                <button type="button" class="linkish" id="btnTodayExpand">全部</button>
+              </div>
+              <div id="homeTodayPreview" class="today-preview"></div>
+            </div>
+
+            <div class="glass card home-mod" id="homeGroupMod" hidden>
+              <div class="mod-head">
+                <div>
+                  <div class="muted" id="homeGroupName">本组今日</div>
+                  <div class="mod-title" id="homeGroupRate">0 / 0 已交</div>
+                </div>
+                <span class="pill" id="homeGroupPill">-</span>
+              </div>
+              <div id="homeGroupMiss" class="group-miss"></div>
+              <button type="button" class="btn ghost block mt" id="btnHomeProxy" hidden>帮未交组员登记</button>
+            </div>
+
+            <div class="glass card home-mod confirm-mod" id="homeConfirmMod" hidden>
+              <div class="mod-head">
+                <div>
+                  <div class="muted">待你确认</div>
+                  <div class="mod-title" id="homeConfirmTitle">0 条代提</div>
+                </div>
+              </div>
+              <ul id="homeConfirmList" class="aside-feed"></ul>
+            </div>
+
+            <div class="glass card home-mod confirm-mod" id="homeBoardMod">
+              <div class="mod-head">
+                <div>
+                  <div class="muted">本班积分榜</div>
+                  <div class="mod-title" id="boardTitle">本周 Top10</div>
+                </div>
+                <div class="board-tabs">
+                  <button type="button" class="chip tap active" data-board="week" id="btnBoardWeek">周榜</button>
+                  <button type="button" class="chip tap" data-board="all" id="btnBoardAll">总榜</button>
+                </div>
+              </div>
+              <ol id="homeBoardList" class="board-list"></ol>
+              <p class="hint tiny" id="boardMyRank">我的名次：-</p>
+            </div>
+          </div>
+
+          <!-- Extra detail (optional) -->
+          <div id="dashWrap" hidden>
+            <div class="tabs" id="homeTabs">
+              <button type="button" class="tab active" data-tab="todo">待办汇总</button>
+              <button type="button" class="tab" data-tab="weak">全部薄弱</button>
+              <button type="button" class="tab" data-tab="done">今日已交</button>
+              <button type="button" class="tab" data-tab="group" id="tabGroupBtn" hidden>全组</button>
+            </div>
+
+            <div class="tab-panel" id="tabTodo">
+              <div class="glass card">
+                <div class="inline-stats">
+                  <div><b id="statQueue">0</b><span>离线待传</span></div>
+                  <div><b id="statConfirmTodo">0</b><span>待确认</span></div>
+                  <div><b id="statDoneDash">0</b><span>今日已交</span></div>
+                  <div><b id="statConfirmDash">0</b><span>待确认(副)</span></div>
+                </div>
+                <div class="action-row mt" id="actionGrid">
+                  <button type="button" class="glass card action-card primary" id="btnGoPractice2">
+                    <div class="action-title">登记检查结果</div>
+                    <div class="muted">线下查完后上机点状态</div>
+                  </button>
+                  <button type="button" class="glass card action-card warn" id="btnGoProxy2" hidden>
+                    <div class="action-title">帮组员登记</div>
+                    <div class="muted">组长代提 · 次日确认</div>
+                  </button>
+                </div>
+              </div>
+              <div class="glass card mt narrow-only" id="centerConfirmCard" hidden>
+                <h3>待确认代提 <span id="centerConfirmHint" class="muted"></span></h3>
+                <ul id="centerConfirmList" class="aside-feed"></ul>
+              </div>
+            </div>
+
+            <div class="tab-panel" id="tabWeak" hidden>
+              <div class="glass card">
+                <h3>全部薄弱建议</h3>
+                <p class="hint">点选主题可直接开始打卡并预勾选</p>
+                <div id="weakList" class="chips"></div>
+              </div>
+            </div>
+
+            <div class="tab-panel" id="tabDone" hidden>
+              <div class="task-grid" id="todayList"></div>
+            </div>
+
+            <div class="tab-panel" id="tabGroup" hidden>
+              <div class="glass card">
+                <h3>本组进度</h3>
+                <div id="centerGroupProgress" class="aside-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- hidden hooks kept for JS compatibility -->
+          <button type="button" id="featureCard" hidden></button>
+          <button type="button" id="statDoneCard" hidden></button>
+          <button type="button" id="statConfirmCard" hidden></button>
+          <span id="todayOkBadge" hidden></span>
+          <span id="homeStatusDash" hidden></span>
+          <span id="weekTipLegacy" hidden></span>
+        </section>
+
+        <section id="viewCheckout" class="view" hidden>
+          <div class="glass card">
+            <div class="row-between">
+              <h2>登记检查结果</h2>
+              <button type="button" class="btn ghost" id="btnCheckoutHome">返回</button>
+            </div>
+            <p class="hint">请先在座位翻本、抽问，再来机器上点状态。不要对着屏幕做检查。</p>
+            <p class="hint" id="checkoutAssign"></p>
+            <p class="hint tiny" id="checkoutDef"></p>
+            <div id="checkoutMembers" class="checkout-list"></div>
+            <div class="row2 mt">
+              <button type="button" class="btn ghost" id="btnCheckoutCancel">取消</button>
+              <button type="button" class="btn primary" id="btnCheckoutSubmit">提交登记</button>
+            </div>
+            <p class="err" id="checkoutErr" role="alert"></p>
+          </div>
+        </section>
+
+        <section id="viewAck" class="view" hidden>
+          <div class="glass card ack-card">
+            <div class="row-between">
+              <h2>确认检查结果</h2>
+              <button type="button" class="btn ghost" id="btnAckHome">返回</button>
+            </div>
+            <p class="hint" id="ackAssign"></p>
+            <p class="ack-finish" id="ackFinish">—</p>
+            <p class="hint" id="ackNote"></p>
+            <p class="hint tiny">这是组长在座位上看到的结果。属实后发核实积分；异议不扣分，老师会抽检。</p>
+            <div class="row2 mt ack-actions">
+              <button type="button" class="btn ghost danger-outline" id="btnAckNo">有异议</button>
+              <button type="button" class="btn primary" id="btnAckYes">属实</button>
+            </div>
+            <p class="err" id="ackErr" role="alert"></p>
+          </div>
+        </section>
+
+        <!-- History -->
+        <section id="viewHistory" class="view" hidden>
+          <div class="glass card">
+            <div class="row-between">
+              <h2>近 7 日自主练</h2>
+              <button type="button" class="btn ghost" id="btnHistoryHome">返回首页</button>
+            </div>
+            <div id="historyList" class="task-grid"></div>
+          </div>
+        </section>
+
+        <!-- Practice form: fast path -->
+        <section id="viewPractice" class="view" hidden>
+          <div class="glass card practice-card">
+            <div class="row-between">
+              <h2 id="practiceTitle">登记今日自主练</h2>
+              <button type="button" class="btn ghost" id="btnReuseInForm" hidden>带入上次</button>
+            </div>
+            <p class="hint" id="proxyHint" hidden></p>
+            <p class="reuse-banner" id="reuseBanner" hidden></p>
+            <div class="steps" id="practiceSteps">
+              <button type="button" class="step on" data-jump="subjectId">1 主题</button>
+              <button type="button" class="step" data-jump="bookPicks">2 书页题</button>
+              <button type="button" class="step" data-jump="finish">3 提交</button>
+            </div>
+            <label for="subjectId">学科</label>
+            <select id="subjectId" class="input lg"></select>
+            <label>练什么主题（点选薄弱即可，可多选）</label>
+            <div id="weakQuick" class="pick-grid weak-quick"></div>
+            <button type="button" class="linkish" id="btnToggleMoreKnow">选择其他主题</button>
+            <div id="moreKnowWrap" hidden>
+              <div id="knowledgeBox" class="check-grid"></div>
+            </div>
+            <label>书本（点选常用，或下方手输）</label>
+            <div id="bookPicks" class="book-picks"></div>
+            <input id="bookName" class="input lg kb-field" data-kb="full" list="bookSuggest" placeholder="其他书名…" />
+            <datalist id="bookSuggest"></datalist>
+            <div class="row2">
+              <div><label for="pageFrom">起始页</label><input id="pageFrom" class="input lg kb-field" data-kb="num" type="number" min="1" inputmode="numeric" /></div>
+              <div><label for="pageTo">结束页</label><input id="pageTo" class="input lg kb-field" data-kb="num" type="number" min="1" inputmode="numeric" /></div>
+            </div>
+            <div class="page-quick" id="pageQuick">
+              <button type="button" class="chip tap" data-page="same">同页</button>
+              <button type="button" class="chip tap" data-page="next">续页 +1</button>
+              <button type="button" class="chip tap" data-page="clear">清空页码</button>
+            </div>
+            <label for="quickLine">一行速填（可选）</label>
+            <input id="quickLine" class="input lg kb-field" data-kb="full" placeholder="例：32-35 / 1,2,5  回车即填入" />
+            <label for="questionText">题号（点选或手输）</label>
+            <div id="qChips" class="q-chips"></div>
+            <input id="questionText" class="input lg kb-field" data-kb="full" placeholder="如：1,2,5" />
+            <label>完成情况</label>
+            <div class="radio-row" id="finish">
+              <label class="radio"><input type="radio" name="finish" value="1" checked /> 已完成</label>
+              <label class="radio"><input type="radio" name="finish" value="2" /> 部分完成</label>
+              <label class="radio"><input type="radio" name="finish" value="3" /> 有困难</label>
+            </div>
+            <div id="diffWrap" hidden>
+              <label for="difficultyNote">卡点说明（必填）</label>
+              <textarea id="difficultyNote" class="input lg kb-field" data-kb="full" rows="3" placeholder="哪一题卡住了？"></textarea>
+            </div>
+            <details class="more-opt">
+              <summary>更多选项（最卡一题）</summary>
+              <label for="hardestQuestion">最卡一题（可选）</label>
+              <input id="hardestQuestion" class="input lg kb-field" data-kb="full" placeholder="可选" />
+            </details>
+            <p class="err" id="formErr" role="alert"></p>
+            <div class="ready-bar" id="readyBar">
+              <div class="ready-dots" id="readyDots" aria-hidden="true">
+                <i data-k="theme"></i><i data-k="book"></i><i data-k="q"></i><i data-k="finish"></i>
+              </div>
+              <span id="readyText">填写主题、书名、题号后可提交</span>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn ghost" id="btnBackHome">返回</button>
+              <button type="button" class="btn primary xl" id="btnSubmit" disabled>还差：主题、书名、题号</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Success -->
+        <section id="viewSuccess" class="view view-auth" hidden>
+          <div class="success-card glass">
+            <div class="success-ico">✓</div>
+            <h2>提交成功</h2>
+            <p id="successText" class="hint">今日练习已登记</p>
+            <p id="successPoints" class="success-points" hidden>积分 +0</p>
+            <p id="successLevelUp" class="success-levelup" hidden>升级到 Lv.1！</p>
+            <p class="muted"><span id="successCountdown">3</span> 秒后自动退出，方便下一位同学</p>
+            <div class="row2 mt">
+              <button type="button" class="btn ghost" id="btnSuccessStay">继续登记</button>
+              <button type="button" class="btn primary" id="btnSuccessExit">退出给下一位</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Proxy pick -->
+        <section id="viewProxyPick" class="view" hidden>
+          <div class="glass card">
+            <div class="row-between">
+              <h2>选择组员</h2>
+              <button type="button" class="btn ghost" id="btnBackHome2">返回</button>
+            </div>
+            <p class="hint">已交成员不可再次代提；未交成员点选后填写表单</p>
+            <div id="memberPick" class="pick-grid"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Right aside -->
+    <aside class="aside" id="appAside" hidden>
+      <div class="aside-head">
+        <div class="aside-user">
+          <div class="avatar" id="userAvatar">生</div>
+          <div>
+            <div class="aside-name" id="userLabel">未登录</div>
+            <div class="muted" id="asideRole">学生</div>
+          </div>
+        </div>
+      </div>
+      <div class="aside-scroll">
+        <div class="aside-block" id="asidePointsBlock">
+          <h4>我的成长</h4>
+          <div class="aside-level" id="asideLevelCard">
+            <div class="aside-lv" id="asideLv">Lv.1</div>
+            <div class="aside-lv-meta">
+              <div><b id="asideTotalPts">0</b> 积分</div>
+              <div class="muted" id="asidePtsSub">今日 +0 · 连打 0 天</div>
+            </div>
+          </div>
+          <div class="aside-track"><i id="asideLevelFill" style="width:0%"></i></div>
+          <p class="hint tiny" id="asideRankHint">班内名次加载中…</p>
+        </div>
+        <div class="aside-block" id="asideBoardBlock">
+          <h4>本班榜 · <span id="asideBoardRangeLabel">本周</span></h4>
+          <ol id="asideBoardList" class="board-list compact"></ol>
+        </div>
+        <div class="aside-block" id="asideLedgerBlock" hidden>
+          <h4>最近得分</h4>
+          <ul id="asideLedgerList" class="aside-feed ledger-feed"></ul>
+        </div>
+        <div class="aside-block" id="groupCard" hidden>
+          <h4>本组进度</h4>
+          <div id="groupProgress" class="aside-list"></div>
+        </div>
+        <div class="aside-block" id="confirmCard" hidden>
+          <h4>待确认代提 <span id="confirmHint" class="muted"></span></h4>
+          <ul id="confirmList" class="aside-feed"></ul>
+        </div>
+        <div class="aside-block">
+          <h4>动态提示</h4>
+          <div id="asideTips"></div>
+        </div>
+      </div>
+      <div class="aside-foot">
+        <button type="button" class="btn primary block" id="btnAsidePractice">去打卡</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Floating soft keyboard for practice / setup -->
+  <div id="dockKb" class="dock-kb" hidden>
+    <div class="dock-kb-bar">
+      <span id="dockKbLabel">软键盘</span>
+      <button type="button" class="btn mini ghost" id="btnDockKbHide">收起</button>
+    </div>
+    <div id="dockKbKeys" class="soft-kb"></div>
+  </div>
+
+  <div id="confirmDlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="confirmDlgTitle">
+    <div class="modal-card glass">
+      <h2 id="confirmDlgTitle">确认提交？</h2>
+      <p id="confirmDlgText" class="hint"></p>
+      <div class="row2">
+        <button type="button" class="btn ghost" id="btnConfirmCancel">再看看</button>
+        <button type="button" class="btn primary" id="btnConfirmOk">确认提交</button>
+      </div>
+    </div>
+  </div>
+  <div id="rejectDlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="rejectDlgTitle">
+    <div class="modal-card glass">
+      <h2 id="rejectDlgTitle">驳回代提？</h2>
+      <p class="hint">驳回后该记录将作废，对方不会获得积分。</p>
+      <div class="row2">
+        <button type="button" class="btn ghost" id="btnRejectCancel">取消</button>
+        <button type="button" class="btn danger" id="btnRejectOk">确认驳回</button>
+      </div>
+    </div>
+  </div>
+  <div id="loadingMask" class="loading-mask" hidden>
+    <div class="spinner"></div>
+    <div id="loadingText">处理中…</div>
+  </div>
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

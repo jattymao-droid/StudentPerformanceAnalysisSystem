@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.spas.mapper.SpasStudyGroupMapper">
+
+    <resultMap id="SpasStudyGroupResult" type="SpasStudyGroup">
+        <id property="groupId" column="group_id"/>
+        <result property="deptId" column="dept_id"/>
+        <result property="subjectId" column="subject_id"/>
+        <result property="groupName" column="group_name"/>
+        <result property="leaderStudentId" column="leader_student_id"/>
+        <result property="status" column="status"/>
+        <result property="sortOrder" column="sort_order"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+        <result property="deptName" column="dept_name"/>
+        <result property="subjectName" column="subject_name"/>
+        <result property="leaderStudentName" column="leader_student_name"/>
+        <result property="memberCount" column="member_count"/>
+    </resultMap>
+
+    <resultMap id="SpasStudyGroupMemberResult" type="SpasStudyGroupMember">
+        <id property="id" column="id"/>
+        <result property="groupId" column="group_id"/>
+        <result property="studentId" column="student_id"/>
+        <result property="roleInGroup" column="role_in_group"/>
+        <result property="joinTime" column="join_time"/>
+        <result property="leaveTime" column="leave_time"/>
+        <result property="studentNo" column="student_no"/>
+        <result property="studentName" column="student_name"/>
+    </resultMap>
+
+    <sql id="selectVo">
+        select g.group_id, g.dept_id, g.subject_id, g.group_name, g.leader_student_id, g.status, g.sort_order,
+               g.create_by, g.create_time, g.update_by, g.update_time, g.remark,
+               d.dept_name, sub.subject_name, ls.student_name as leader_student_name,
+               (select count(1) from spas_study_group_member m
+                 where m.group_id = g.group_id and m.leave_time is null) as member_count
+        from spas_study_group g
+        left join sys_dept d on d.dept_id = g.dept_id
+        left join spas_subject sub on sub.subject_id = g.subject_id
+        left join spas_student ls on ls.student_id = g.leader_student_id
+    </sql>
+
+    <select id="selectSpasStudyGroupList" parameterType="SpasStudyGroup" resultMap="SpasStudyGroupResult">
+        <include refid="selectVo"/>
+        <where>
+            <if test="deptId != null">AND g.dept_id = #{deptId}</if>
+            <if test="subjectId != null">AND g.subject_id = #{subjectId}</if>
+            <if test="subjectId == null and params != null and params.requireNullSubject != null">
+                AND g.subject_id is null
+            </if>
+            <if test="status != null and status != ''">AND g.status = #{status}</if>
+            <if test="groupName != null and groupName != ''">AND g.group_name like ('%' || #{groupName} || '%')</if>
+            <choose>
+                <when test="params != null and params.teacherDeptIds != null and params.teacherDeptIds.size() &gt; 0">
+                    AND g.dept_id in
+                    <foreach collection="params.teacherDeptIds" item="did" open="(" separator="," close=")">#{did}</foreach>
+                </when>
+                <otherwise>${params.dataScope}</otherwise>
+            </choose>
+        </where>
+        order by g.sort_order asc, g.group_id asc
+    </select>
+
+    <select id="selectSpasStudyGroupById" resultMap="SpasStudyGroupResult">
+        <include refid="selectVo"/>
+        where g.group_id = #{groupId}
+    </select>
+
+    <insert id="insertSpasStudyGroup" parameterType="SpasStudyGroup" useGeneratedKeys="true" keyProperty="groupId">
+        insert into spas_study_group(
+            dept_id, subject_id, group_name, leader_student_id, status, sort_order,
+            create_by, create_time, remark
+        ) values (
+            #{deptId}, #{subjectId}, #{groupName}, #{leaderStudentId},
+            coalesce(#{status}, '0'), coalesce(#{sortOrder}, 0),
+            #{createBy}, now(), #{remark}
+        )
+    </insert>
+
+    <update id="updateSpasStudyGroup" parameterType="SpasStudyGroup">
+        update spas_study_group
+        <set>
+            <if test="groupName != null and groupName != ''">group_name = #{groupName},</if>
+            <if test="leaderStudentId != null">leader_student_id = #{leaderStudentId},</if>
+            <if test="leaderStudentId == null and params != null and params.clearLeader != null">leader_student_id = null,</if>
+            <if test="subjectId != null">subject_id = #{subjectId},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="sortOrder != null">sort_order = #{sortOrder},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_by = #{updateBy},
+            update_time = now()
+        </set>
+        where group_id = #{groupId}
+    </update>
+
+    <update id="softDisableGroups">
+        update spas_study_group set status = '1', update_time = now()
+        where group_id in
+        <foreach collection="groupIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
+    <select id="selectActiveMembers" resultMap="SpasStudyGroupMemberResult">
+        select m.id, m.group_id, m.student_id, m.role_in_group, m.join_time, m.leave_time,
+               s.student_no, s.student_name
+        from spas_study_group_member m
+        left join spas_student s on s.student_id = m.student_id
+        where m.group_id = #{groupId} and m.leave_time is null
+        order by m.role_in_group desc, s.student_no asc
+    </select>
+
+    <select id="selectActiveMembersByStudent" resultMap="SpasStudyGroupMemberResult">
+        select m.id, m.group_id, m.student_id, m.role_in_group, m.join_time, m.leave_time,
+               s.student_no, s.student_name
+        from spas_study_group_member m
+        inner join spas_study_group g on g.group_id = m.group_id and g.status = '0'
+        left join spas_student s on s.student_id = m.student_id
+        where m.student_id = #{studentId} and m.leave_time is null
+          and g.dept_id = #{deptId}
+          <choose>
+            <when test="subjectId != null">and g.subject_id = #{subjectId}</when>
+            <otherwise>and g.subject_id is null</otherwise>
+          </choose>
+    </select>
+
+    <update id="markMembersLeft">
+        update spas_study_group_member
+        set leave_time = now()
+        where group_id = #{groupId} and leave_time is null
+        <if test="studentIds != null and studentIds.size() &gt; 0">
+            and student_id not in
+            <foreach collection="studentIds" item="sid" open="(" separator="," close=")">#{sid}</foreach>
+        </if>
+    </update>
+
+    <update id="markAllMembersLeft">
+        update spas_study_group_member set leave_time = now()
+        where group_id = #{groupId} and leave_time is null
+    </update>
+
+    <insert id="upsertMember" parameterType="SpasStudyGroupMember">
+        insert into spas_study_group_member(group_id, student_id, role_in_group, join_time, leave_time)
+        values (#{groupId}, #{studentId}, coalesce(#{roleInGroup}, '0'), now(), null)
+        on conflict (group_id, student_id) do update
+        set role_in_group = excluded.role_in_group,
+            leave_time = null,
+            join_time = case when spas_study_group_member.leave_time is null
+                             then spas_study_group_member.join_time else now() end
+    </insert>
+
+    <update id="updateMemberRole">
+        update spas_study_group_member
+        set role_in_group = #{roleInGroup}
+        where group_id = #{groupId} and student_id = #{studentId} and leave_time is null
+    </update>
+
+    <select id="selectUnassignedStudents" resultType="SpasStudent">
+        select s.student_id as studentId, s.student_no as studentNo, s.student_name as studentName,
+               s.dept_id as deptId, s.status
+        from spas_student s
+        where s.del_flag = '0' and s.status = '0' and s.dept_id = #{deptId}
+          and not exists (
+            select 1 from spas_study_group_member m
+            inner join spas_study_group g on g.group_id = m.group_id and g.status = '0'
+            where m.student_id = s.student_id and m.leave_time is null
+              and g.dept_id = #{deptId}
+              <choose>
+                <when test="subjectId != null">and g.subject_id = #{subjectId}</when>
+                <otherwise>and g.subject_id is null</otherwise>
+              </choose>
+          )
+        order by s.student_no
+    </select>
+
+    <select id="selectActiveGroupOfStudent" resultMap="SpasStudyGroupResult">
+        <include refid="selectVo"/>
+        where g.status = '0' and g.dept_id = #{deptId}
+          <choose>
+            <when test="subjectId != null">and g.subject_id = #{subjectId}</when>
+            <otherwise>and g.subject_id is null</otherwise>
+          </choose>
+          and exists (
+            select 1 from spas_study_group_member m
+            where m.group_id = g.group_id and m.student_id = #{studentId} and m.leave_time is null
+          )
+        limit 1
+    </select>
+
+    <select id="countActiveMembershipElsewhere" resultType="int">
+        select count(1)
+        from spas_study_group_member m
+        inner join spas_study_group g on g.group_id = m.group_id and g.status = '0'
+        where m.student_id = #{studentId} and m.leave_time is null
+          and g.dept_id = #{deptId}
+          <choose>
+            <when test="subjectId != null">and g.subject_id = #{subjectId}</when>
+            <otherwise>and g.subject_id is null</otherwise>
+          </choose>
+          <if test="excludeGroupId != null">and g.group_id &lt;&gt; #{excludeGroupId}</if>
+    </select>
+</mapper>
