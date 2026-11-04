@@ -9,12 +9,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.xssf.usermodel.XSSFRow;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -24,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.annotation.DataScope;
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.spring.SpringUtils;
@@ -56,8 +59,14 @@ import com.ruoyi.system.service.ISysDeptService;
 @Service
 public class SpasScoreServiceImpl implements ISpasScoreService
 {
+    private static final String IMPORT_LOCK_PREFIX = "spas:score:import:paper:";
+    private static final int IMPORT_LOCK_MINUTES = 15;
+
     @Autowired
     private SpasScoreMapper scoreMapper;
+
+    @Autowired
+    private RedisCache redisCache;
 
     @Autowired
     private SpasPaperMapper paperMapper;
@@ -98,7 +107,8 @@ public class SpasScoreServiceImpl implements ISpasScoreService
     @Autowired
     private ISysDeptService deptService;
 
-    @Value("${spas.score.blank-as-zero:true}")
+    /** Default off: empty cells skip (do not write 0 into mastery). Override per upload via request param. */
+    @Value("${spas.score.blank-as-zero:false}")
     private boolean blankAsZero;
 
     @Value("${spas.score.rate-scale:6}")
@@ -381,6 +391,10 @@ public class SpasScoreServiceImpl implements ISpasScoreService
         {
             throw new ServiceException("试卷不存在");
         }
+        if (!"1".equals(paper.getStatus()))
+        {
+            throw new ServiceException("仅已发布的分析试卷可下载成绩模板，请先发布试卷");
+        }
         accessService.checkDeptAccess(paper.getDeptId());
         List<SpasPaperQuestion> questions = paperMapper.selectQuestionsByPaperId(paperId);
         try (XSSFWorkbook workbook = new XSSFWorkbook())
@@ -427,7 +441,7 @@ public class SpasScoreServiceImpl implements ISpasScoreService
 
     @Override
     @Transactional
-    public SpasScoreBatch importScores(Long paperId, MultipartFile file, String operName)
+    public SpasScoreBatch importScores(Long paperId, MultipartFile file, Boolean blankAsZeroOverride, String operName)
     {
         accessService.assertCanWrite();
         SpasPaper paper = paperMapper.selectSpasPaperById(paperId);
@@ -435,7 +449,32 @@ public class SpasScoreServiceImpl implements ISpasScoreService
         {
             throw new ServiceException("试卷不存在");
         }
+        // 仅已发布试卷可导入小题成绩（草稿/归档禁止）
+        if (!"1".equals(paper.getStatus()))
+        {
+            throw new ServiceException("仅已发布的分析试卷可导入小题成绩，请先发布试卷");
+        }
         accessService.checkDeptAccess(paper.getDeptId());
+        String lockKey = IMPORT_LOCK_PREFIX + paperId;
+        Boolean locked = redisCache.redisTemplate.opsForValue().setIfAbsent(
+            lockKey, operName != null ? operName : "import", IMPORT_LOCK_MINUTES, TimeUnit.MINUTES);
+        if (!Boolean.TRUE.equals(locked))
+        {
+            throw new ServiceException("该试卷正在导入中，请稍后再试（避免同卷并发覆盖）");
+        }
+        try
+        {
+            return doImportScores(paper, paperId, file, blankAsZeroOverride, operName);
+        }
+        finally
+        {
+            redisCache.deleteObject(lockKey);
+        }
+    }
+
+    private SpasScoreBatch doImportScores(SpasPaper paper, Long paperId, MultipartFile file,
+        Boolean blankAsZeroOverride, String operName)
+    {
         List<SpasPaperQuestion> questions = paperMapper.selectQuestionsByPaperId(paperId);
         if (questions == null || questions.isEmpty())
         {
@@ -448,6 +487,8 @@ public class SpasScoreServiceImpl implements ISpasScoreService
         {
             questionMap.put(q.getQuestionNo(), q);
         }
+
+        boolean useBlankAsZero = blankAsZeroOverride != null ? blankAsZeroOverride.booleanValue() : blankAsZero;
 
         SpasScoreBatch batch = new SpasScoreBatch();
         batch.setPaperId(paperId);
@@ -465,7 +506,7 @@ public class SpasScoreServiceImpl implements ISpasScoreService
         StringBuilder errorLog = new StringBuilder();
         DataFormatter formatter = new DataFormatter();
 
-        try (InputStream is = file.getInputStream(); Workbook workbook = new XSSFWorkbook(is))
+        try (InputStream is = file.getInputStream(); Workbook workbook = WorkbookFactory.create(is))
         {
             Sheet sheet = workbook.getSheetAt(0);
             Iterator<Row> rows = sheet.iterator();
@@ -501,6 +542,18 @@ public class SpasScoreServiceImpl implements ISpasScoreService
             if (colQuestionMap.isEmpty())
             {
                 throw new ServiceException("表头题号与试卷题目不匹配");
+            }
+
+            int paperQCount = questions.size();
+            int matchedCols = colQuestionMap.size();
+            batch.setPaperQuestionCount(paperQCount);
+            batch.setMatchedQuestionCols(matchedCols);
+            if (matchedCols < paperQCount)
+            {
+                String warn = "试卷共 " + paperQCount + " 题，本次表头仅匹配 " + matchedCols
+                    + " 题列；未匹配题号不会写入成绩，请核对模板。";
+                batch.setImportWarning(warn);
+                errorLog.append(warn).append("\n");
             }
 
             while (rows.hasNext())
@@ -550,7 +603,7 @@ public class SpasScoreServiceImpl implements ISpasScoreService
                         com.ruoyi.spas.support.SpasScoreCellParser.Result parsed;
                         try
                         {
-                            parsed = com.ruoyi.spas.support.SpasScoreCellParser.parse(scoreText, blankAsZero);
+                            parsed = com.ruoyi.spas.support.SpasScoreCellParser.parse(scoreText, useBlankAsZero);
                         }
                         catch (IllegalArgumentException ex)
                         {

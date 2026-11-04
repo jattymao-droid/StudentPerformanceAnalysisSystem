@@ -75,4 +75,9 @@ public interface SpasPracticeLogMapper
     List<SpasPracticeLog> selectPendingProxyConfirm(@Param("studentId") Long studentId);
 
     int updateConfirmStatus(@Param("logId") Long logId, @Param("confirmStatus") String confirmStatus);
+
+    int countByRemark(@Param("remark") String remark);
+
+    /** Soft-void practice logs created from checkout ack (remark=checkoutItem:{id}). */
+    int voidByRemark(@Param("remark") String remark);
 }

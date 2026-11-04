@@ -12,6 +12,9 @@ public interface SpasStudentMapper
 
     public SpasStudent selectSpasStudentById(Long studentId);
 
+    /** Batch load by primary keys (analysis ranking / knowledge overview). */
+    public List<SpasStudent> selectSpasStudentByIds(@org.apache.ibatis.annotations.Param("studentIds") List<Long> studentIds);
+
     public SpasStudent selectSpasStudentByStudentNo(String studentNo);
 
     public SpasStudent selectSpasStudentByUserId(Long userId);

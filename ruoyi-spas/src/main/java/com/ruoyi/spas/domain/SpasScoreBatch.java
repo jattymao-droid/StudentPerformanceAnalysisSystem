@@ -38,6 +38,15 @@ public class SpasScoreBatch extends BaseEntity
     /** Paper name (display) */
     private String paperName;
 
+    /** Transient: matched question columns in Excel header */
+    private Integer matchedQuestionCols;
+
+    /** Transient: total questions on paper */
+    private Integer paperQuestionCount;
+
+    /** Transient: non-fatal import warning (e.g. missing question columns) */
+    private String importWarning;
+
     public Long getBatchId()
     {
         return batchId;
@@ -128,6 +137,36 @@ public class SpasScoreBatch extends BaseEntity
         this.paperName = paperName;
     }
 
+    public Integer getMatchedQuestionCols()
+    {
+        return matchedQuestionCols;
+    }
+
+    public void setMatchedQuestionCols(Integer matchedQuestionCols)
+    {
+        this.matchedQuestionCols = matchedQuestionCols;
+    }
+
+    public Integer getPaperQuestionCount()
+    {
+        return paperQuestionCount;
+    }
+
+    public void setPaperQuestionCount(Integer paperQuestionCount)
+    {
+        this.paperQuestionCount = paperQuestionCount;
+    }
+
+    public String getImportWarning()
+    {
+        return importWarning;
+    }
+
+    public void setImportWarning(String importWarning)
+    {
+        this.importWarning = importWarning;
+    }
+
     @Override
     public String toString()
     {
@@ -140,6 +179,9 @@ public class SpasScoreBatch extends BaseEntity
             .append("failRows", getFailRows())
             .append("status", getStatus())
             .append("errorLog", getErrorLog())
+            .append("matchedQuestionCols", getMatchedQuestionCols())
+            .append("paperQuestionCount", getPaperQuestionCount())
+            .append("importWarning", getImportWarning())
             .append("createBy", getCreateBy())
             .append("createTime", getCreateTime())
             .toString();

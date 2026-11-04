@@ -16,8 +16,11 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.spas.domain.SpasInterveneTask;
 import com.ruoyi.spas.service.ISpasInterveneService;
+import com.ruoyi.spas.service.ISpasPracticeCheckoutService;
+import com.ruoyi.spas.service.ISpasPracticeLogService;
 import com.ruoyi.spas.support.SpasAccessService;
 
 @RestController
@@ -26,6 +29,12 @@ public class SpasInterveneController extends BaseController
 {
     @Autowired
     private ISpasInterveneService interveneService;
+
+    @Autowired
+    private ISpasPracticeLogService practiceLogService;
+
+    @Autowired
+    private ISpasPracticeCheckoutService checkoutService;
 
     @Autowired
     private SpasAccessService accessService;
@@ -63,6 +72,68 @@ public class SpasInterveneController extends BaseController
         return toAjax(interveneService.updateSpasInterveneTask(task));
     }
 
+    /**
+     * 统一转干预入口。sourceType: warning | practice_log | checkout_item
+     * 旧路径仍可用，新 UI 请优先调用本接口。
+     */
+    @PreAuthorize("@ss.hasPermi('spas:intervene:add')")
+    @Log(title = "来源转干预", businessType = BusinessType.INSERT)
+    @PostMapping("/from-source")
+    public AjaxResult fromSource(@RequestBody Map<String, Object> body)
+    {
+        if (body == null || body.get("sourceType") == null || body.get("sourceId") == null)
+        {
+            throw new ServiceException("sourceType 与 sourceId 不能为空");
+        }
+        String type = String.valueOf(body.get("sourceType")).trim().toLowerCase();
+        Long sourceId = Long.valueOf(String.valueOf(body.get("sourceId")));
+        if ("warning".equals(type) || "1".equals(type))
+        {
+            SpasInterveneTask form = new SpasInterveneTask();
+            if (body.get("title") != null)
+            {
+                form.setTitle(String.valueOf(body.get("title")));
+            }
+            if (body.get("subjectId") != null && !"".equals(String.valueOf(body.get("subjectId"))))
+            {
+                form.setSubjectId(Long.valueOf(String.valueOf(body.get("subjectId"))));
+            }
+            if (body.get("targetRate") != null && !"".equals(String.valueOf(body.get("targetRate"))))
+            {
+                form.setTargetRate(new java.math.BigDecimal(String.valueOf(body.get("targetRate"))));
+            }
+            if (body.get("remark") != null)
+            {
+                form.setRemark(String.valueOf(body.get("remark")));
+            }
+            Object kids = body.get("knowledgeIdList");
+            if (kids instanceof List)
+            {
+                java.util.ArrayList<Long> ids = new java.util.ArrayList<Long>();
+                for (Object o : (List<?>) kids)
+                {
+                    if (o != null && !"".equals(String.valueOf(o)))
+                    {
+                        ids.add(Long.valueOf(String.valueOf(o)));
+                    }
+                }
+                form.setKnowledgeIdList(ids);
+            }
+            return success(interveneService.createFromWarning(sourceId, form));
+        }
+        if ("practice_log".equals(type) || "log".equals(type) || "2".equals(type))
+        {
+            return success(practiceLogService.toIntervene(sourceId));
+        }
+        if ("checkout_item".equals(type) || "checkout".equals(type) || "4".equals(type))
+        {
+            return success(checkoutService.toIntervene(sourceId));
+        }
+        throw new ServiceException("不支持的 sourceType: " + type + "（可用 warning / practice_log / checkout_item）");
+    }
+
+    /** @deprecated 请用 POST /spas/intervene/from-source ，sourceType=warning */
+    @Deprecated
     @PreAuthorize("@ss.hasPermi('spas:intervene:add')")
     @Log(title = "预警转干预", businessType = BusinessType.INSERT)
     @PostMapping("/from-warning/{warningId}")

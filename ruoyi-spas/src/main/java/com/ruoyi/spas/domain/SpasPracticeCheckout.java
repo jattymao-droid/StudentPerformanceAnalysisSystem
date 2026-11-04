@@ -20,6 +20,10 @@ public class SpasPracticeCheckout
     private Date submitTime;
     private String deviceCode;
     private String status;
+    /** comma-separated knowledge ids persisted in knowledge_ids */
+    private String knowledgeIds;
+    /** request/response convenience */
+    private List<Long> knowledgeIdList;
 
     private String groupName;
     private String leaderStudentName;
@@ -44,6 +48,10 @@ public class SpasPracticeCheckout
     public void setDeviceCode(String deviceCode) { this.deviceCode = deviceCode; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getKnowledgeIds() { return knowledgeIds; }
+    public void setKnowledgeIds(String knowledgeIds) { this.knowledgeIds = knowledgeIds; }
+    public List<Long> getKnowledgeIdList() { return knowledgeIdList; }
+    public void setKnowledgeIdList(List<Long> knowledgeIdList) { this.knowledgeIdList = knowledgeIdList; }
     public String getGroupName() { return groupName; }
     public void setGroupName(String groupName) { this.groupName = groupName; }
     public String getLeaderStudentName() { return leaderStudentName; }

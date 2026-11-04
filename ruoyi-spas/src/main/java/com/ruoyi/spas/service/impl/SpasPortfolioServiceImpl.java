@@ -98,16 +98,24 @@ public class SpasPortfolioServiceImpl implements ISpasPortfolioService
         return buildPortfolio(student, subjectId, true);
     }
 
+    @Override
+    public Map<String, Object> getAnalysisSlices(Long studentId, Long subjectId)
+    {
+        Map<String, Object> data = new HashMap<>();
+        data.put("radar", analysisService.studentRadar(studentId, subjectId));
+        data.put("trend", analysisService.studentTrend(studentId, subjectId));
+        data.put("weakTop", analysisService.studentWeakTop(studentId, subjectId, 10));
+        data.put("openWarnings", warningRecordMapper.selectOpenByStudent(studentId));
+        data.put("openWarningCount", warningRecordMapper.countOpenByStudent(studentId));
+        return data;
+    }
+
     private Map<String, Object> buildPortfolio(SpasStudent student, Long subjectId, boolean includeCoach)
     {
         Map<String, Object> data = new HashMap<>();
         data.put("student", student);
         data.put("summary", analysisService.studentSummary(student.getStudentId(), subjectId));
-        data.put("radar", analysisService.studentRadar(student.getStudentId(), subjectId));
-        data.put("trend", analysisService.studentTrend(student.getStudentId(), subjectId));
-        data.put("weakTop", analysisService.studentWeakTop(student.getStudentId(), subjectId, 10));
-        data.put("openWarnings", warningRecordMapper.selectOpenByStudent(student.getStudentId()));
-        data.put("openWarningCount", warningRecordMapper.countOpenByStudent(student.getStudentId()));
+        data.putAll(getAnalysisSlices(student.getStudentId(), subjectId));
         data.put("interveneTimeline", interveneService.studentTimeline(student.getStudentId()));
         data.put("openInterveneCount", interveneMapper.countOpenByStudent(student.getStudentId()));
         // Semester persistent-weak summary (M5)

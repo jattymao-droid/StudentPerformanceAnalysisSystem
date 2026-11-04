@@ -8,6 +8,7 @@ Use after base RuoYi import (`sql/init_postgresql.py`).
 已部署环境只执行本次新增脚本，例如：
 
 ```bash
+psql -U postgres -d spas-sql -f sql/spas_score_prev_source.sql
 psql -U postgres -d spas-sql -f sql/spas_error_tag.sql
 psql -U postgres -d spas-sql -f sql/spas_rank_warning_seed.sql
 psql -U postgres -d spas-sql -f sql/spas_brand_zhimai.sql
@@ -75,7 +76,14 @@ python sql/spas_apply_incremental.py --check
 | 38 | `spas_site_info.sql` | 登录页版权/ICP 参数 + 系统管理「站点信息」菜单 119 |
 | 39 | `spas_group_practice.sql` | 班级分组 + 每日自主练打卡表/菜单（一体机客户端配套） |
 | 40 | `spas_student_points.sql` | 学生积分账户/流水（打卡发分 + 掌握度进步发分 + 班内榜） |
+| 40b | `spas_point_menu.sql` | **推荐**：积分菜单 2430–2434 + 一键发分权限 `spas:point:award`（2179） |
 | 41 | `spas_practice_checkout.sql` | 教师布置 + 组长检查单 + 抽检（见 `docs/spas-leader-check-spot-supervision.md`） |
+| 42 | `spas_practice_menu_fix.sql` | 自主练菜单权限修复（避开旧作业菜单 ID 冲突；学生一体机登录必需） |
+| 43 | `spas_checkout_ack_timeout_job.sql` | **必做**：检查单确认超时定时任务 (job_id=102)；未执行则「超时未确认」看板长期为空 |
+| 44 | `spas_practice_menu_dedupe.sql` | **推荐**：隐藏 2410～2422 重复「自主练」菜单，保留 2170/2220 |
+| 45 | `spas_score_menu_rename.sql` | **推荐**：成绩导入菜单改名「小题成绩」，与「实考校次」区分 |
+| 46 | `spas_paper_menu_rename.sql` | **推荐**：作业考试菜单改名「分析试卷」，与「题库组卷」区分 |
+| 47 | `spas_score_prev_source.sql` | **必做（小题撤销）**：`prev_score_source`，撤销导入时还原成绩来源 |
 
 全新环境也可直接执行 `spas_exam_score.sql`（会 DROP 重建）。旧库若仍含 `subject_id`，`spas_exam_score_init.sql` / `spas_exam_score_alter_subject_name.sql` 均可迁移。
 

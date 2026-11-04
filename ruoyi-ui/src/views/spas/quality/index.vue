@@ -42,6 +42,14 @@
 
         <el-alert :title="alertTitle" type="warning" :closable="false" show-icon class="mb8" />
         <el-alert
+          v-if="deepLinkHint"
+          :title="deepLinkHint"
+          type="success"
+          :closable="false"
+          show-icon
+          class="mb8"
+        />
+        <el-alert
           v-if="scopeHint"
           :title="scopeHint"
           type="info"
@@ -224,6 +232,8 @@ export default {
       scoreTotal: 0,
       activeMetric: '',
       detailRows: [],
+      preferMetric: '',
+      deepLinkPaperIds: [],
       queryParams: { deptId: undefined, subjectId: undefined },
       ticketLoading: false,
       ticketList: [],
@@ -264,6 +274,14 @@ export default {
       return '质量告警 ' + this.alertCount + ' 项 · min-attempts=' + this.minAttempts
         + ' · 高频题次≥' + this.questionMin
         + ' · 低掌握<' + Math.round(this.weakRate * 100) + '%'
+    },
+    deepLinkHint() {
+      if (!this.deepLinkPaperIds.length && !this.preferMetric) return ''
+      const parts = []
+      if (this.preferMetric) parts.push('已定位指标 ' + this.metricTitle(this.preferMetric))
+      if (this.deepLinkPaperIds.length === 1) parts.push('试卷 ID ' + this.deepLinkPaperIds[0])
+      else if (this.deepLinkPaperIds.length > 1) parts.push('试卷 ' + this.deepLinkPaperIds.length + ' 份（明细已按深链过滤）')
+      return '来自学情分析深链：' + parts.join(' · ') + '。请优先补知识点标注后再回分析页。'
     },
     scopeHint() {
       if (!this.questionCount && !this.paperCount) return ''
@@ -365,6 +383,19 @@ export default {
     const q = this.$route.query || {}
     const qDept = q.deptId != null && q.deptId !== '' ? Number(q.deptId) : undefined
     const qSubject = q.subjectId != null && q.subjectId !== '' ? Number(q.subjectId) : undefined
+    if (q.metric) this.preferMetric = String(q.metric)
+    const linkIds = []
+    if (q.paperId != null && q.paperId !== '') {
+      const n = Number(q.paperId)
+      if (!isNaN(n)) linkIds.push(n)
+    }
+    if (q.paperIds) {
+      String(q.paperIds).split(',').forEach(s => {
+        const n = Number(s)
+        if (!isNaN(n) && linkIds.indexOf(n) < 0) linkIds.push(n)
+      })
+    }
+    this.deepLinkPaperIds = linkIds
     this.loadMyDepts().then(() => {
       if (qDept && !isNaN(qDept)) {
         this.queryParams.deptId = qDept
@@ -433,7 +464,13 @@ export default {
         this.questionCount = data.questionCount || 0
         this.boundQuestionCount = data.boundQuestionCount || 0
         this.scoreTotal = data.scoreTotal || 0
-        const prefer = (this.metrics || []).find(m => Number(m.count) > 0)
+        let prefer = null
+        if (this.preferMetric) {
+          prefer = (this.metrics || []).find(m => m.code === this.preferMetric)
+        }
+        if (!prefer) {
+          prefer = (this.metrics || []).find(m => Number(m.count) > 0)
+        }
         if (prefer) {
           this.loadDetail(prefer)
         } else {
@@ -452,7 +489,14 @@ export default {
       this.activeMetric = m.code
       this.detailLoading = true
       qualityDetail({ metric: m.code, deptId: this.queryParams.deptId, subjectId: this.queryParams.subjectId }).then(res => {
-        this.detailRows = res.data || []
+        let rows = res.data || []
+        if (this.deepLinkPaperIds.length) {
+          const set = {}
+          this.deepLinkPaperIds.forEach(id => { set[String(id)] = true })
+          const filtered = rows.filter(r => r && r.paperId != null && set[String(r.paperId)])
+          if (filtered.length) rows = filtered
+        }
+        this.detailRows = rows
       }).finally(() => { this.detailLoading = false })
     },
     goFix(row) {
@@ -463,12 +507,17 @@ export default {
       const query = {}
       if (paperId != null) query.paperId = paperId
       if (questionId != null) query.questionId = questionId
+      if (target && target.questionNo) query.questionNo = target.questionNo
+      if (target && target.studentNo) query.studentNo = target.studentNo
       if (this.queryParams.subjectId) query.subjectId = this.queryParams.subjectId
+      if (this.queryParams.deptId) query.deptId = this.queryParams.deptId
+      // 成绩类指标：落到小题成绩并带上批次/学号/题号筛选
       if (m === 'Q_PARTIAL_PAPER' || m === 'Q_ORPHAN_SCORE' || m === 'Q_BLANK_ZERO') {
         if (target && target.batchId != null) query.batchId = target.batchId
         this.$router.push({ path: '/spas/biz/score', query })
         return
       }
+      // 标注/权重类：打开分析卷编辑并高亮题
       this.$router.push({ path: '/spas/biz/paper', query })
     },
     goFixRow(row) {

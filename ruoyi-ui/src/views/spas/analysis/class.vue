@@ -110,7 +110,17 @@
           :loading="exportLoading"
           @click="handleExportReport('pdf')"
           v-hasPermi="['spas:report:export']"
-        >导出报告</el-button>
+        >导出班级报告</el-button>
+        <el-button
+          type="warning"
+          plain
+          icon="el-icon-folder-opened"
+          size="mini"
+          :disabled="!queryParams.deptId"
+          :loading="batchStudentExportLoading"
+          @click="handleExportAllStudentReports('pdf')"
+          v-hasPermi="['spas:report:export']"
+        >一键导出全班学情</el-button>
         <el-button
           type="primary"
           plain
@@ -131,6 +141,14 @@
           @click="handleExportReport('xlsx')"
           v-hasPermi="['spas:report:export']"
         >导出明细</el-button>
+        <el-button
+          type="danger"
+          plain
+          icon="el-icon-bell"
+          size="mini"
+          @click="goWarningRun"
+          v-hasPermi="['spas:warning:rule:run']"
+        >立即预警</el-button>
       </el-form-item>
     </el-form>
 
@@ -142,92 +160,113 @@
     </el-empty>
 
     <template v-else>
-      <el-alert
-        :title="scopeBanner || analysisHint"
-        type="success"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        v-if="interveneHint"
-        :title="interveneHint"
-        type="success"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        v-if="scopeHint"
-        :title="scopeHint"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        v-if="overview.headline"
-        :title="overview.headline"
-        :type="overview.emptyKnowledge ? 'warning' : 'info'"
-        :closable="false"
-        show-icon
-        class="mb8"
+      <spas-analysis-verdict
+        v-loading="loading"
+        :level="insightVerdict.level"
+        :title="insightVerdict.title"
+        :subtitle="insightVerdict.subtitle"
+        :metrics="insightVerdict.metrics"
       >
-        <template v-if="overview.emptyKnowledge && suggestedSubjects.length" slot="default">
-          <span style="margin-right:6px">可切换到：</span>
-          <el-tag
-            v-for="s in suggestedSubjects"
-            :key="'sug-' + s.subjectId"
-            size="small"
+        <template slot="actions">
+          <el-button
+            v-if="canBatchRemediate"
+            type="primary"
+            plain
+            size="mini"
+            v-hasPermi="['spas:qb:question:list']"
+            @click="goBatchRemediate"
+          >一键补弱</el-button>
+          <el-button
+            v-if="canBatchIntervene"
             type="warning"
-            effect="plain"
-            style="margin:2px 4px;cursor:pointer"
-            @click="switchToSubject(s.subjectId)"
-          >{{ s.subjectName }}</el-tag>
+            plain
+            size="mini"
+            :loading="batchInterveneLoading"
+            v-hasPermi="['spas:intervene:add']"
+            @click="goBatchIntervene"
+          >批量干预</el-button>
+          <el-button
+            v-if="annotationBlocked || (overview && overview.formalWeakBlocked)"
+            type="danger"
+            plain
+            size="mini"
+            @click="goQuality"
+          >去质量看板</el-button>
+          <el-button
+            v-if="overview && overview.emptyKnowledge"
+            type="info"
+            plain
+            size="mini"
+            @click="$router.push('/spas/biz/examScore')"
+          >去实考校次</el-button>
+          <el-button
+            v-if="overview && overview.emptyKnowledge"
+            type="primary"
+            plain
+            size="mini"
+            @click="$router.push('/spas/biz/score')"
+          >去小题成绩</el-button>
         </template>
+      </spas-analysis-verdict>
+
+      <el-alert
+        v-if="overview.emptyKnowledge && suggestedSubjects.length"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb8"
+        title="当前学科无小题数据，可切换到有数据的学科："
+      >
+        <el-tag
+          v-for="s in suggestedSubjects"
+          :key="'sug-' + s.subjectId"
+          size="small"
+          type="warning"
+          effect="plain"
+          style="margin:2px 4px;cursor:pointer"
+          @click="switchToSubject(s.subjectId)"
+        >{{ s.subjectName }}</el-tag>
       </el-alert>
+
       <el-alert
-        v-if="thinSampleHint"
+        v-if="subtreeKpiTip"
         type="warning"
         :closable="false"
         show-icon
         class="mb8"
-        :title="thinSampleHint"
+        :title="subtreeKpiTip"
       />
-      <el-alert
-        v-if="analysisMode === 'papers'"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="'当前为选卷诊断 · ' + (queryParams.paperIds || []).length + ' 场考试；概览/薄弱榜/热力/章节均基于所选试卷集合'"
-      />
-      <el-alert
-        v-if="annotationBlocked || (overview && overview.formalWeakBlocked)"
-        type="error"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="(overview && overview.formalWeakBlockReason) || annotationHint || '当前口径内标注不足，薄弱结论仅供参考，不得作为正式定级'"
-      />
-      <el-alert
-        v-else-if="annotationHint"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="annotationHint"
-      />
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="analysisHint"
-      />
+
+      <div class="tips-fold mb8">
+        <el-button type="text" size="mini" @click="tipsExpanded = !tipsExpanded">
+          {{ tipsExpanded ? '收起口径与说明' : '展开口径与说明' }}
+          <i :class="tipsExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'" />
+        </el-button>
+        <div v-show="tipsExpanded" class="tips-fold-body">
+          <el-alert :title="scopeBanner || analysisHint" type="success" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="interveneHint" :title="interveneHint" type="success" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="scopeHint" :title="scopeHint" type="warning" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="warningWindowNote" :title="warningWindowNote" type="info" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="blankZeroTip" :title="blankZeroTip" type="warning" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="overview.headline && !overview.emptyKnowledge" :title="overview.headline" type="info" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="thinSampleHint" type="warning" :closable="false" show-icon class="mb8" :title="thinSampleHint" />
+          <el-alert v-if="analysisMode === 'papers'" type="warning" :closable="false" show-icon class="mb8" :title="'当前为选卷诊断 · ' + (queryParams.paperIds || []).length + ' 场考试'" />
+          <el-alert v-if="annotationBlocked || (overview && overview.formalWeakBlocked)" type="error" :closable="false" show-icon class="mb8" :title="(overview && overview.formalWeakBlockReason) || annotationHint || '标注不足，暂不定级。'" />
+          <el-alert v-else-if="annotationHint" type="warning" :closable="false" show-icon class="mb8" :title="annotationHint" />
+          <el-alert v-if="subjectOverrideTip" type="info" :closable="false" show-icon class="mb8" :title="subjectOverrideTip" />
+          <el-alert v-if="conclusionTip" type="warning" :closable="false" show-icon class="mb8" :title="conclusionTip" />
+          <el-alert v-if="dimWeakTip" type="info" :closable="false" show-icon class="mb8" :title="dimWeakTip" />
+          <el-alert v-if="windowCompareTip" type="info" :closable="false" show-icon class="mb8" :title="windowCompareTip" />
+          <el-alert v-if="practiceBehaviorTip" type="info" :closable="false" show-icon class="mb8" :title="practiceBehaviorTip">
+            <el-button type="text" size="mini" @click="goPracticeBoard" v-hasPermi="['spas:practice:list','spas:practice:stat']">看自主练</el-button>
+          </el-alert>
+          <el-alert v-if="remediateGuideTip" type="warning" :closable="false" show-icon class="mb8" :title="remediateGuideTip" />
+        </div>
+      </div>
+
       <el-row :gutter="16" class="overview-row" v-loading="loading">
-        <el-col :xs="12" :sm="8" :md="4" v-for="card in overviewCards" :key="card.key">
-          <div class="stat-card" :class="'tone-' + card.tone">
+        <el-col :xs="12" :sm="8" :md="4" v-for="card in detailOverviewCards" :key="card.key">
+          <div class="stat-card" :class="['tone-' + card.tone, { 'is-emphasis': card.emphasis }]">
             <div class="stat-label">{{ card.label }}</div>
             <div class="stat-value">{{ card.value }}</div>
             <div class="stat-hint" v-if="card.hint">{{ card.hint }}</div>
@@ -246,7 +285,19 @@
           <el-card shadow="never" class="chart-card">
             <div slot="header" class="card-header">章节汇总</div>
             <el-alert class="mb8 chapter-formula-tip" type="info" :closable="false" show-icon
-              title="章节得分率 = 学生章节率的班均；学生章节率 = attempt-weighted avg(叶子加权率)。覆盖学生=该章有数据的人数；薄弱人数=章节率低于薄弱线（默认60%）的人数（不看出答次数）。" />
+              :title="chapterRateTip" />
+            <el-alert
+              v-if="!(chapterRows && chapterRows.length)"
+              class="mb8"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="暂无章节汇总。常见原因：学科知识树缺少「章节」节点。可先看薄弱 Top；补齐章节树后再看本章。"
+            />
+            <div v-if="!(chapterRows && chapterRows.length)" class="mb8">
+              <el-button size="mini" type="primary" plain @click="goKnowledgeManage">去知识点管理</el-button>
+              <el-button size="mini" plain @click="goQualityBoard">质量看板</el-button>
+            </div>
             <spas-chart :option="chapterBarOption" height="320px" />
             <el-table :data="chapterRows" empty-text="暂无章节数据" size="mini" max-height="220" style="margin-top: 8px">
               <el-table-column label="章节" min-width="140" :show-overflow-tooltip="true">
@@ -256,7 +307,7 @@
                 <template slot-scope="scope">{{ formatRate(scope.row.avgRate) }}</template>
               </el-table-column>
               <el-table-column label="覆盖学生" prop="studentCount" width="90" align="center" />
-              <el-table-column label="薄弱人数" prop="weakCount" width="90" align="center" />
+              <el-table-column label="偏低人数(按率)" prop="weakCount" width="120" align="center" />
             </el-table>
           </el-card>
         </el-col>
@@ -366,7 +417,19 @@
       <el-card ref="chapterDeltaCard" shadow="never" style="margin-top: 16px" class="chart-card" id="spas-chapter-delta" v-loading="loading">
         <div slot="header" class="card-header">章节进退</div>
         <el-alert v-if="chapterDelta.baselineHint" class="mb8" :type="chapterDelta.baselineEmpty ? 'warning' : 'info'" :closable="false" show-icon :title="chapterDelta.baselineHint" />
-        <el-alert v-else-if="chapterDelta.headline" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
+        <el-alert
+          v-if="chapterDelta.chapterEmptyHint"
+          class="mb8"
+          :type="chapterDelta.chapterEmptyReason === 'insufficient_sample' ? 'info' : 'warning'"
+          :closable="false"
+          show-icon
+          :title="chapterDelta.chapterEmptyHint"
+        />
+        <el-alert v-else-if="chapterDelta.headline && !chapterDelta.baselineHint" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
+        <div v-if="chapterDeltaEmpty && (chapterDelta.chapterEmptyReason === 'no_chapter_nodes' || chapterDelta.chapterEmptyReason === 'no_chapter_data')" class="mb8">
+          <el-button size="mini" type="primary" plain @click="goKnowledgeManage">去知识点管理</el-button>
+          <el-button size="mini" plain @click="goQualityBoard">质量看板</el-button>
+        </div>
         <el-row :gutter="12">
           <el-col :xs="24" :md="12">
             <div class="card-header mb8">进步 Top</div>
@@ -407,12 +470,61 @@
             </el-table>
           </el-col>
         </el-row>
+        <div v-if="chapterDeltaEmpty && leafDeltaFallbackRows.length" style="margin-top: 12px">
+          <div class="card-header mb8">知识点级薄弱对照（章节暂不可用时的替代）</div>
+          <el-alert class="mb8" type="info" :closable="false" show-icon title="以下取自班级薄弱 Top（正式薄弱优先），非正式章节进退。" />
+          <el-table :data="leafDeltaFallbackRows" size="mini" max-height="220">
+            <el-table-column label="知识点" min-width="140" :show-overflow-tooltip="true">
+              <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="标记" width="100" align="center">
+              <template slot-scope="scope">
+                <el-tag size="mini" :type="scope.row.tagType || 'warning'">{{ scope.row.tag || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="班均/薄弱人数" width="130" align="center">
+              <template slot-scope="scope">
+                {{ formatRate(scope.row.avgRate != null ? scope.row.avgRate : scope.row.rate) }}
+                <span v-if="scope.row.weakCount != null"> / {{ scope.row.weakCount }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
       </el-card>
 
 <el-row :gutter="16" style="margin-top: 8px" v-loading="loading">
         <el-col :span="24">
           <el-card shadow="never" class="chart-card">
-            <div slot="header" class="card-header">班级薄弱知识点 Top</div>
+            <div slot="header" class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+              <span>班级薄弱知识点 Top</span>
+              <span>
+                <el-button
+                  type="text"
+                  size="mini"
+                  icon="el-icon-notebook-2"
+                  :disabled="!canBatchRemediate"
+                  v-hasPermi="['spas:qb:question:list']"
+                  @click="goBatchRemediate"
+                >一键补弱 Top{{ batchRemediateLimit }}</el-button>
+                <el-button
+                  type="text"
+                  size="mini"
+                  icon="el-icon-s-flag"
+                  :disabled="!canBatchIntervene"
+                  :loading="batchInterveneLoading"
+                  v-hasPermi="['spas:intervene:add']"
+                  @click="goBatchIntervene"
+                >批量干预 Top{{ batchRemediateLimit }}</el-button>
+              </span>
+            </div>
+            <el-alert
+              v-if="remediateGuideTip"
+              class="mb8"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="remediateGuideTip"
+            />
             <spas-chart :option="weakBarOption" height="360px" @chart-click="onWeakBarClick" />
             <el-table :data="weakTopRows" size="mini" empty-text="暂无薄弱知识点" max-height="280" style="margin-top: 12px">
               <el-table-column label="知识点" min-width="140" :show-overflow-tooltip="true">
@@ -429,6 +541,11 @@
                   <span v-if="scope.row.rootHint">{{ scope.row.rootHint }}</span>
                   <span v-else-if="scope.row.dependencyHints && scope.row.dependencyHints.length">{{ formatDependencyHints(scope.row.dependencyHints) }}</span>
                   <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="90" align="center">
+                <template slot-scope="scope">
+                  <el-button size="mini" type="text" @click="goRemediate(scope.row)" v-hasPermi="['spas:qb:question:list']">补弱</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -448,7 +565,7 @@
 
       <el-card shadow="never" style="margin-top: 16px" v-loading="loading" class="ranking-card">
         <div slot="header" class="card-header">学生综合排名（弱→强，点击可查看学情）</div>
-        <div class="rank-note">低分点数按得分率统计（低于60% / 低于45%）。正式薄弱还要求该知识点至少作答 3 题；样本不够时不记入正式薄弱，避免把单题偶然低分判成薄弱。作答题数按去重题目计，一题多知识点不重复累计。</div>
+        <div class="rank-note">{{ rankingNote }}</div>
         <el-table :data="studentRanking" empty-text="暂无数据" max-height="360" style="width: 100%" @row-click="onRankingClick">
           <el-table-column type="index" label="#" width="55" align="center" />
           <el-table-column label="学号" prop="studentNo" min-width="120" show-overflow-tooltip />
@@ -458,21 +575,21 @@
           </el-table-column>
           <el-table-column label="低分点数" min-width="150" align="center">
             <template slot-scope="scope">
-              <span :title="'得分率低于60%的知识点数'">{{ num(scope.row.lowRateCount) }}</span>
+              <span :title="'得分率低于' + weakLinePct + '的知识点数'">{{ num(scope.row.lowRateCount) }}</span>
               <el-tag v-if="showThinSample(scope.row)" size="mini" type="info" style="margin-left: 6px">样本不足</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="低于45%" min-width="100" align="center">
+          <el-table-column :label="'低于' + severeLinePct" min-width="100" align="center">
             <template slot-scope="scope">{{ num(scope.row.lowSevereCount) }}</template>
           </el-table-column>
           <el-table-column label="正式薄弱" min-width="100" align="center">
             <template slot-scope="scope">
-              <span :title="'低于60%且该知识点作答不少于3题'">{{ num(scope.row.weakKnowledgeCount) }}</span>
+              <span :title="'低于' + weakLinePct + '且该知识点作答不少于' + effectiveMinAttempts + '题'">{{ num(scope.row.weakKnowledgeCount) }}</span>
             </template>
           </el-table-column>
           <el-table-column label="正式严重" min-width="100" align="center">
             <template slot-scope="scope">
-              <span :title="'低于45%且该知识点作答不少于3题'">{{ num(scope.row.severeKnowledgeCount) }}</span>
+              <span :title="'低于' + severeLinePct + '且该知识点作答不少于' + effectiveSevereMinAttempts + '题'">{{ num(scope.row.severeKnowledgeCount) }}</span>
             </template>
           </el-table-column>
           <el-table-column label="作答题数" min-width="110" align="center">
@@ -507,10 +624,11 @@
           <el-table-column label="关注" prop="watchCount" width="80" align="center" />
           <el-table-column label="薄弱" prop="weakCount" width="80" align="center" />
           <el-table-column label="严重" prop="severeCount" width="80" align="center" />
-          <el-table-column label="操作" width="130" align="center">
+          <el-table-column label="操作" width="180" align="center">
             <template slot-scope="scope">
               <el-button size="mini" type="text" @click="goKnowledge(scope.row)">下钻</el-button>
               <el-button size="mini" type="text" @click="openKpTrend(scope.row)">场次</el-button>
+              <el-button size="mini" type="text" @click="goRemediate(scope.row)" v-hasPermi="['spas:qb:question:list']">补弱</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -585,7 +703,7 @@
           :closable="false"
           show-icon
           class="mb8"
-          :title="'班均&lt;60%的场次：' + kpTrendLowCount + ' 场'"
+          :title="'班均低于' + weakLinePct + '的场次：' + kpTrendLowCount + ' 场'"
         />
         <spas-chart :option="kpTrendOption" height="280px" />
         <el-table :data="kpTrendRows" size="mini" max-height="280" style="margin-top: 12px">
@@ -594,20 +712,46 @@
             <template slot-scope="scope">{{ scope.row.examDate ? String(scope.row.examDate).substring(0, 10) : '-' }}</template>
           </el-table-column>
           <el-table-column label="班均" width="90" align="center">
-            <template slot-scope="scope"><span :style="{ color: Number(scope.row.avgRate) < 0.6 ? '#FF5A5F' : '#10B981', fontWeight: 600 }">{{ formatRate(scope.row.avgRate) }}</span></template>
+            <template slot-scope="scope"><span :style="{ color: Number(scope.row.avgRate) < weakLineRate ? '#FF5A5F' : '#10B981', fontWeight: 600 }">{{ formatRate(scope.row.avgRate) }}</span></template>
           </el-table-column>
           <el-table-column label="偏低人数" prop="weakStudentCount" width="90" align="center" />
         </el-table>
       </div>
     </el-drawer>
+
+    <el-dialog
+      title="导出全班学情"
+      :visible.sync="batchExportDialogVisible"
+      width="440px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="!batchStudentExportLoading"
+      append-to-body
+    >
+      <el-progress
+        :percentage="batchExportPercent"
+        :status="batchExportProgressStatus"
+        :stroke-width="16"
+        text-inside
+      />
+      <p class="batch-export-meta">{{ batchExportMeta }}</p>
+      <p class="batch-export-current">{{ batchExportCurrent }}</p>
+      <span slot="footer" class="dialog-footer">
+        <el-button v-if="!batchStudentExportLoading" type="primary" size="mini" @click="batchExportDialogVisible = false">关闭</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
 <script>
-import { classInterveneSummary } from '@/api/spas/intervene'
-import { weakTopClass, heatmapClass, overviewClass, recalcDept, trendClass, chapterOverviewClass, analysisConfig, paperAnnotationCoverage, classKnowledgeExamTrend, questionTypeClass, bloomClass, chapterDeltaClass } from '@/api/spas/analysis'
+import { classInterveneSummary, batchWeakIntervene as batchWeakInterveneApi } from '@/api/spas/intervene'
+import { dashboardClass, heatmapClass, overviewClass, recalcDept, trendClass, chapterOverviewClass, analysisConfig, paperAnnotationCoverage, classKnowledgeExamTrend, questionTypeClass, bloomClass, chapterDeltaClass } from '@/api/spas/analysis'
+import { practiceDailyStat } from '@/api/spas/practice'
 import { deptErrorCauseSummary } from '@/api/spas/errorTag'
-import { previewClassReport } from '@/api/spas/report'
+import { previewClassReport, exportClassStudentsZip, getClassStudentsExportProgress } from '@/api/spas/report'
+import { blobValidate } from '@/utils/ruoyi'
+import { saveAs } from 'file-saver'
+import errorCode from '@/utils/errorCode'
 import { optionselectSubject } from '@/api/spas/subject'
 import { listPaper } from '@/api/spas/paper'
 import { listMyTeachingDepts } from '@/api/spas/teacher'
@@ -616,17 +760,26 @@ import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDep
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 import SpasChart from '@/components/spas/charts/SpasChart'
-import { buildScopeBanner } from '@/utils/spasAnalysisScope'
+import SpasAnalysisVerdict from '@/components/spas/SpasAnalysisVerdict'
+import { buildScopeBanner, buildAnalysisVerdict, buildDimWeakTip, formalWeakKnowledgeIds } from '@/utils/spasAnalysisScope'
 import { boundClassRoleFromDepts } from '@/utils/spasTeacherRole'
 
 export default {
   name: 'SpasAnalysisClass',
-  components: { Treeselect, SpasChart },
+  components: { Treeselect, SpasChart, SpasAnalysisVerdict },
   data() {
     return {
+      tipsExpanded: false,
       loading: false,
       recalcLoading: false,
       exportLoading: false,
+      batchStudentExportLoading: false,
+      batchExportDialogVisible: false,
+      batchExportPercent: 0,
+      batchExportCurrent: '',
+      batchExportMeta: '',
+      batchExportProgressStatus: null,
+      batchExportPollTimer: null,
       previewLoading: false,
       previewOpen: false,
       previewData: {},
@@ -639,12 +792,17 @@ export default {
       bloomInsight: '',
       errorCauseItems: [],
       errorCauseLoading: false,
-      chapterDelta: { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false },
+      chapterDelta: { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false, chapterEmptyReason: '', chapterEmptyHint: '' },
       subjectOptions: [],
       deptOptions: [],
       myDepts: [],
       overview: {},
       interveneSummary: null,
+      practiceSubmitRate: null,
+      practiceSubmittedCount: null,
+      practiceStudentTotal: null,
+      semesterWeakStudentCount: null,
+      batchInterveneLoading: false,
       knowledgeRows: [],
       kpTrendOpen: false,
       kpTrendLoading: false,
@@ -670,6 +828,14 @@ export default {
       autoSwitchingSubject: false,
       heatmapLimitHint: '',
       recencyHalfLifeDays: 60,
+      minAttempts: 3,
+      severeMinAttempts: 3,
+      baseMinAttempts: 3,
+      baseSevereMinAttempts: 3,
+      subjectOverrides: {},
+      subjectOverrideTip: '',
+      empiricalEnabled: false,
+      allocationMode: 'proportional',
       queryParams: {
         window: 'semester',
         deptId: undefined,
@@ -697,13 +863,136 @@ export default {
       const thin = Number(o.thinSampleStudentCount || 0)
       const formal = Number(o.weakStudentCount != null ? o.weakStudentCount : o.weakCount || 0)
       const low = Number(o.lowRateStudentCount || 0)
+      const min = this.effectiveMinAttempts
       if (thin > 0 && formal <= 0) {
-        let tip = '正式薄弱为 0，但有 ' + thin + ' 人存在「样本不足」低分点（作答不足 3 题），不能据此定级。'
-        if (low > 0) tip += ' 请优先看「综合低分」' + low + ' 人与排名表。'
+        let tip = '正式薄弱为 0，但有 ' + thin + ' 人存在「样本不足」低分点（作答不足 ' + min + ' 题），不能据此定级。'
+        if (low > 0) tip += ' 请优先看「综合低分」' + low + ' 人（综合低分 ≠ 正式薄弱）。'
         tip += ' 增加练习/再考后再采信正式薄弱结论。'
         return tip
       }
       return ''
+    },
+    effectiveMinAttempts() {
+      const o = this.overview || {}
+      if (o.minAttempts != null && Number(o.minAttempts) > 0) return Number(o.minAttempts)
+      return this.minAttempts || 3
+    },
+    effectiveSevereMinAttempts() {
+      const o = this.overview || {}
+      if (o.severeMinAttempts != null && Number(o.severeMinAttempts) > 0) return Number(o.severeMinAttempts)
+      return this.severeMinAttempts || this.effectiveMinAttempts
+    },
+    weakLineRate() {
+      const v = this.overview && this.overview.weakThreshold != null ? Number(this.overview.weakThreshold) : 0.6
+      return isNaN(v) ? 0.6 : v
+    },
+    weakLinePct() {
+      return Math.round(this.weakLineRate * 100) + '%'
+    },
+    weakLineNum() {
+      return Math.round(this.weakLineRate * 100)
+    },
+    severeLineNum() {
+      const v = this.overview && this.overview.severeThreshold != null ? Number(this.overview.severeThreshold) : 0.45
+      return Math.round((isNaN(v) ? 0.45 : v) * 100)
+    },
+    watchLineNum() {
+      const v = this.overview && this.overview.watchThreshold != null ? Number(this.overview.watchThreshold) : 0.75
+      return Math.round((isNaN(v) ? 0.75 : v) * 100)
+    },
+    severeLinePct() {
+      const v = this.overview && this.overview.severeThreshold != null ? Number(this.overview.severeThreshold) : 0.45
+      return Math.round((isNaN(v) ? 0.45 : v) * 100) + '%'
+    },
+    chapterRateTip() {
+      return '章节得分率 = 学生章节率的班均；覆盖学生=该章有数据的人数。「偏低人数」=章节率低于薄弱线（' + this.weakLinePct + '）的人数，按得分率统计、不看出答次数，不等同「正式薄弱」。'
+    },
+    rankingNote() {
+      return '低分点数按得分率统计（低于' + this.weakLinePct + ' / 低于' + this.severeLinePct + '）。正式薄弱还要求该知识点至少作答 ' + this.effectiveMinAttempts + ' 题；样本不够时不记入正式薄弱。作答题数按去重题目计，一题多知识点不重复累计。'
+    },
+    conclusionTip() {
+      if (!this.overview || this.overview.emptyKnowledge) return ''
+      const min = this.effectiveMinAttempts
+      const severeMin = this.effectiveSevereMinAttempts
+      const o = this.overview || {}
+      let tip = '读结论：正式薄弱 = 低掌握且作答≥' + min + ' 次；综合低分 ≠ 正式薄弱；样本不足不定级。'
+      if (severeMin !== min) {
+        tip += ' 正式严重另须作答≥' + severeMin + ' 次。'
+      }
+      if (o.subjectCode) tip = o.subjectCode + ' · ' + tip
+      return tip
+    },
+    dimWeakTip() {
+      if (!this.overview || this.overview.emptyKnowledge) return ''
+      return buildDimWeakTip(
+        this.questionTypeItems,
+        this.bloomItems,
+        this.questionTypeSummary,
+        this.bloomSummary,
+        r => this.formatRate(r)
+      )
+    },
+    batchRemediateLimit() {
+      return 5
+    },
+    batchRemediateIds() {
+      const formal = formalWeakKnowledgeIds(this.weakTopRows, this.batchRemediateLimit)
+      if (formal.length) return formal
+      const ids = []
+      const seen = {}
+      const rows = this.weakTopRows || []
+      for (let i = 0; i < rows.length && ids.length < this.batchRemediateLimit; i++) {
+        const id = rows[i] && (rows[i].knowledgeId != null ? rows[i].knowledgeId : rows[i].id)
+        if (id == null || id === '') continue
+        const key = String(id)
+        if (seen[key]) continue
+        seen[key] = true
+        ids.push(id)
+      }
+      return ids
+    },
+    canBatchRemediate() {
+      return !!(this.queryParams.subjectId && this.batchRemediateIds.length
+        && this.overview && !this.overview.emptyKnowledge
+        && !this.overview.formalWeakBlocked)
+    },
+    remediateGuideTip() {
+      if (!this.overview || this.overview.emptyKnowledge || this.overview.formalWeakBlocked) return ''
+      if (this.canBatchRemediate) {
+        return '可将班薄弱 Top ' + this.batchRemediateIds.length + ' 个知识点带入选题中心组补弱卷或批量建干预（不改掌握度公式）。'
+      }
+      const thin = Number(this.overview.thinSampleStudentCount || 0)
+      const formal = Number(this.overview.weakStudentCount != null ? this.overview.weakStudentCount : this.overview.weakCount || 0)
+      if (thin > 0 && formal <= 0) {
+        return '正式薄弱为 0、样本不足偏多时，暂不建议批量补弱；请先增加练习或改选具体班后再组卷。'
+      }
+      return ''
+    },
+    canBatchIntervene() {
+      return !!(this.canBatchRemediate && this.queryParams.deptId)
+    },
+    practiceBehaviorTip() {
+      if (!this.queryParams.deptId || this.practiceSubmitRate == null) return ''
+      const pct = Math.round(Number(this.practiceSubmitRate) * 1000) / 10
+      const sub = this.practiceSubmittedCount != null ? this.practiceSubmittedCount : '-'
+      const tot = this.practiceStudentTotal != null ? this.practiceStudentTotal : '-'
+      const weak = Number(this.overview && (this.overview.weakStudentCount != null ? this.overview.weakStudentCount : this.overview.weakCount))
+      return '今日自主练提交率 ' + pct + '%（' + sub + '/' + tot + '）；正式薄弱 '
+        + (isNaN(weak) ? '-' : weak) + ' 人。自主练为行为监管，不等于掌握度。'
+    },
+    windowCompareTip() {
+      if (this.analysisMode === 'papers' || !this.overview || this.overview.emptyKnowledge) return ''
+      const win = this.queryParams.window || this.defaultWindow || 'semester'
+      if (win === 'semester') return ''
+      if (this.semesterWeakStudentCount == null) return ''
+      const cur = Number(this.overview.weakStudentCount != null ? this.overview.weakStudentCount : this.overview.weakCount)
+      const sem = Number(this.semesterWeakStudentCount)
+      if (isNaN(cur) || isNaN(sem)) return ''
+      const labels = { last30d: '近30天', last90d: '近90天', all: '全部(快照)', prev_semester: '上学期' }
+      const delta = cur - sem
+      const sign = delta > 0 ? '+' : ''
+      return '正式薄弱对照：当前窗「' + (labels[win] || win) + '」' + cur + ' 人 · 本学期 ' + sem
+        + ' 人（Δ ' + sign + delta + '）。预警默认仍按本学期。'
     },
     heatmapHeight() {
       const n = (this.heatStudents || []).length
@@ -734,7 +1023,14 @@ export default {
       return boundClassRoleFromDepts(this.myDepts, this.queryParams.deptId)
     },
     kpTrendLowCount() {
-      return (this.kpTrendRows || []).filter(r => r.low || Number(r.avgRate) < 0.6).length
+      return (this.kpTrendRows || []).filter(r => r.low || Number(r.avgRate) < this.weakLineRate).length
+    },
+    scopeHasSubtree() {
+      if (this.boundClassMode) return false
+      const id = this.queryParams.deptId
+      if (!id) return false
+      const node = this.findDeptNode(this.deptOptions, id)
+      return !!(node && node.children && node.children.length)
     },
     scopeHint() {
       const id = this.queryParams.deptId
@@ -742,12 +1038,24 @@ export default {
       if (this.boundClassMode) {
         return '当前为班级范围（仅本班）'
       }
-      const node = this.findDeptNode(this.deptOptions, id)
-      if (!node) return ''
-      const hasChild = !!(node.children && node.children.length)
-      return hasChild
-        ? '当前为年级/校级范围，统计含下级班级'
-        : '当前为班级范围（仅本班）'
+      if (this.scopeHasSubtree) {
+        return '当前为年级/校级范围，统计含下级班级；干预名单请改选具体班'
+      }
+      return '当前为班级范围（仅本班）'
+    },
+    subtreeKpiTip() {
+      if (!this.scopeHasSubtree || !this.overview || this.overview.emptyKnowledge) return ''
+      return '含下级班级，KPI 会被差班稀释；点名干预请改选具体班后再查'
+    },
+    warningWindowNote() {
+      if (this.analysisMode === 'papers') {
+        return '选卷诊断仅影响本页掌握度；「立即预警」默认仍按系统 default-window（本学期），与所选试卷集合无关'
+      }
+      const win = this.queryParams.window || this.defaultWindow || 'semester'
+      const def = this.defaultWindow || 'semester'
+      if (win === def || win === 'semester') return ''
+      const labels = { last30d: '近30天', last90d: '近90天', all: '全部(快照)', prev_semester: '上学期' }
+      return '当前分析窗为「' + (labels[win] || win) + '」；预警列表若未改执行口径，仍按「本学期」。点「立即预警」将带上当前窗。'
     },
     interveneHint() {
       const s = this.interveneSummary
@@ -777,8 +1085,15 @@ export default {
         paperIds: this.queryParams.paperIds,
         useRecency: this.useRecency,
         dataMode: this.overview && this.overview.dataMode,
-        calcTime: this.overview && (this.overview.lastCalcTime || this.overview.calcTime)
+        calcTime: this.overview && (this.overview.lastCalcTime || this.overview.calcTime),
+        empiricalEnabled: this.empiricalEnabled,
+        allocationMode: this.allocationMode
       })
+    },
+    blankZeroTip() {
+      const n = Number(this.overview && this.overview.blankZeroCount)
+      if (!n || isNaN(n) || n <= 0) return ''
+      return '本窗口含空白置零 ' + n + ' 条（score_source=3），解读掌握度时请剔除'
     },
     classTrendOption() {
       const rows = this.classTrend || []
@@ -810,6 +1125,14 @@ export default {
     },
     chapterBarOption() {
       const rows = this.chapterRows || []
+      if (!rows.length) {
+        return {
+          title: { text: '暂无章节数据', left: 'center', top: 'middle', textStyle: { color: '#909399', fontSize: 14, fontWeight: 'normal' } },
+          xAxis: { show: false },
+          yAxis: { show: false },
+          series: []
+        }
+      }
       const names = rows.map(r => r.name || '-')
       const rates = rows.map(r => {
         const v = Number(r.avgRate)
@@ -838,6 +1161,28 @@ export default {
         series: [{ type: 'bar', data: rates, name: '章节班均', barMaxWidth: 28, label: { show: names.length <= 12, position: 'top', formatter: '{c}%', fontSize: 10 } }]
       }
     },
+    chapterDeltaEmpty() {
+      const d = this.chapterDelta || {}
+      return !(d.improved && d.improved.length) && !(d.declined && d.declined.length)
+    },
+    leafDeltaFallbackRows() {
+      const rows = []
+      ;(this.weakTopRows || []).slice(0, 8).forEach(r => {
+        const formal = r.weakLevel === '2' || r.weakLevel === '3' || r.formalWeak === true
+          || r.level === 'weak' || r.level === 'severe'
+        rows.push({
+          knowledgeId: r.knowledgeId,
+          name: r.name || r.knowledgeName,
+          knowledgeName: r.knowledgeName || r.name,
+          avgRate: r.avgRate != null ? r.avgRate : r.rate,
+          rate: r.rate,
+          weakCount: r.weakCount != null ? r.weakCount : r.studentCount,
+          tag: formal ? '正式薄弱' : '综合偏低',
+          tagType: formal ? 'danger' : 'warning'
+        })
+      })
+      return rows
+    },
     overviewCards() {
       const o = this.overview || {}
       const avg = o.avgRate != null ? o.avgRate : o.averageRate
@@ -847,9 +1192,10 @@ export default {
       const knowledgeCount = o.knowledgeCount != null ? o.knowledgeCount : o.weakKnowledgeCount
       const severeStudents = o.severeStudentCount
       const thin = o.thinSampleStudentCount
-      let weakHint = '作答≥3 且薄弱/严重'
+      const min = this.effectiveMinAttempts
+      let weakHint = '作答≥' + min + ' 且薄弱/严重'
       if (severeStudents != null && Number(severeStudents) > 0) {
-        weakHint = '含严重 ' + severeStudents
+        weakHint = '含严重 ' + severeStudents + '（作答≥' + this.effectiveSevereMinAttempts + '）'
       } else if (thin != null && Number(thin) > 0 && Number(weakStudents || 0) <= 0) {
         weakHint = Number(thin) + ' 人样本不足未定级'
       }
@@ -866,20 +1212,22 @@ export default {
           label: '正式薄弱',
           value: weakStudents != null ? weakStudents : '-',
           hint: weakHint,
-          tone: 'orange'
+          tone: 'orange',
+          emphasis: true
         },
         {
           key: 'lowStu',
           label: '综合低分',
           value: lowRateStudents != null ? lowRateStudents : '-',
-          hint: '综合得分率低于60%',
-          tone: 'red'
+          hint: '综合率低于' + this.weakLinePct + '，≠正式薄弱',
+          tone: 'red',
+          emphasis: true
         },
         {
           key: 'thinStu',
           label: '样本不足',
           value: thin != null ? thin : '-',
-          hint: '低分但作答不足，不定级',
+          hint: '低分但作答不足' + min + '次，不定级',
           tone: 'purple'
         },
         {
@@ -897,6 +1245,20 @@ export default {
           tone: 'orange'
         }
       ]
+    },
+    detailOverviewCards() {
+      const hide = { avg: 1, weakStu: 1, thinStu: 1 }
+      return (this.overviewCards || []).filter(c => !hide[c.key])
+    },
+    insightVerdict() {
+      return buildAnalysisVerdict({
+        scope: 'class',
+        summary: this.overview,
+        empty: !!(this.overview && this.overview.emptyKnowledge),
+        blocked: !!(this.annotationBlocked || (this.overview && this.overview.formalWeakBlocked)),
+        blockReason: (this.overview && this.overview.formalWeakBlockReason) || this.annotationHint,
+        formatRate: v => this.formatRate(v)
+      })
     },
     previewOverview() {
       return (this.previewData && this.previewData.overview) || null
@@ -955,11 +1317,35 @@ export default {
       }
     }).catch(() => {})
   },
+  beforeDestroy() {
+    this.clearBatchExportPoll()
+  },
   methods: {
+    goQuality() {
+      const query = { metric: 'Q_NO_KNOWLEDGE' }
+      if (this.queryParams.subjectId) query.subjectId = this.queryParams.subjectId
+      if (this.queryParams.deptId) query.deptId = this.queryParams.deptId
+      const pids = this.queryParams.paperIds || []
+      if (pids.length === 1) query.paperId = pids[0]
+      else if (pids.length > 1) query.paperIds = pids.join(',')
+      this.$router.push({ path: '/spas/quality', query }).catch(() => {})
+    },
+    goWarningRun() {
+      const query = {}
+      if (this.analysisMode === 'window' && this.queryParams.window) {
+        query.window = this.queryParams.window
+      } else if (this.defaultWindow) {
+        query.window = this.defaultWindow
+      } else {
+        query.window = 'semester'
+      }
+      this.$router.push({ path: '/spas/warning/rule', query }).catch(() => {})
+    },
     onSubjectChange() {
       if (!this.autoSwitchingSubject) {
         this.subjectPickedByUser = true
       }
+      this.applySubjectThresholds()
       this.queryParams.paperIds = []
       this.loadPapers()
       if (this.queryParams.deptId) {
@@ -973,10 +1359,41 @@ export default {
       this.subjectPickedByUser = false
       this.autoSwitchingSubject = true
       this.queryParams.subjectId = Number(subjectId) || subjectId
+      this.applySubjectThresholds()
       this.queryParams.paperIds = []
       this.loadPapers()
       this.autoSwitchingSubject = false
       this.handleQuery()
+    },
+    applySubjectThresholds() {
+      this.minAttempts = this.baseMinAttempts || 3
+      this.severeMinAttempts = this.baseSevereMinAttempts || this.minAttempts
+      this.subjectOverrideTip = ''
+      const hit = (this.subjectOptions || []).find(s => Number(s.subjectId) === Number(this.queryParams.subjectId))
+      const code = hit && hit.subjectCode
+      if (!code) return
+      const overrides = this.subjectOverrides || {}
+      let o = overrides[code]
+      if (!o) {
+        const key = Object.keys(overrides).find(k => k && k.toLowerCase() === String(code).toLowerCase())
+        o = key ? overrides[key] : null
+      }
+      if (!o) return
+      if (o.minAttempts != null && Number(o.minAttempts) > 0) this.minAttempts = Number(o.minAttempts)
+      if (o.severeMinAttempts != null && Number(o.severeMinAttempts) > 0) {
+        this.severeMinAttempts = Number(o.severeMinAttempts)
+      } else {
+        this.severeMinAttempts = this.minAttempts
+      }
+      const bits = []
+      if (o.weak != null) bits.push('薄弱线 ' + Number(o.weak).toFixed(2))
+      if (o.minAttempts != null) bits.push('正式定级至少 ' + o.minAttempts + ' 次')
+      if (o.severeMinAttempts != null && Number(o.severeMinAttempts) !== Number(o.minAttempts)) {
+        bits.push('严重另须 ' + o.severeMinAttempts + ' 次')
+      }
+      if (bits.length) {
+        this.subjectOverrideTip = (hit.subjectName || code) + '分科口径：' + bits.join('，')
+      }
     },
     findDeptNode(nodes, id) {
       for (const n of nodes || []) {
@@ -1142,6 +1559,122 @@ export default {
         this.exportLoading = false
       })
     },
+    handleExportAllStudentReports(format) {
+      if (!this.queryParams.deptId) {
+        this.$modal.msgWarning('请先选择班级')
+        return
+      }
+      if (this.analysisMode === 'papers' && (!this.queryParams.paperIds || !this.queryParams.paperIds.length)) {
+        this.$modal.msgWarning('选卷诊断请至少勾选一份试卷')
+        return
+      }
+      const ext = format === 'xlsx' ? 'xlsx' : 'pdf'
+      const n = (this.studentRanking && this.studentRanking.length) || 0
+      const tip = '将按当前学科与时间窗，为班级内有成绩的学生各生成一份学情报告并打包 ZIP 下载。'
+        + (n > 0 ? ('当前榜单约 ' + n + ' 人。') : '')
+        + '人多时可能需要数分钟，请勿关闭页面。确认导出？'
+      this.$modal.confirm(tip).then(() => this.runBatchStudentExport(ext)).catch(() => {})
+    },
+    newBatchExportJobId() {
+      return 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+    },
+    clearBatchExportPoll() {
+      if (this.batchExportPollTimer) {
+        clearInterval(this.batchExportPollTimer)
+        this.batchExportPollTimer = null
+      }
+    },
+    applyBatchExportProgress(data) {
+      const d = data || {}
+      const total = Number(d.total) || 0
+      const processed = Number(d.processed) || 0
+      const written = Number(d.written) || 0
+      let pct = Number(d.percent)
+      if (isNaN(pct)) {
+        pct = total > 0 ? Math.round(processed * 100 / total) : 0
+      }
+      this.batchExportPercent = Math.max(0, Math.min(100, pct))
+      this.batchExportCurrent = d.current || d.message || ''
+      if (total > 0) {
+        this.batchExportMeta = '进度 ' + processed + ' / ' + total
+          + (written > 0 ? ('，已写入 ' + written + ' 份') : '')
+      } else if (d.status === 'pending') {
+        this.batchExportMeta = '任务启动中…'
+      } else {
+        this.batchExportMeta = d.message || ''
+      }
+      if (d.status === 'done') {
+        this.batchExportProgressStatus = 'success'
+        this.batchExportPercent = 100
+      } else if (d.status === 'error') {
+        this.batchExportProgressStatus = 'exception'
+        if (d.message) this.batchExportCurrent = d.message
+      } else {
+        this.batchExportProgressStatus = null
+      }
+    },
+    startBatchExportPoll(jobId) {
+      this.clearBatchExportPoll()
+      const tick = () => {
+        getClassStudentsExportProgress(jobId).then(res => {
+          this.applyBatchExportProgress((res && res.data) || {})
+        }).catch(() => {})
+      }
+      tick()
+      this.batchExportPollTimer = setInterval(tick, 700)
+    },
+    runBatchStudentExport(ext) {
+      const jobId = this.newBatchExportJobId()
+      const params = Object.assign({ format: ext, jobId }, this.scopeQuery())
+      const filename = `class_students_${this.queryParams.deptId}_${new Date().getTime()}.zip`
+      this.batchStudentExportLoading = true
+      this.batchExportDialogVisible = true
+      this.batchExportPercent = 0
+      this.batchExportProgressStatus = null
+      this.batchExportMeta = '任务启动中…'
+      this.batchExportCurrent = '正在准备导出…'
+      this.startBatchExportPoll(jobId)
+      return exportClassStudentsZip(this.queryParams.deptId, params).then(async (data) => {
+        const isBlob = blobValidate(data)
+        if (isBlob) {
+          saveAs(new Blob([data]), filename)
+          this.batchExportPercent = 100
+          this.batchExportProgressStatus = 'success'
+          if (!this.batchExportMeta || this.batchExportMeta.indexOf('进度') === 0) {
+            this.batchExportMeta = '下载完成'
+          }
+          if (!this.batchExportCurrent || this.batchExportCurrent.indexOf('正在') === 0) {
+            this.batchExportCurrent = 'ZIP 已保存到本地'
+          }
+          this.$modal.msgSuccess('全班学情 ZIP 已开始下载')
+        } else {
+          const resText = await data.text()
+          let errMsg = '导出失败'
+          try {
+            const rspObj = JSON.parse(resText)
+            errMsg = errorCode[rspObj.code] || rspObj.msg || errMsg
+          } catch (e) { /* ignore */ }
+          this.batchExportProgressStatus = 'exception'
+          this.batchExportCurrent = errMsg
+          this.$modal.msgError(errMsg)
+        }
+      }).catch((err) => {
+        this.batchExportProgressStatus = 'exception'
+        const msg = (err && err.message) ? err.message : '下载失败，请稍后重试'
+        this.batchExportCurrent = msg
+        this.$modal.msgError(msg)
+      }).finally(() => {
+        this.clearBatchExportPoll()
+        this.batchStudentExportLoading = false
+        getClassStudentsExportProgress(jobId).then(res => {
+          this.applyBatchExportProgress((res && res.data) || {})
+          if (this.batchExportProgressStatus !== 'exception') {
+            this.batchExportPercent = Math.max(this.batchExportPercent, 100)
+            if (!this.batchExportProgressStatus) this.batchExportProgressStatus = 'success'
+          }
+        }).catch(() => {})
+      })
+    },
     handleRecalcDept() {
       if (!this.queryParams.deptId) {
         this.$modal.msgWarning('请先选择班级')
@@ -1177,6 +1710,21 @@ export default {
           this.recencyHalfLifeDays = Number(cfg.recencyHalfLifeDays) || 60
           this.useRecency = this.recencyHalfLifeDays > 0
         }
+        if (cfg.minAttempts != null) {
+          this.baseMinAttempts = Number(cfg.minAttempts) || 3
+          this.minAttempts = this.baseMinAttempts
+        }
+        const severeBase = (cfg.weakThresholds && cfg.weakThresholds.severeMinAttempts != null)
+          ? cfg.weakThresholds.severeMinAttempts
+          : cfg.severeMinAttempts
+        if (severeBase != null) {
+          this.baseSevereMinAttempts = Number(severeBase) || this.baseMinAttempts
+          this.severeMinAttempts = this.baseSevereMinAttempts
+        }
+        this.subjectOverrides = cfg.subjectOverrides || {}
+        this.empiricalEnabled = !!(cfg.empiricalEnabled || (cfg.empiricalDifficulty && cfg.empiricalDifficulty.enabled))
+        this.allocationMode = cfg.allocationMode || 'proportional'
+        this.applySubjectThresholds()
         const annot = cfg.annotationCoverage || {}
         if (annot.unboundRatioThreshold != null) {
           this.unboundRatioThreshold = Number(annot.unboundRatioThreshold) || 0.20
@@ -1203,7 +1751,7 @@ export default {
       this.bloomSummary = {}
       this.bloomInsight = ''
       this.errorCauseItems = []
-      this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false }
+      this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false, chapterEmptyReason: '', chapterEmptyHint: '' }
       this.chapterRows = []
       this.classTrend = []
     },
@@ -1289,7 +1837,7 @@ export default {
     },
     loadChapterDelta() {
       if (!this.queryParams.deptId) {
-        this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false }
+        this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false, chapterEmptyReason: '', chapterEmptyHint: '' }
         return Promise.resolve()
       }
       return chapterDeltaClass(this.queryParams.deptId, this.scopeQuery({ baselineWindow: 'prev_semester' })).then(res => {
@@ -1301,11 +1849,24 @@ export default {
           headline: data.headline || '',
           baselineWindow: data.baselineWindow || 'prev_semester',
           baselineHint: data.baselineHint || '',
-          baselineEmpty: !!data.baselineEmpty
+          baselineEmpty: !!data.baselineEmpty,
+          chapterEmptyReason: data.chapterEmptyReason || '',
+          chapterEmptyHint: data.chapterEmptyHint || ''
         }
       }).catch(() => {
-        this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false }
+        this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false, chapterEmptyReason: '', chapterEmptyHint: '' }
       })
+    },
+    goKnowledgeManage() {
+      const q = {}
+      if (this.queryParams.subjectId) q.subjectId = this.queryParams.subjectId
+      this.$router.push({ path: '/spas/base/knowledge', query: q }).catch(() => {})
+    },
+    goQualityBoard() {
+      const q = {}
+      if (this.queryParams.subjectId) q.subjectId = this.queryParams.subjectId
+      if (this.queryParams.deptId) q.deptId = this.queryParams.deptId
+      this.$router.push({ path: '/spas/quality', query: q }).catch(() => {})
     },
     loadAnnotationCoverage() {
       if (this.analysisMode !== 'papers' || !this.queryParams.paperIds || !this.queryParams.paperIds.length) {
@@ -1363,16 +1924,16 @@ export default {
       const query = this.scopeQuery({ limit: this.queryParams.limit })
       this.loading = true
       let chainedReload = false
-      Promise.all([
-        overviewClass(deptId, query),
-        weakTopClass(deptId, query),
-        heatmapClass(deptId, query)
-      ]).then(([overviewRes, weakRes, heatRes]) => {
-        const ov = this.unwrapData(overviewRes) || {}
+      dashboardClass(deptId, query).then((dashRes) => {
+        const data = this.unwrapData(dashRes) || {}
+        const ov = data.overview || {}
         this.overview = ov
-        // Default subject sort may land on 语文 while this class only has 物理小题数据
-        if (ov.emptyKnowledge && ov.suggestedSubjectId != null && !this.subjectPickedByUser) {
-          const sid = Number(ov.suggestedSubjectId)
+        // Prefer concrete subject for depth + speed (all-subjects class scan is expensive)
+        const noSubject = this.queryParams.subjectId == null || this.queryParams.subjectId === ''
+        const suggested = ov.suggestedSubjectId
+          || ((ov.subjectsWithData || [])[0] && (ov.subjectsWithData || [])[0].subjectId)
+        if (((noSubject || ov.emptyKnowledge) && suggested != null && !this.subjectPickedByUser)) {
+          const sid = Number(suggested)
           if (!isNaN(sid) && sid !== Number(this.queryParams.subjectId)) {
             chainedReload = true
             this.autoSwitchingSubject = true
@@ -1383,18 +1944,10 @@ export default {
             return this.loadAnalysis()
           }
         }
-        this.knowledgeRows = Array.isArray(ov.knowledges) ? ov.knowledges : (Array.isArray(ov) ? ov : [])
+        this.knowledgeRows = Array.isArray(ov.knowledges) ? ov.knowledges : []
         this.studentRanking = Array.isArray(ov.studentRanking) ? ov.studentRanking : []
-        this.loadClassTrend()
-        this.loadChapterOverview()
-        this.loadQuestionType()
-        this.loadBloom()
-        this.loadErrorCauseHeat()
-        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
-        this.loadAnnotationCoverage()
-        this.loadInterveneSummary()
-        this.buildWeakBar(this.unwrapList(weakRes))
-        this.buildHeatmap(this.unwrapData(heatRes) || {})
+        this.buildWeakBar(Array.isArray(data.weakTop) ? data.weakTop : [])
+        this.$nextTick(() => this.loadSecondaryAnalysis())
       }).catch(() => {
         this.overview = {}
         this.knowledgeRows = []
@@ -1402,6 +1955,8 @@ export default {
         this.weakBarOption = {}
         this.heatmapOption = {}
         this.heatmapLimitHint = ''
+        this.practiceSubmitRate = null
+        this.semesterWeakStudentCount = null
         this.clearAdvancedAnalysis()
         this.$modal.msgError('加载班级分析失败')
       }).finally(() => {
@@ -1409,6 +1964,31 @@ export default {
           this.loading = false
         }
       })
+    },
+    loadSecondaryAnalysis() {
+      const run = (fn, delay) => setTimeout(() => { try { fn.call(this) } catch (e) { /* ignore */ } }, delay)
+      run(function() { this.loadHeatmap() }, 0)
+      run(function() { this.loadAnnotationCoverage() }, 40)
+      run(function() { this.loadInterveneSummary() }, 80)
+      run(function() { this.loadPracticeBehavior() }, 80)
+      run(function() { this.loadWindowCompare() }, 120)
+      run(function() { this.loadClassTrend() }, 160)
+      run(function() { this.loadChapterOverview() }, 200)
+      run(function() { this.loadQuestionType() }, 260)
+      run(function() { this.loadBloom() }, 320)
+      run(function() { this.loadErrorCauseHeat() }, 360)
+      run(function() {
+        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
+      }, 420)
+    },
+    loadHeatmap() {
+      if (!this.queryParams.deptId) {
+        this.buildHeatmap({})
+        return Promise.resolve()
+      }
+      return heatmapClass(this.queryParams.deptId, this.scopeQuery()).then(res => {
+        this.buildHeatmap(this.unwrapData(res) || {})
+      }).catch(() => { this.buildHeatmap({}) })
     },
     scopeQuery(extra) {
       const q = Object.assign({
@@ -1617,10 +2197,10 @@ export default {
           textStyle: { fontSize: 11 },
           pieces: [
             { value: -1, label: '无数据', color: '#EBEEF5' },
-            { gte: 0, lt: 45, label: '<45%', color: '#F56C6C' },
-            { gte: 45, lt: 60, label: '45-60%', color: '#E6A23C' },
-            { gte: 60, lt: 75, label: '60-75%', color: '#CA8A04' },
-            { gte: 75, lte: 100, label: '>=75%', color: '#67C23A' }
+            { gte: 0, lt: this.severeLineNum, label: '<' + this.severeLineNum + '%', color: '#F56C6C' },
+            { gte: this.severeLineNum, lt: this.weakLineNum, label: this.severeLineNum + '-' + this.weakLineNum + '%', color: '#E6A23C' },
+            { gte: this.weakLineNum, lt: this.watchLineNum, label: this.weakLineNum + '-' + this.watchLineNum + '%', color: '#CA8A04' },
+            { gte: this.watchLineNum, lte: 100, label: '≥' + this.watchLineNum + '%', color: '#67C23A' }
           ]
         },
         series: [{
@@ -1661,7 +2241,7 @@ export default {
           xAxis: { type: 'category', data: names, axisLabel: { rotate: names.length > 5 ? 30 : 0 } },
           yAxis: { type: 'value', name: '%', min: 0, max: 100 },
           series: [{ name: '班均得分率', type: 'line', data: rates, smooth: true,
-            markLine: { data: [{ yAxis: 60, name: '60%' }], lineStyle: { color: '#D97706' } } }]
+            markLine: { data: [{ yAxis: this.weakLineNum, name: '薄弱线' + this.weakLinePct }], lineStyle: { color: '#D97706' } } }]
         }
       }).catch(() => {
         this.kpTrendRows = []
@@ -1683,6 +2263,115 @@ export default {
       const hit = (this.weakTopRows || []).find(k => (k.name || k.knowledgeName) === name)
         || (this.knowledgeRows || []).find(k => (k.name || k.knowledgeName) === name)
       if (hit) this.goKnowledge(hit)
+    },
+    goRemediate(row) {
+      const knowledgeId = row && (row.knowledgeId || row.id)
+      const subjectId = this.queryParams.subjectId
+      if (!knowledgeId) {
+        this.$modal.msgWarning('无法定位知识点')
+        return
+      }
+      if (!subjectId) {
+        this.$modal.msgWarning('请先选择学科再去选题补弱')
+        return
+      }
+      this.$router.push({
+        path: '/spas/qb/select',
+        query: { subjectId, knowledgeId }
+      }).catch(() => {})
+    },
+    goBatchRemediate() {
+      const subjectId = this.queryParams.subjectId
+      const ids = this.batchRemediateIds
+      if (!subjectId) {
+        this.$modal.msgWarning('请先选择学科再去选题补弱')
+        return
+      }
+      if (!ids.length) {
+        this.$modal.msgWarning('暂无薄弱知识点，无法批量补弱')
+        return
+      }
+      this.$router.push({
+        path: '/spas/qb/select',
+        query: { subjectId, knowledgeIds: ids.join(',') }
+      }).catch(() => {})
+    },
+    goBatchIntervene() {
+      if (!this.canBatchIntervene) {
+        this.$modal.msgWarning('请先选择班级与学科，并确保有薄弱知识点')
+        return
+      }
+      const ids = this.batchRemediateIds
+      const rows = (this.weakTopRows || []).filter(r => {
+        const id = r && (r.knowledgeId != null ? r.knowledgeId : r.id)
+        return id != null && ids.map(String).indexOf(String(id)) >= 0
+      })
+      this.$modal.confirm('将依次为班薄弱 Top ' + ids.length + ' 个知识点批量创建干预，确认？').then(async () => {
+        this.batchInterveneLoading = true
+        let created = 0
+        let skipped = 0
+        for (const row of rows) {
+          try {
+            const res = await batchWeakInterveneApi({
+              deptId: this.queryParams.deptId,
+              subjectId: this.queryParams.subjectId,
+              knowledgeId: row.knowledgeId || row.id,
+              title: '薄弱干预：' + (row.name || row.knowledgeName || row.knowledgeId),
+              targetRate: 0.6
+            })
+            const d = (res && res.data) || {}
+            created += Number(d.created || 0)
+            skipped += Number(d.skipped || 0)
+          } catch (e) { /* continue */ }
+        }
+        this.$modal.msgSuccess('已创建 ' + created + ' 条，跳过 ' + skipped + ' 条')
+        this.loadInterveneSummary()
+      }).catch(() => {}).finally(() => {
+        this.batchInterveneLoading = false
+      })
+    },
+    goPracticeBoard() {
+      const q = {}
+      if (this.queryParams.deptId) q.deptId = this.queryParams.deptId
+      if (this.queryParams.subjectId) q.subjectId = this.queryParams.subjectId
+      this.$router.push({ path: '/spas/biz/practice', query: q }).catch(() => {})
+    },
+    loadPracticeBehavior() {
+      const deptId = this.queryParams.deptId
+      if (!deptId) {
+        this.practiceSubmitRate = null
+        this.practiceSubmittedCount = null
+        this.practiceStudentTotal = null
+        return Promise.resolve()
+      }
+      const q = { deptId }
+      if (this.queryParams.subjectId) q.subjectId = this.queryParams.subjectId
+      return practiceDailyStat(q).then(res => {
+        const d = (res && res.data) || {}
+        this.practiceSubmitRate = d.submitRate != null ? Number(d.submitRate) : 0
+        this.practiceSubmittedCount = d.submittedCount != null ? Number(d.submittedCount) : 0
+        this.practiceStudentTotal = d.studentTotal != null ? Number(d.studentTotal) : 0
+      }).catch(() => {
+        this.practiceSubmitRate = null
+        this.practiceSubmittedCount = null
+        this.practiceStudentTotal = null
+      })
+    },
+    loadWindowCompare() {
+      this.semesterWeakStudentCount = null
+      if (this.analysisMode === 'papers' || !this.queryParams.deptId) return Promise.resolve()
+      const win = this.queryParams.window || this.defaultWindow || 'semester'
+      if (win === 'semester') return Promise.resolve()
+      const q = this.scopeQuery()
+      q.window = 'semester'
+      delete q.paperIds
+      return overviewClass(this.queryParams.deptId, q).then(res => {
+        const d = this.unwrapData(res) || {}
+        const n = d.weakStudentCount != null ? d.weakStudentCount : d.weakCount
+        this.semesterWeakStudentCount = n != null ? Number(n) : 0
+      }).catch(() => {
+        this.semesterWeakStudentCount = null
+      })
     },
     onHeatmapClick(params) {
       if (!params || !params.value) return
@@ -1716,6 +2405,19 @@ export default {
 </script>
 
 <style scoped>
+.batch-export-meta {
+  margin: 14px 0 6px;
+  color: #606266;
+  font-size: 13px;
+}
+.batch-export-current {
+  margin: 0;
+  min-height: 20px;
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
 .spas-analysis .card-header {
   font-weight: 600;
   color: #2C2940;
@@ -1777,24 +2479,41 @@ export default {
   border-left: 3px solid #7B6CF6;
   box-shadow: 0 8px 24px rgba(91, 75, 219, 0.06);
 }
-.stat-card.tone-blue { border-left-color: #7B6CF6; }
-.stat-card.tone-orange { border-left-color: #E6A23C; }
-.stat-card.tone-green { border-left-color: #67C23A; }
-.stat-card.tone-red { border-left-color: #F56C6C; }
+.stat-card.tone-blue { border-left-color: #2442ED; }
+.stat-card.tone-orange { border-left-color: #D97706; }
+.stat-card.tone-green { border-left-color: #10B981; }
+.stat-card.tone-red { border-left-color: #FF5A5F; }
+.stat-card.tone-purple { border-left-color: #0E7490; }
+.stat-card.is-emphasis {
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.12), 0 8px 18px rgba(15, 23, 42, 0.06);
+}
 .stat-label {
-  color: #6B6685;
-  font-size: 13px;
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 600;
 }
 .stat-value {
   margin-top: 8px;
-  font-size: 26px;
-  font-weight: 600;
-  color: #2C2940;
-  line-height: 1.2;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0F172A;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
 }
 .stat-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #A8A3BD;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #94A3B8;
 }
+.tips-fold {
+  margin-bottom: 8px;
+}
+.tips-fold-body {
+  margin-top: 4px;
+  padding: 8px 10px 2px;
+  border-radius: 10px;
+  background: rgba(245, 247, 251, 0.9);
+  border: 1px dashed #E2E8F0;
+}
+.mb8 { margin-bottom: 8px; }
 </style>

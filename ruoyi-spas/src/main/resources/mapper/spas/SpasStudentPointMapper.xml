@@ -79,6 +79,43 @@
           and create_time::date = #{day}::date
     </select>
 
+    <!-- 日封顶预算：排除考试名次发分/冲销，避免考试分挤占日常激励额度 -->
+    <select id="sumCapPointsToday" resultType="int">
+        select coalesce(sum(points), 0)
+        from spas_student_point_ledger
+        where student_id = #{studentId}
+          and create_time::date = #{day}::date
+          and reason_code not in ('EXAM_CLASS_RANK', 'EXAM_CLASS_RANK_VOID')
+    </select>
+
+    <update id="applyAccountDelta">
+        insert into spas_student_point_account(
+            student_id, total_points, level_no, day_streak, last_practice_date,
+            week_points, week_start, update_time)
+        values (
+            #{studentId},
+            greatest(0, #{delta}),
+            greatest(1, (1 + floor((sqrt(1 + 8.0 * greatest(0, #{delta}) / 50.0) - 1) / 2))::int),
+            coalesce(#{dayStreak}, 0),
+            #{lastPracticeDate},
+            greatest(0, #{delta}),
+            #{weekStart}::date,
+            now())
+        on conflict (student_id) do update set
+            total_points = greatest(0, spas_student_point_account.total_points + #{delta}),
+            week_points = case
+                when spas_student_point_account.week_start is distinct from excluded.week_start
+                    then greatest(0, #{delta})
+                else greatest(0, spas_student_point_account.week_points + #{delta})
+            end,
+            week_start = excluded.week_start,
+            level_no = greatest(1, (1 + floor((sqrt(1 + 8.0 * greatest(0,
+                spas_student_point_account.total_points + #{delta}) / 50.0) - 1) / 2))::int),
+            last_practice_date = coalesce(excluded.last_practice_date, spas_student_point_account.last_practice_date),
+            day_streak = coalesce(excluded.day_streak, spas_student_point_account.day_streak),
+            update_time = now()
+    </update>
+
     <select id="countReasonToday" resultType="int">
         select count(1)
         from spas_student_point_ledger
@@ -90,6 +127,7 @@
         </if>
     </select>
 
+    <!-- 不计检查单回写流水（client_type=checkout），避免占「首条打卡」名额 -->
     <select id="countLogsOnDay" resultType="int">
         select count(1)
         from spas_practice_log
@@ -98,6 +136,7 @@
           and practice_date = #{practiceDate}::date
           and coalesce(status, '0') = '0'
           and (proxy_flag = '0' or confirm_status = '2')
+          and coalesce(client_type, '') &lt;&gt; 'checkout'
     </select>
 
     <select id="selectLedgerByStudent" resultMap="LedgerResult">
@@ -117,6 +156,7 @@
         from spas_student_point_account a
         join spas_student s on s.student_id = a.student_id
         where s.dept_id = #{deptId}
+          and coalesce(s.del_flag, '0') = '0'
           and coalesce(s.status, '0') = '0'
           and a.total_points &gt; 0
         order by a.total_points desc, a.update_time asc, a.student_id
@@ -131,11 +171,35 @@
         from spas_student_point_account a
         join spas_student s on s.student_id = a.student_id
         where s.dept_id = #{deptId}
+          and coalesce(s.del_flag, '0') = '0'
           and coalesce(s.status, '0') = '0'
           and a.week_start = #{weekStart}::date
           and a.week_points &gt; 0
         order by a.week_points desc, a.update_time asc, a.student_id
         limit #{limit}
+    </select>
+
+    <select id="selectClassFarm" resultMap="AccountResult">
+        select s.student_id,
+               coalesce(a.total_points, 0) as total_points,
+               coalesce(a.level_no, 1) as level_no,
+               a.day_streak, a.last_practice_date,
+               coalesce(a.week_points, 0) as week_points,
+               a.week_start, a.update_time,
+               s.student_name, s.student_no,
+               row_number() over (
+                 order by coalesce(a.total_points, 0) desc,
+                          coalesce(a.update_time, s.create_time) asc,
+                          s.student_id
+               ) as rank_no
+        from spas_student s
+        left join spas_student_point_account a on a.student_id = s.student_id
+        where s.dept_id = #{deptId}
+          and coalesce(s.del_flag, '0') = '0'
+          and coalesce(s.status, '0') = '0'
+        order by coalesce(a.total_points, 0) desc,
+                 coalesce(a.update_time, s.create_time) asc,
+                 s.student_id
     </select>
 
     <select id="selectRankAll" resultType="java.lang.Integer">
@@ -145,6 +209,7 @@
             from spas_student_point_account a
             join spas_student s on s.student_id = a.student_id
             where s.dept_id = #{deptId}
+              and coalesce(s.del_flag, '0') = '0'
               and coalesce(s.status, '0') = '0'
               and a.total_points &gt; 0
         ) t where t.student_id = #{studentId}
@@ -157,6 +222,7 @@
             from spas_student_point_account a
             join spas_student s on s.student_id = a.student_id
             where s.dept_id = #{deptId}
+              and coalesce(s.del_flag, '0') = '0'
               and coalesce(s.status, '0') = '0'
               and a.week_start = #{weekStart}::date
               and a.week_points &gt; 0
@@ -182,5 +248,22 @@
           and p.practice_date &lt;= #{endDate}::date
           and coalesce(p.status, '0') = '0'
           and (p.proxy_flag = '0' or p.confirm_status = '2')
+    </select>
+
+    <!-- 尚未冲销的考试班级名次正分流水 -->
+    <select id="selectExamClassRankLedgers" resultMap="LedgerResult">
+        select l.ledger_id, l.student_id, l.dept_id, l.subject_id, l.points, l.reason_code, l.ref_type, l.ref_id,
+               l.biz_key, l.remark, l.create_time
+        from spas_student_point_ledger l
+        where l.reason_code = 'EXAM_CLASS_RANK'
+          and l.ref_type = 'exam'
+          and l.ref_id = #{examId}::varchar
+          and l.points &gt; 0
+          and not exists (
+            select 1 from spas_student_point_ledger v
+            where v.reason_code = 'EXAM_CLASS_RANK_VOID'
+              and v.biz_key = ('EXAM_CLASS_RANK_VOID:' || #{examId}::varchar || ':' || l.student_id::varchar || ':' || l.ledger_id::varchar)
+          )
+        order by l.ledger_id asc
     </select>
 </mapper>

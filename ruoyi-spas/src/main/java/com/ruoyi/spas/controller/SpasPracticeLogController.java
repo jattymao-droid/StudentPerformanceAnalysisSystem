@@ -19,6 +19,8 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.spas.domain.SpasPracticeAssignment;
 import com.ruoyi.spas.domain.SpasPracticeCheckout;
 import com.ruoyi.spas.domain.SpasPracticeLog;
@@ -75,6 +77,11 @@ public class SpasPracticeLogController extends BaseController
     @PostMapping("/proxy")
     public AjaxResult proxy(@RequestBody SpasPracticeLog log)
     {
+        // 日常主路径已改为组长检查单；代提仅管理员补录历史/例外
+        if (!SecurityUtils.isAdmin() && !SecurityUtils.hasRole("admin") && !SecurityUtils.hasRole("spas_admin"))
+        {
+            throw new ServiceException("日常代提已停用，请使用组长检查单登记；仅管理员可补录");
+        }
         int rows = practiceService.insertProxy(log);
         AjaxResult ajax = toAjax(rows);
         ajax.put("awardedPoints", Integer.valueOf(practiceService.consumeLastAwardedPoints()));
@@ -144,6 +151,10 @@ public class SpasPracticeLogController extends BaseController
         return success(practiceService.dailyStat(deptId, subjectId, practiceDate));
     }
 
+    /**
+     * @deprecated 日常监管请用 {@code /stat/checkout-alerts}；本接口仅兼容历史看板，后续移除。
+     */
+    @Deprecated
     @PreAuthorize("@ss.hasAnyPermi('spas:practice:stat,spas:practice:list')")
     @GetMapping("/stat/alerts")
     public AjaxResult alerts(@RequestParam Long deptId,
@@ -163,6 +174,10 @@ public class SpasPracticeLogController extends BaseController
         return success(practiceService.weekThemeOverlap(deptId, subjectId, beginDate, endDate));
     }
 
+    /**
+     * @deprecated 抽检请用 {@code /stat/spot-queue} + {@code PUT /spot/{itemId}}。
+     */
+    @Deprecated
     @PreAuthorize("@ss.hasPermi('spas:practice:spot')")
     @GetMapping("/stat/spot-sample")
     public AjaxResult spotSample(@RequestParam Long deptId,
@@ -174,16 +189,24 @@ public class SpasPracticeLogController extends BaseController
         return success(practiceService.spotSample(deptId, subjectId, beginDate, endDate, limit));
     }
 
+    /**
+     * @deprecated 抽检请写检查单项：{@code PUT /spot/{itemId}}。
+     */
+    @Deprecated
     @PreAuthorize("@ss.hasPermi('spas:practice:spot')")
-    @Log(title = "自主练抽查", businessType = BusinessType.UPDATE)
+    @Log(title = "自主练抽查(旧log)", businessType = BusinessType.UPDATE)
     @PutMapping("/{logId}/spot")
     public AjaxResult spot(@PathVariable Long logId, @RequestBody SpasPracticeLog body)
     {
         return toAjax(practiceService.updateSpot(logId, body.getSpotStatus(), body.getSpotRemark()));
     }
 
+    /**
+     * @deprecated 转干预请用 {@code POST /checkout/item/{itemId}/to-intervene}。
+     */
+    @Deprecated
     @PreAuthorize("@ss.hasPermi('spas:intervene:add')")
-    @Log(title = "自主练转干预", businessType = BusinessType.INSERT)
+    @Log(title = "自主练转干预(旧log)", businessType = BusinessType.INSERT)
     @PostMapping("/alert/{logId}/to-intervene")
     public AjaxResult toIntervene(@PathVariable Long logId)
     {
@@ -269,14 +292,14 @@ public class SpasPracticeLogController extends BaseController
         return ajax;
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add')")
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add,spas:point:mine,spas:point:account:list')")
     @GetMapping("/points/mine")
     public AjaxResult pointsMine()
     {
         return success(pointService.getMine());
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add')")
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add,spas:point:mine,spas:point:account:list')")
     @GetMapping("/points/ledger")
     public AjaxResult pointsLedger(@RequestParam(required = false) Integer limit)
     {
@@ -303,7 +326,14 @@ public class SpasPracticeLogController extends BaseController
     @PostMapping("/assignment/copy-last")
     public AjaxResult copyLast(@RequestBody SpasPracticeAssignment body)
     {
-        return success(checkoutService.copyLast(body.getDeptId(), body.getSubjectId(), body.getAssignDate()));
+        SpasPracticeAssignment row = checkoutService.copyLast(body.getDeptId(), body.getSubjectId(), body.getAssignDate());
+        AjaxResult ajax = success(row);
+        if (row != null && row.getParams() != null && Boolean.TRUE.equals(row.getParams().get("needFill")))
+        {
+            ajax.put("needFill", Boolean.TRUE);
+            ajax.put("msg", "已带入上次布置，请补全书名、题号与「已完成」定义后保存");
+        }
+        return ajax;
     }
 
     @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add')")
@@ -348,6 +378,8 @@ public class SpasPracticeLogController extends BaseController
         return toAjax(checkoutService.followItem(itemId));
     }
 
+    /** @deprecated 请用 POST /spas/intervene/from-source ，sourceType=checkout_item */
+    @Deprecated
     @PreAuthorize("@ss.hasPermi('spas:intervene:add')")
     @Log(title = "检查单转干预", businessType = BusinessType.INSERT)
     @PostMapping("/checkout/item/{itemId}/to-intervene")
@@ -387,7 +419,19 @@ public class SpasPracticeLogController extends BaseController
         return ajax;
     }
 
-    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add,spas:practice:list,spas:practice:stat')")
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:edit,spas:practice:spot')")
+    @Log(title = "检查单处置", businessType = BusinessType.UPDATE)
+    @PutMapping("/checkout/item/{itemId}/resolve")
+    public AjaxResult resolveCheckoutItem(@PathVariable Long itemId, @RequestBody java.util.Map<String, Object> body)
+    {
+        String action = body == null || body.get("action") == null ? null : String.valueOf(body.get("action"));
+        int rows = checkoutService.resolveItem(itemId, action);
+        AjaxResult ajax = toAjax(rows);
+        ajax.put("awardedPoints", Integer.valueOf(checkoutService.consumeLastAwardedPoints()));
+        return ajax;
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add,spas:practice:list,spas:practice:stat,spas:point:account:list,spas:point:mine,spas:point:rule:list')")
     @GetMapping("/points/leaderboard")
     public AjaxResult pointsLeaderboard(@RequestParam(required = false) Long deptId,
         @RequestParam(required = false) Long subjectId,
@@ -395,5 +439,68 @@ public class SpasPracticeLogController extends BaseController
         @RequestParam(required = false) Integer limit)
     {
         return success(pointService.getLeaderboard(deptId, subjectId, range, limit));
+    }
+
+    /** 班级成长农场：本班全部学生植物长势，学生仅本班，人人可见 */
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add,spas:practice:list,spas:practice:stat,spas:point:account:list,spas:point:mine,spas:point:rule:list')")
+    @GetMapping("/points/farm")
+    public AjaxResult pointsFarm(@RequestParam(required = false) Long deptId)
+    {
+        return success(pointService.getClassFarm(deptId));
+    }
+
+    /**
+     * 演示：为本班写入四阶段植物积分（覆盖账户总分）。
+     * body/query: deptId?（学生登录时忽略，强制本班）
+     */
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:edit,spas:practice:list,spas:point:account:list,spas:point:award')")
+    @Log(title = "农场生长演示数据", businessType = BusinessType.UPDATE)
+    @PostMapping("/points/farm-demo-seed")
+    public AjaxResult pointsFarmDemoSeed(@RequestBody(required = false) java.util.Map<String, Object> body,
+        @RequestParam(required = false) Long deptId)
+    {
+        Long id = deptId;
+        if (id == null && body != null && body.get("deptId") != null && !"".equals(String.valueOf(body.get("deptId"))))
+        {
+            id = Long.valueOf(body.get("deptId").toString());
+        }
+        return success(pointService.seedFarmGrowthDemo(id));
+    }
+
+    /**
+     * 教师对本班多名学生一键发放奖励分。
+     * body: deptId, subjectId?, studentIds[], points(1-20), remark?, batchId?
+     */
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:edit,spas:practice:list,spas:point:account:list,spas:point:award')")
+    @Log(title = "教师批量发分", businessType = BusinessType.INSERT)
+    @PostMapping("/points/batch-award")
+    public AjaxResult pointsBatchAward(@RequestBody java.util.Map<String, Object> body)
+    {
+        if (body == null)
+        {
+            throw new ServiceException("请求体不能为空");
+        }
+        Long deptId = body.get("deptId") == null ? null : Long.valueOf(body.get("deptId").toString());
+        Long subjectId = body.get("subjectId") == null || "".equals(String.valueOf(body.get("subjectId")))
+            ? null : Long.valueOf(body.get("subjectId").toString());
+        int points = body.get("points") == null ? 0 : Integer.parseInt(body.get("points").toString());
+        String remark = body.get("remark") == null ? null : body.get("remark").toString();
+        String batchId = body.get("batchId") == null ? null : body.get("batchId").toString();
+        java.util.List<Long> studentIds = new java.util.ArrayList<Long>();
+        Object rawIds = body.get("studentIds");
+        if (rawIds instanceof java.util.Collection)
+        {
+            for (Object o : (java.util.Collection<?>) rawIds)
+            {
+                if (o != null && !"".equals(o.toString().trim()))
+                {
+                    studentIds.add(Long.valueOf(o.toString().trim()));
+                }
+            }
+        }
+        java.util.Map<String, Object> data = pointService.awardTeacherBatch(deptId, subjectId, studentIds, points, remark, batchId);
+        AjaxResult ajax = success(data);
+        ajax.put("awardedTotal", data.get("awardedTotal"));
+        return ajax;
     }
 }

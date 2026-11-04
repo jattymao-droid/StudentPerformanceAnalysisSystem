@@ -94,6 +94,31 @@ public class SpasReportController extends BaseController
         reportService.exportClass(deptId, subjectId, window, parsePaperIds(paperIds), format, response);
     }
 
+    /** ZIP：班级内每位学生一份学情报告（无成绩学生自动跳过）；传 jobId 可轮询进度 */
+    @PreAuthorize("@ss.hasPermi('spas:report:export')")
+    @Log(title = "全班学生学情报告", businessType = BusinessType.EXPORT)
+    @PostMapping("/class/{deptId}/students")
+    public void exportClassStudents(@PathVariable Long deptId,
+        @RequestParam(required = false) Long subjectId,
+        @RequestParam(required = false) String window,
+        @RequestParam(required = false) String paperIds,
+        @RequestParam(required = false) Boolean useRecency,
+        @RequestParam(required = false) Integer limit,
+        @RequestParam(defaultValue = "pdf") String format,
+        @RequestParam(required = false) String jobId,
+        HttpServletResponse response)
+    {
+        reportService.exportClassStudents(deptId, subjectId, window, parsePaperIds(paperIds), useRecency, limit,
+            format, jobId, response);
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:report:export')")
+    @GetMapping("/export-progress/{jobId}")
+    public AjaxResult exportProgress(@PathVariable String jobId)
+    {
+        return success(reportService.getClassStudentsExportProgress(jobId));
+    }
+
     private List<Long> parsePaperIds(String paperIds)
     {
         if (paperIds == null || paperIds.trim().isEmpty())

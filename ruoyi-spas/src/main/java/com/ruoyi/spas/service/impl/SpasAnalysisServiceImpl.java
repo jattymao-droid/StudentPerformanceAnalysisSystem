@@ -338,7 +338,44 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             summary.put("allSubjects", Boolean.FALSE);
         }
         summary.put("headline", buildStudentHeadline(summary));
+        putThresholdMeta(summary, subjectId);
+        if ("snapshot".equals(dataMode) && !summary.containsKey("blankZeroCount"))
+        {
+            summary.put("blankZeroCount",
+                Integer.valueOf(analysisMapper.countBlankZeroDetails(studentId, null, subjectId)));
+        }
         return summary;
+    }
+
+    @Override
+    public Map<String, Object> studentDashboard(Long studentId, Long subjectId, String window, List<Long> paperIds,
+        Integer weakLimit, String baselineWindow)
+    {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("summary", studentSummary(studentId, subjectId, window, paperIds));
+        // One live radar pass; weak-top is derived in-memory (no second class scan / edge walk).
+        List<Map<String, Object>> radar = studentRadar(studentId, subjectId, window, paperIds);
+        out.put("radar", radar);
+        out.put("trend", studentTrend(studentId, subjectId, window, paperIds));
+        int top = weakLimit == null || weakLimit.intValue() <= 0 ? 10 : weakLimit.intValue();
+        List<Map<String, Object>> weak = knowledgeStatQueryService.weakTopFromRadar(radar, top);
+        enrichConfidence(weak, normalizePaperIds(paperIds));
+        out.put("weakTop", weak);
+        // persistentWeak / scopeCompare / dependencyHints are deferred to secondary APIs
+        out.put("persistentWeak", new ArrayList<Map<String, Object>>());
+        out.put("scopeCompare", null);
+        return out;
+    }
+
+    @Override
+    public Map<String, Object> classDashboard(Long deptId, Long subjectId, String window, List<Long> paperIds,
+        Integer weakLimit)
+    {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("overview", classOverview(deptId, subjectId, window, paperIds));
+        // Same request reuses class score-row cache from overview.
+        out.put("weakTop", classWeakTop(deptId, subjectId, weakLimit, window, paperIds));
+        return out;
     }
 
     /**
@@ -362,14 +399,15 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             {
                 continue;
             }
+            // Self-only KPIs: class comparison here multiplies class-wide scans by subject count.
             Map<String, Object> part;
             if (paperIds != null && !paperIds.isEmpty())
             {
-                part = knowledgeStatQueryService.studentSummary(studentId, sid, null, paperIds);
+                part = knowledgeStatQueryService.studentSummarySelfOnly(studentId, sid, null, paperIds);
             }
             else if (examDateFrom != null)
             {
-                part = knowledgeStatQueryService.studentSummary(studentId, sid, examDateFrom, null);
+                part = knowledgeStatQueryService.studentSummarySelfOnly(studentId, sid, examDateFrom, null);
             }
             else
             {
@@ -1145,6 +1183,8 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
                     Integer.valueOf(knowledgeStatCalculator.resolveMinAttempts()));
                 result.put("studentRanking", ranking == null ? new ArrayList<Map<String, Object>>() : ranking);
                 result.put("dataMode", "snapshot");
+                result.put("blankZeroCount",
+                    Integer.valueOf(analysisMapper.countBlankZeroDetails(null, deptId, subjectId)));
             }
             else
             {
@@ -1188,7 +1228,29 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         result.put("headline", buildClassHeadline(result));
         result.put("window", pids != null ? "papers" : (windowHelper.isAll(window) ? "all" : windowHelper.normalize(window)));
+        putThresholdMeta(result, subjectId);
         return result;
+    }
+
+    /**
+     * Expose current-subject formal-weak gates for analysis UI (does not change formulas).
+     */
+    private void putThresholdMeta(Map<String, Object> map, Long subjectId)
+    {
+        if (map == null)
+        {
+            return;
+        }
+        map.put("minAttempts", Integer.valueOf(knowledgeStatCalculator.resolveMinAttempts(subjectId)));
+        map.put("severeMinAttempts", Integer.valueOf(knowledgeStatCalculator.resolveSevereMinAttempts(subjectId)));
+        map.put("watchThreshold", Double.valueOf(knowledgeStatCalculator.resolveWatchThreshold(subjectId)));
+        map.put("weakThreshold", Double.valueOf(knowledgeStatCalculator.resolveWeakThreshold(subjectId)));
+        map.put("severeThreshold", Double.valueOf(knowledgeStatCalculator.resolveSevereThreshold(subjectId)));
+        String code = knowledgeStatCalculator.resolveSubjectCode(subjectId);
+        if (code != null)
+        {
+            map.put("subjectCode", code);
+        }
     }
 
     /**
@@ -1421,6 +1483,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             liveRollup.put("scope", scope);
             liveRollup.put("window", scope);
             liveRollup.put("dataMode", papers ? "papers" : "live");
+            putThresholdMeta(liveRollup, resolvedSubjectId);
             liveRollup.put("scopeNote",
                 "\u7248\u672c/\u7ae0\u8282/\u5168\u90e8\u5df2\u6309\u5f53\u524d\u65f6\u95f4\u7a97\u6216\u9009\u5377\uff0c\u5bf9\u53f6\u5b50\u77e5\u8bc6\u70b9\u505a\u52a0\u6743\u5373\u65f6\u6c47\u603b\uff1b\u4e0e\u300c\u5168\u90e8\u5feb\u7167\u300d\u53e3\u5f84\u4e0d\u540c\u3002");
             return liveRollup;
@@ -1432,6 +1495,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             Map<String, Object> snap = buildKnowledgeSnapshot(knowledgeId, resolvedSubjectId, deptId, rollup,
                 subjectAll, versionMode, chapterMode);
             snap.put("scope", window == null || windowHelper.isAll(window) ? "all" : windowHelper.normalize(window));
+            putThresholdMeta(snap, resolvedSubjectId);
             return snap;
         }
 
@@ -1454,6 +1518,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         String scope = papers ? "papers" : windowHelper.normalize(window);
         live.put("scope", scope);
         live.put("window", scope);
+        putThresholdMeta(live, resolvedSubjectId);
         return live;
     }
 
@@ -1972,6 +2037,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         finally
         {
+            knowledgeStatQueryService.invalidateClassRowsCache();
             KnowledgeStatCalculator.clearRecencyOverride();
         }
     }
@@ -2005,6 +2071,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         finally
         {
+            knowledgeStatQueryService.invalidateClassRowsCache();
             KnowledgeStatCalculator.clearRecencyOverride();
         }
     }
@@ -2012,7 +2079,14 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
     @Override
     public int recalculateByStudents(Collection<Long> studentIds, Long paperId)
     {
-        return knowledgeStatCalculator.recalculateByStudents(studentIds, paperId);
+        try
+        {
+            return knowledgeStatCalculator.recalculateByStudents(studentIds, paperId);
+        }
+        finally
+        {
+            knowledgeStatQueryService.invalidateClassRowsCache();
+        }
     }
 
     @Override
@@ -2066,6 +2140,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         finally
         {
+            knowledgeStatQueryService.invalidateClassRowsCache();
             KnowledgeStatCalculator.clearRecencyOverride();
         }
     }
@@ -2112,6 +2187,7 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         finally
         {
+            knowledgeStatQueryService.invalidateClassRowsCache();
             KnowledgeStatCalculator.clearRecencyOverride();
         }
     }
@@ -2149,7 +2225,9 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         weak.put("weak", Double.valueOf(knowledgeStatCalculator.resolveWeakThreshold()));
         weak.put("severe", Double.valueOf(knowledgeStatCalculator.resolveSevereThreshold()));
         weak.put("minAttempts", Integer.valueOf(knowledgeStatCalculator.resolveMinAttempts()));
+        weak.put("severeMinAttempts", Integer.valueOf(knowledgeStatCalculator.resolveSevereMinAttempts()));
         cfg.put("weakThresholds", weak);
+        cfg.put("severeMinAttempts", Integer.valueOf(knowledgeStatCalculator.resolveSevereMinAttempts()));
         Map<String, Object> bloom = new HashMap<String, Object>();
         bloom.put("weak", Double.valueOf(weakThreshold > 0 ? weakThreshold : knowledgeStatCalculator.resolveWeakThreshold()));
         bloom.put("foundationSolid", Double.valueOf(bloomFoundationSolid));
@@ -2169,6 +2247,12 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         annot.put("requireBloomLevel", Boolean.valueOf(requireBloomLevel));
         cfg.put("annotationCoverage", annot);
         cfg.put("allocationMode", knowledgeStatCalculator.resolveAllocationMode());
+        Map<String, Object> empirical = new HashMap<String, Object>();
+        empirical.put("enabled", Boolean.valueOf(knowledgeStatCalculator.isEmpiricalEnabled()));
+        empirical.put("minStudents", Integer.valueOf(knowledgeStatCalculator.getEmpiricalMinStudents()));
+        empirical.put("blend", Double.valueOf(knowledgeStatCalculator.getEmpiricalBlend()));
+        cfg.put("empiricalDifficulty", empirical);
+        cfg.put("empiricalEnabled", Boolean.valueOf(knowledgeStatCalculator.isEmpiricalEnabled()));
         Map<String, Object> relative = new HashMap<String, Object>();
         if (tuningProperties != null && tuningProperties.getRelativeWeak() != null)
         {
@@ -2244,9 +2328,22 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
     public Map<String, Object> studentChapterDelta(Long studentId, Long subjectId, String window, List<Long> paperIds,
         String baselineWindow)
     {
-        List<Map<String, Object>> recent = studentChapterRadar(studentId, subjectId, window, paperIds);
-        String baseWin = StringUtils.isEmpty(baselineWindow) ? "prev_semester" : baselineWindow;
-        List<Long> baselinePids = resolveScopePaperIds(subjectId, baseWin, null);
+        // Materialize open windows (semester/all) so baseline exclusion / same-term split can work.
+        List<Long> recentPids = resolveConcreteAnalysisPaperIds(subjectId, window, paperIds);
+        Map<String, Object> baseMeta = new LinkedHashMap<String, Object>();
+        List<Long> baselinePids = resolveChapterDeltaBaseline(subjectId, baselineWindow, recentPids, baseMeta);
+        String baseWin = String.valueOf(baseMeta.get("baselineWindow"));
+        @SuppressWarnings("unchecked")
+        List<Long> recentOverride = (List<Long>) baseMeta.get("recentPaperIds");
+        List<Map<String, Object>> recent;
+        if (recentOverride != null && !recentOverride.isEmpty())
+        {
+            recent = studentChapterRadar(studentId, subjectId, null, recentOverride);
+        }
+        else
+        {
+            recent = studentChapterRadar(studentId, subjectId, window, paperIds);
+        }
         List<Map<String, Object>> baseline;
         if (baselinePids != null && baselinePids.isEmpty())
         {
@@ -2261,7 +2358,8 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             baseline = studentChapterRadar(studentId, subjectId, baseWin, null);
         }
         Map<String, Object> result = buildChapterDelta(recent, baseline, baseWin);
-        enrichBaselineMeta(result, subjectId, baseWin, baselinePids);
+        enrichBaselineMeta(result, baselinePids, baseMeta);
+        enrichChapterEmptyMeta(result, subjectId, recent, baseline);
         return result;
     }
 
@@ -2269,10 +2367,21 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
     public Map<String, Object> classChapterDelta(Long deptId, Long subjectId, String window, List<Long> paperIds,
         String baselineWindow)
     {
-        Map<String, Object> recentOv = classChapterOverview(deptId, subjectId, window, paperIds);
-        List<Map<String, Object>> recent = castChapterList(recentOv);
-        String baseWin = StringUtils.isEmpty(baselineWindow) ? "prev_semester" : baselineWindow;
-        List<Long> baselinePids = resolveScopePaperIds(subjectId, baseWin, null);
+        List<Long> recentPids = resolveConcreteAnalysisPaperIds(subjectId, window, paperIds);
+        Map<String, Object> baseMeta = new LinkedHashMap<String, Object>();
+        List<Long> baselinePids = resolveChapterDeltaBaseline(subjectId, baselineWindow, recentPids, baseMeta);
+        String baseWin = String.valueOf(baseMeta.get("baselineWindow"));
+        @SuppressWarnings("unchecked")
+        List<Long> recentOverride = (List<Long>) baseMeta.get("recentPaperIds");
+        List<Map<String, Object>> recent;
+        if (recentOverride != null && !recentOverride.isEmpty())
+        {
+            recent = castChapterList(classChapterOverview(deptId, subjectId, null, recentOverride));
+        }
+        else
+        {
+            recent = castChapterList(classChapterOverview(deptId, subjectId, window, paperIds));
+        }
         Map<String, Object> baseOv;
         if (baselinePids != null && baselinePids.isEmpty())
         {
@@ -2288,29 +2397,241 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
             baseOv = classChapterOverview(deptId, subjectId, baseWin, null);
         }
         Map<String, Object> result = buildChapterDelta(recent, castChapterList(baseOv), baseWin);
-        enrichBaselineMeta(result, subjectId, baseWin, baselinePids);
+        enrichBaselineMeta(result, baselinePids, baseMeta);
+        enrichChapterEmptyMeta(result, subjectId, recent, castChapterList(baseOv));
         return result;
     }
 
-    private void enrichBaselineMeta(Map<String, Object> result, Long subjectId, String baselineWindow,
-        List<Long> baselinePids)
+    /**
+     * Distinguish empty chapter-delta causes so UI does not misread tree gaps as thin samples.
+     * Reasons: no_chapter_nodes | no_chapter_data | insufficient_sample | null (has movement).
+     */
+    private void enrichChapterEmptyMeta(Map<String, Object> result, Long subjectId,
+        List<Map<String, Object>> recent, List<Map<String, Object>> baseline)
     {
         if (result == null)
         {
             return;
         }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> improved = (List<Map<String, Object>>) result.get("improved");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> declined = (List<Map<String, Object>>) result.get("declined");
+        boolean hasMovement = (improved != null && !improved.isEmpty())
+            || (declined != null && !declined.isEmpty());
+        if (hasMovement)
+        {
+            result.put("chapterEmptyReason", null);
+            return;
+        }
+        boolean recentEmpty = recent == null || recent.isEmpty();
+        boolean baselineEmptyList = baseline == null || baseline.isEmpty();
+        List<Map<String, Object>> pairs = subjectId == null
+            ? null
+            : analysisMapper.selectLeafChapterMap(subjectId);
+        boolean noChapterMap = pairs == null || pairs.isEmpty();
+        String reason;
+        String hint;
+        if (noChapterMap)
+        {
+            reason = "no_chapter_nodes";
+            hint = "\u5f53\u524d\u5b66\u79d1\u77e5\u8bc6\u6811\u7f3a\u5c11\u300c\u7ae0\u8282\u300d\u8282\u70b9\uff08node_type=\u7ae0\u8282\uff09\uff0c"
+                + "\u65e0\u6cd5\u6c47\u603b\u7ae0\u8282\u8fdb\u9000\u3002\u8bf7\u5230\u77e5\u8bc6\u70b9\u7ba1\u7406\uff1a\u5148\u5efa\u7ae0\u8282\uff0c\u518d\u628a\u672b\u7ea7\u77e5\u8bc6\u70b9\u6302\u5728\u7ae0\u8282\u4e0b\u3002";
+        }
+        else if (recentEmpty && baselineEmptyList)
+        {
+            reason = "no_chapter_data";
+            hint = "\u672c\u7a97\u6682\u65e0\u7ae0\u8282\u6c47\u603b\u6570\u636e\u3002\u8bf7\u786e\u8ba4\u5c0f\u9898\u5df2\u7ed1\u5b9a\u672b\u7ea7\u77e5\u8bc6\u70b9\uff0c\u4e14\u8be5\u70b9\u6302\u5728\u7ae0\u8282\u4e0b\uff1b"
+                + "\u4ea6\u53ef\u5148\u770b\u4e0b\u65b9\u300c\u77e5\u8bc6\u70b9\u7ea7\u8fdb\u9000\u5bf9\u7167\u300d\u3002";
+        }
+        else if (recentEmpty)
+        {
+            reason = "no_chapter_data";
+            hint = "\u8fd1\u671f\u7a97\u65e0\u7ae0\u8282\u6c47\u603b\uff08\u57fa\u7ebf\u7a97\u53ef\u80fd\u6709\u6570\u636e\uff09\u3002\u8bf7\u68c0\u67e5\u672c\u7a97\u8bd5\u5377\u662f\u5426\u5df2\u7ed1\u5b9a\u6302\u5728\u7ae0\u8282\u4e0b\u7684\u672b\u7ea7\u77e5\u8bc6\u70b9\u3002";
+        }
+        else
+        {
+            reason = "insufficient_sample";
+            int minAttempts = knowledgeStatCalculator.resolveMinAttempts();
+            hint = "\u7ae0\u8282\u6709\u6570\u636e\uff0c\u4f46\u8fd1\u7a97\u4e0e\u57fa\u7ebf\u4e24\u4fa7\u4f5c\u7b54\u6b21\u6570\u672a\u540c\u65f6\u8fbe\u5230 "
+                + minAttempts + " \u6b21\uff0c\u6216\u5f97\u5206\u7387\u65e0\u660e\u663e\u53d8\u5316\uff0c\u6545\u6682\u65e0\u8fdb\u6b65/\u9000\u6b65\u7ae0\u8282\u3002"
+                + "\u53ef\u5148\u53c2\u8003\u77e5\u8bc6\u70b9\u7ea7\u5bf9\u7167\u3002";
+        }
+        result.put("chapterEmptyReason", reason);
+        result.put("chapterEmptyHint", hint);
+        // Prefer precise empty hint over generic “样本不足” headline when no movement
+        Object headline = result.get("headline");
+        if (headline == null || String.valueOf(headline).contains("\u6682\u65e0\u8db3\u591f\u6837\u672c"))
+        {
+            result.put("headline", hint);
+        }
+    }
+
+    /**
+     * Resolve baseline papers for chapter delta.
+     * Order: requested window (default prev_semester) → papers before current semester →
+     * older half of subject papers excluding recent set.
+     */
+    private List<Long> resolveChapterDeltaBaseline(Long subjectId, String baselineWindow, List<Long> recentPids,
+        Map<String, Object> metaOut)
+    {
+        String baseWin = StringUtils.isEmpty(baselineWindow) ? "prev_semester" : baselineWindow;
+        metaOut.put("baselineWindow", baseWin);
+        metaOut.put("baselineFallback", Boolean.FALSE);
+        metaOut.put("baselineLabel", null);
         Map<String, Object> prev = windowHelper.describePrevSemester();
-        result.put("baselineRange", prev);
-        int paperCount = baselinePids == null ? -1 : baselinePids.size();
-        result.put("baselinePaperCount", Integer.valueOf(paperCount < 0 ? 0 : paperCount));
-        boolean empty = baselinePids != null && baselinePids.isEmpty();
-        result.put("baselineEmpty", Boolean.valueOf(empty));
-        if (empty)
+        metaOut.put("baselineRange", prev);
+
+        List<Long> baselinePids = resolveScopePaperIds(subjectId, baseWin, null);
+        if (baselinePids != null && !baselinePids.isEmpty())
         {
             Object label = prev.get("label");
-            result.put("baselineHint", "\u4e0a\u5b66\u671f\u7a97\u53e3 "
-                + (label == null ? "" : label)
-                + " \u5185\u65e0\u5df2\u53d1\u5e03\u8bd5\u5377\uff0c\u65e0\u6cd5\u5bf9\u6bd4\u3002\u8bf7\u68c0\u67e5\u8bd5\u5377\u8003\u8bd5\u65e5\u671f\uff0c\u6216\u5728 application.yml \u914d\u7f6e spas.analysis.prev-semester-start/end");
+            metaOut.put("baselineLabel", label == null ? baseWin : String.valueOf(label));
+            return baselinePids;
+        }
+
+        boolean wantPrev = "prev_semester".equals(windowHelper.normalize(baseWin));
+        if (!wantPrev && baselinePids != null && baselinePids.isEmpty())
+        {
+            metaOut.put("baselineLabel", baseWin);
+            return baselinePids;
+        }
+
+        // Fallback 1: all published papers before current semester start
+        Date semesterStart = windowHelper.resolveExamDateFrom("semester");
+        List<Long> beforeTerm = capBaselinePapers(
+            analysisMapper.selectPaperIdsByExamDateRange(subjectId, null, semesterStart));
+        beforeTerm = normalizePaperIds(beforeTerm);
+        if (beforeTerm != null && !beforeTerm.isEmpty())
+        {
+            metaOut.put("baselineFallback", Boolean.TRUE);
+            metaOut.put("baselineWindow", "pre_semester_history");
+            metaOut.put("baselineLabel", "\u5b66\u671f\u524d\u5386\u53f2\u5377\uff08\u4e0a\u5b66\u671f\u7a97\u65e0\u5377\uff0c\u5df2\u81ea\u52a8\u56de\u9000\uff09");
+            return beforeTerm;
+        }
+
+        // Fallback 2: older papers in subject, excluding current analysis paper set
+        List<Long> allRaw = analysisMapper.selectPaperIdsByExamDateRange(subjectId, null, null);
+        List<Long> all = normalizePaperIds(capBaselinePapers(allRaw == null ? null : new ArrayList<Long>(allRaw)));
+        if (all == null || all.isEmpty())
+        {
+            // may exceed cap: use capped raw without normalize throw path
+            all = capBaselinePapers(allRaw);
+            if (all == null)
+            {
+                all = java.util.Collections.emptyList();
+            }
+        }
+        if (all.isEmpty())
+        {
+            metaOut.put("baselineLabel", prev.get("label"));
+            return java.util.Collections.emptyList();
+        }
+        java.util.Set<Long> recentSet = new java.util.HashSet<Long>();
+        if (recentPids != null)
+        {
+            recentSet.addAll(recentPids);
+        }
+        List<Long> older = new ArrayList<Long>();
+        List<Long> ordered = allRaw == null ? all : capBaselinePapers(allRaw);
+        if (ordered == null)
+        {
+            ordered = all;
+        }
+        for (Long id : ordered)
+        {
+            if (id != null && !recentSet.contains(id))
+            {
+                older.add(id);
+            }
+        }
+        // Same-term split when recent ate all papers, or recent window is empty
+        // (otherwise every paper lands in baseline and the delta stays blank).
+        if (ordered.size() >= 2 && (older.isEmpty() || recentSet.isEmpty()))
+        {
+            int cut = Math.max(1, ordered.size() / 2);
+            older = new ArrayList<Long>(ordered.subList(0, cut));
+            List<Long> later = new ArrayList<Long>(ordered.subList(cut, ordered.size()));
+            metaOut.put("recentPaperIds", later);
+            metaOut.put("baselineFallback", Boolean.TRUE);
+            metaOut.put("baselineWindow", "earlier_papers");
+            metaOut.put("baselineLabel", "\u540c\u5b66\u79d1\u8f83\u65e9\u573a\u6b21\uff08\u4e0a\u5b66\u671f/\u5b66\u671f\u524d\u65e0\u5377\uff0c\u5df2\u6309\u8003\u8bd5\u65e5\u671f\u62c6\u5206\u5bf9\u6bd4\uff09");
+            return older;
+        }
+        if (!older.isEmpty())
+        {
+            metaOut.put("baselineFallback", Boolean.TRUE);
+            metaOut.put("baselineWindow", "other_papers");
+            metaOut.put("baselineLabel", "\u5f53\u524d\u5206\u6790\u7a97\u4e4b\u5916\u7684\u5386\u53f2\u5377\uff08\u4e0a\u5b66\u671f\u7a97\u65e0\u5377\uff0c\u5df2\u81ea\u52a8\u56de\u9000\uff09");
+            return older;
+        }
+
+        metaOut.put("baselineLabel", prev.get("label"));
+        return java.util.Collections.emptyList();
+    }
+
+    /**
+     * Always return a concrete paper-id list for the analysis window (empty if none).
+     * Unlike {@link #resolveScopePaperIds}, open windows (semester / last30d / all) are materialized
+     * so chapter-delta baseline exclusion can subtract them.
+     */
+    private List<Long> resolveConcreteAnalysisPaperIds(Long subjectId, String window, List<Long> paperIds)
+    {
+        List<Long> scoped = resolveScopePaperIds(subjectId, window, paperIds);
+        if (scoped != null)
+        {
+            return scoped;
+        }
+        Date from = windowHelper.resolveExamDateFrom(window);
+        List<Long> ranged = analysisMapper.selectPaperIdsByExamDateRange(subjectId, from, null);
+        if (ranged == null || ranged.isEmpty())
+        {
+            return java.util.Collections.emptyList();
+        }
+        List<Long> capped = capBaselinePapers(ranged);
+        List<Long> normalized = normalizePaperIds(capped);
+        return normalized == null ? java.util.Collections.emptyList() : normalized;
+    }
+
+    /** Keep most recent N papers (list is exam_date asc) to stay under scope-max-papers. */
+    private List<Long> capBaselinePapers(List<Long> ids)
+    {
+        if (ids == null || ids.isEmpty())
+        {
+            return ids;
+        }
+        int max = knowledgeStatQueryService.getScopeMaxPapers();
+        if (max <= 0 || ids.size() <= max)
+        {
+            return ids;
+        }
+        return new ArrayList<Long>(ids.subList(ids.size() - max, ids.size()));
+    }
+
+    private void enrichBaselineMeta(Map<String, Object> result, List<Long> baselinePids, Map<String, Object> baseMeta)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        if (baseMeta != null)
+        {
+            result.put("baselineRange", baseMeta.get("baselineRange"));
+            result.put("baselineFallback", baseMeta.get("baselineFallback"));
+            if (baseMeta.get("baselineWindow") != null)
+            {
+                result.put("baselineWindow", baseMeta.get("baselineWindow"));
+            }
+        }
+        int paperCount = baselinePids == null ? 0 : baselinePids.size();
+        result.put("baselinePaperCount", Integer.valueOf(paperCount));
+        boolean empty = baselinePids == null || baselinePids.isEmpty();
+        result.put("baselineEmpty", Boolean.valueOf(empty));
+        Object label = baseMeta == null ? null : baseMeta.get("baselineLabel");
+        if (empty)
+        {
+            result.put("baselineHint", "\u4e0a\u5b66\u671f\u7a97\u4e0e\u5b66\u671f\u524d\u5747\u65e0\u53ef\u7528\u5df2\u53d1\u5e03\u8bd5\u5377\uff0c\u65e0\u6cd5\u5bf9\u6bd4\u7ae0\u8282\u8fdb\u9000\u3002"
+                + "\u8bf7\u786e\u8ba4\u672c\u5b66\u79d1\u81f3\u5c11\u6709 2 \u573a\u4e0d\u540c\u8003\u8bd5\u65e5\u671f\u7684\u8bd5\u5377\uff0c\u6216\u5728 application.yml \u914d\u7f6e spas.analysis.prev-semester-start/end\u3002");
             if (result.get("headline") == null || String.valueOf(result.get("headline")).contains("\u6682\u65e0"))
             {
                 result.put("headline", result.get("baselineHint"));
@@ -2318,8 +2639,9 @@ public class SpasAnalysisServiceImpl implements ISpasAnalysisService
         }
         else if (paperCount > 0)
         {
-            result.put("baselineHint", "\u57fa\u7ebf\u7a97 "
-                + (prev.get("label") == null ? baselineWindow : prev.get("label"))
+            boolean fb = baseMeta != null && Boolean.TRUE.equals(baseMeta.get("baselineFallback"));
+            result.put("baselineHint", (fb ? "\u57fa\u7ebf\u5df2\u56de\u9000\uff1a" : "\u57fa\u7ebf\uff1a")
+                + (label == null ? "" : label)
                 + "\uff0c\u5171 " + paperCount + " \u4efd\u8bd5\u5377");
         }
     }

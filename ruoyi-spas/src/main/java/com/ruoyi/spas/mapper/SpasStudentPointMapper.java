@@ -19,6 +19,14 @@ public interface SpasStudentPointMapper
 
     int sumPointsToday(@Param("studentId") Long studentId, @Param("day") Date day);
 
+    /** 计入日封顶的今日分（不含考试名次发分/冲销） */
+    int sumCapPointsToday(@Param("studentId") Long studentId, @Param("day") Date day);
+
+    /** 原子增减账户积分并重算等级/周积分 */
+    int applyAccountDelta(@Param("studentId") Long studentId, @Param("delta") int delta,
+        @Param("weekStart") Date weekStart, @Param("lastPracticeDate") Date lastPracticeDate,
+        @Param("dayStreak") Integer dayStreak);
+
     int countReasonToday(@Param("studentId") Long studentId, @Param("reasonCode") String reasonCode,
         @Param("day") Date day, @Param("subjectId") Long subjectId);
 
@@ -34,6 +42,9 @@ public interface SpasStudentPointMapper
     List<SpasStudentPointAccount> selectLeaderboardWeek(@Param("deptId") Long deptId,
         @Param("weekStart") Date weekStart, @Param("limit") Integer limit);
 
+    /** 班级成长农场：本班全部在读学生（含 0 分） */
+    List<SpasStudentPointAccount> selectClassFarm(@Param("deptId") Long deptId);
+
     Integer selectRankAll(@Param("deptId") Long deptId, @Param("studentId") Long studentId);
 
     Integer selectRankWeek(@Param("deptId") Long deptId, @Param("weekStart") Date weekStart,
@@ -43,4 +54,7 @@ public interface SpasStudentPointMapper
 
     List<Long> selectPracticedKnowledgeIds(@Param("studentId") Long studentId,
         @Param("beginDate") Date beginDate, @Param("endDate") Date endDate);
+
+    /** 某考试已发放的班级名次积分流水（正分，不含冲销） */
+    List<SpasStudentPointLedger> selectExamClassRankLedgers(@Param("examId") Long examId);
 }

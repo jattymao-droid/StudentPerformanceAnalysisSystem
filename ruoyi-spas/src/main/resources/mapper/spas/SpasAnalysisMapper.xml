@@ -1365,4 +1365,26 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         order by p.exam_date asc nulls last, p.paper_id asc
     </select>
 
+    <!-- Display-only: blank-zero (score_source=3) distinct detail count for snapshot summaries -->
+    <select id="countBlankZeroDetails" resultType="int">
+        select count(*)::int from (
+            select distinct d.student_id, d.question_id, d.paper_id
+            from spas_score_detail d
+            join spas_paper p on p.paper_id = d.paper_id
+            <if test="deptId != null">
+                join spas_student st on st.student_id = d.student_id and st.del_flag = '0' and st.status = '0'
+            </if>
+            where d.score_source = '3'
+            <if test="studentId != null">
+                and d.student_id = #{studentId}
+            </if>
+            <if test="deptId != null">
+                <include refid="studentDeptScope"/>
+            </if>
+            <if test="subjectId != null">
+                and p.subject_id = #{subjectId}
+            </if>
+        ) t
+    </select>
+
 </mapper>

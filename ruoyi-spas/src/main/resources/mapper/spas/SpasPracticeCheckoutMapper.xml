@@ -8,6 +8,7 @@
         <result property="subjectId" column="subject_id"/>
         <result property="assignDate" column="assign_date"/>
         <result property="knowledgeId" column="knowledge_id"/>
+        <result property="knowledgeIds" column="knowledge_ids"/>
         <result property="bookName" column="book_name"/>
         <result property="pageFrom" column="page_from"/>
         <result property="pageTo" column="page_to"/>
@@ -32,6 +33,7 @@
         <result property="submitTime" column="submit_time"/>
         <result property="deviceCode" column="device_code"/>
         <result property="status" column="status"/>
+        <result property="knowledgeIds" column="knowledge_ids"/>
         <result property="groupName" column="group_name"/>
         <result property="leaderStudentName" column="leader_student_name"/>
         <result property="checkerStudentName" column="checker_student_name"/>
@@ -43,6 +45,7 @@
         <result property="studentId" column="student_id"/>
         <result property="finishStatus" column="finish_status"/>
         <result property="difficultyNote" column="difficulty_note"/>
+        <result property="knowledgeIds" column="knowledge_ids"/>
         <result property="memberAck" column="member_ack"/>
         <result property="ackTime" column="ack_time"/>
         <result property="voided" column="voided"/>
@@ -55,7 +58,7 @@
     </resultMap>
 
     <sql id="assignmentVo">
-        select a.assignment_id, a.dept_id, a.subject_id, a.assign_date, a.knowledge_id,
+        select a.assignment_id, a.dept_id, a.subject_id, a.assign_date, a.knowledge_id, a.knowledge_ids,
                a.book_name, a.page_from, a.page_to, a.question_text, a.complete_definition,
                a.due_count_week, a.status, a.create_by, a.create_time,
                d.dept_name, sub.subject_name, k.knowledge_name
@@ -97,10 +100,10 @@
 
     <insert id="insertAssignment" useGeneratedKeys="true" keyProperty="assignmentId">
         insert into spas_practice_assignment(
-            dept_id, subject_id, assign_date, knowledge_id, book_name, page_from, page_to,
+            dept_id, subject_id, assign_date, knowledge_id, knowledge_ids, book_name, page_from, page_to,
             question_text, complete_definition, due_count_week, status, create_by, create_time, remark
         ) values (
-            #{deptId}, #{subjectId}, #{assignDate}, #{knowledgeId}, #{bookName}, #{pageFrom}, #{pageTo},
+            #{deptId}, #{subjectId}, #{assignDate}, #{knowledgeId}, #{knowledgeIds}, #{bookName}, #{pageFrom}, #{pageTo},
             #{questionText}, #{completeDefinition}, coalesce(#{dueCountWeek}, 3), coalesce(#{status}, '0'),
             #{createBy}, now(), #{remark}
         )
@@ -109,7 +112,8 @@
     <update id="updateAssignment">
         update spas_practice_assignment
         <set>
-            <if test="knowledgeId != null">knowledge_id = #{knowledgeId},</if>
+            knowledge_id = #{knowledgeId},
+            knowledge_ids = #{knowledgeIds},
             <if test="bookName != null">book_name = #{bookName},</if>
             <if test="pageFrom != null">page_from = #{pageFrom},</if>
             <if test="pageTo != null">page_to = #{pageTo},</if>
@@ -125,7 +129,7 @@
 
     <sql id="checkoutVo">
         select c.checkout_id, c.assignment_id, c.group_id, c.practice_date, c.leader_student_id,
-               c.checker_student_id, c.submit_time, c.device_code, c.status,
+               c.checker_student_id, c.submit_time, c.device_code, c.status, c.knowledge_ids,
                g.group_name, ls.student_name as leader_student_name, cs.student_name as checker_student_name
         from spas_practice_checkout c
         left join spas_study_group g on g.group_id = c.group_id
@@ -147,10 +151,10 @@
     <insert id="insertCheckout" useGeneratedKeys="true" keyProperty="checkoutId">
         insert into spas_practice_checkout(
             assignment_id, group_id, practice_date, leader_student_id, checker_student_id,
-            submit_time, device_code, status, create_time
+            submit_time, device_code, status, knowledge_ids, create_time
         ) values (
             #{assignmentId}, #{groupId}, #{practiceDate}, #{leaderStudentId}, #{checkerStudentId},
-            now(), #{deviceCode}, coalesce(#{status}, '0'), now()
+            now(), #{deviceCode}, coalesce(#{status}, '0'), #{knowledgeIds}, now()
         )
     </insert>
 
@@ -158,6 +162,7 @@
         update spas_practice_checkout
         set checker_student_id = #{checkerStudentId},
             device_code = #{deviceCode},
+            knowledge_ids = #{knowledgeIds},
             submit_time = now(),
             update_time = now()
         where checkout_id = #{checkoutId}
@@ -169,12 +174,28 @@
 
     <insert id="insertItem" useGeneratedKeys="true" keyProperty="itemId">
         insert into spas_practice_checkout_item(
-            checkout_id, student_id, finish_status, difficulty_note, member_ack, voided, follow_status
+            checkout_id, student_id, finish_status, difficulty_note, knowledge_ids,
+            member_ack, voided, follow_status
         ) values (
-            #{checkoutId}, #{studentId}, #{finishStatus}, #{difficultyNote},
+            #{checkoutId}, #{studentId}, #{finishStatus}, #{difficultyNote}, #{knowledgeIds},
             coalesce(#{memberAck}, '0'), coalesce(#{voided}, '0'), coalesce(#{followStatus}, '0')
         )
     </insert>
+
+    <update id="updateItemContent">
+        update spas_practice_checkout_item
+        set finish_status = #{finishStatus},
+            difficulty_note = #{difficultyNote},
+            knowledge_ids = #{knowledgeIds},
+            member_ack = coalesce(#{memberAck}, '0'),
+            ack_time = case when coalesce(#{memberAck}, '0') in ('1','2','3') then now() else null end,
+            voided = coalesce(#{voided}, '0')
+        where item_id = #{itemId}
+    </update>
+
+    <select id="countSpotByItemId" resultType="int">
+        select count(1) from spas_practice_spot where item_id = #{itemId}
+    </select>
 
     <update id="updateItemAck">
         update spas_practice_checkout_item
@@ -193,8 +214,21 @@
         update spas_practice_checkout_item set follow_status = #{followStatus} where item_id = #{itemId}
     </update>
 
+    <update id="expirePendingAcksBefore">
+        update spas_practice_checkout_item i
+        set member_ack = '3',
+            ack_time = now()
+        from spas_practice_checkout c
+        where i.checkout_id = c.checkout_id
+          and c.practice_date &lt; #{beforeDate}
+          and coalesce(c.status,'0') = '0'
+          and coalesce(i.voided,'0') = '0'
+          and coalesce(i.member_ack,'0') = '0'
+          and coalesce(i.finish_status,'') not in ('0','L','A')
+    </update>
+
     <select id="selectItemById" resultMap="ItemResult">
-        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note,
+        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note, i.knowledge_ids,
                i.member_ack, i.ack_time, i.voided, i.follow_status, i.spot_result,
                s.student_no, s.student_name, c.group_id, g.group_name
         from spas_practice_checkout_item i
@@ -205,7 +239,7 @@
     </select>
 
     <select id="selectItems" resultMap="ItemResult">
-        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note,
+        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note, i.knowledge_ids,
                i.member_ack, i.ack_time, i.voided, i.follow_status, i.spot_result,
                s.student_no, s.student_name, c.group_id, g.group_name
         from spas_practice_checkout_item i
@@ -217,7 +251,7 @@
     </select>
 
     <select id="selectMyPendingAck" resultMap="ItemResult">
-        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note,
+        select i.item_id, i.checkout_id, i.student_id, i.finish_status, i.difficulty_note, i.knowledge_ids,
                i.member_ack, i.ack_time, i.voided, i.follow_status, i.spot_result,
                s.student_no, s.student_name, c.group_id, g.group_name
         from spas_practice_checkout_item i
@@ -227,6 +261,7 @@
         where i.student_id = #{studentId} and c.practice_date = #{practiceDate}
           and coalesce(c.status,'0') = '0' and coalesce(i.voided,'0') = '0'
           and coalesce(i.member_ack,'0') = '0'
+          and coalesce(i.finish_status,'') not in ('0','L','A')
     </select>
 
     <sql id="deptFilter">
@@ -243,6 +278,12 @@
                c.group_id as "groupId", g.group_name as "groupName", c.checker_student_id as "checkerStudentId",
                a.book_name as "bookName", a.page_from as "pageFrom", a.page_to as "pageTo",
                a.question_text as "questionText", a.knowledge_id as "knowledgeId", k.knowledge_name as "knowledgeName",
+               coalesce((
+                   select string_agg(kn.knowledge_name, '、' order by t.ord)
+                   from unnest(string_to_array(coalesce(i.knowledge_ids, ''), ',')) with ordinality as t(kid, ord)
+                   left join spas_knowledge kn on kn.knowledge_id = nullif(trim(t.kid), '')::bigint
+                   where nullif(trim(t.kid), '') is not null
+               ), k.knowledge_name) as "knowledgeNames",
                a.complete_definition as "completeDefinition",
                (select count(1) from spas_practice_spot sp where sp.student_id = i.student_id) as "spotHistCount"
         from spas_practice_checkout_item i
@@ -285,40 +326,72 @@
         left join spas_student s on s.student_id = i.student_id
         where c.practice_date = #{practiceDate} and coalesce(c.status,'0') = '0'
           and coalesce(i.member_ack,'0') = '0' and coalesce(i.voided,'0') = '0'
+          and coalesce(i.finish_status,'') not in ('0','L','A')
         <include refid="deptFilter"/>
     </select>
 
     <select id="selectDisputes" resultType="java.util.HashMap">
         select i.item_id as "itemId", i.student_id as "studentId", s.student_no as "studentNo",
-               s.student_name as "studentName", g.group_name as "groupName", i.finish_status as "finishStatus"
+               s.student_name as "studentName", g.group_name as "groupName", i.finish_status as "finishStatus",
+               i.difficulty_note as "difficultyNote", i.knowledge_ids as "knowledgeIds"
         from spas_practice_checkout_item i
         inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
         inner join spas_study_group g on g.group_id = c.group_id
         left join spas_student s on s.student_id = i.student_id
         where c.practice_date = #{practiceDate} and coalesce(i.member_ack,'0') = '2'
+          and coalesce(i.voided,'0') = '0'
+          and coalesce(i.follow_status,'0') = '0'
         <include refid="deptFilter"/>
+        order by g.sort_order, g.group_id, s.student_no
+    </select>
+
+    <select id="selectTimeouts" resultType="java.util.HashMap">
+        select i.item_id as "itemId", i.student_id as "studentId", s.student_no as "studentNo",
+               s.student_name as "studentName", g.group_name as "groupName", i.finish_status as "finishStatus",
+               i.difficulty_note as "difficultyNote", i.knowledge_ids as "knowledgeIds"
+        from spas_practice_checkout_item i
+        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+        inner join spas_study_group g on g.group_id = c.group_id
+        left join spas_student s on s.student_id = i.student_id
+        where c.practice_date = #{practiceDate} and coalesce(i.member_ack,'0') = '3'
+          and coalesce(i.voided,'0') = '0'
+          and coalesce(i.follow_status,'0') = '0'
+        <include refid="deptFilter"/>
+        order by g.sort_order, g.group_id, s.student_no
     </select>
 
     <select id="selectDifficultySummary" resultType="java.util.HashMap">
         select coalesce(k.knowledge_name, '未标主题') as "knowledgeName",
-               a.knowledge_id as "knowledgeId",
+               kid as "knowledgeId",
                count(1) as "studentCount"
-        from spas_practice_checkout_item i
-        inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
-        inner join spas_practice_assignment a on a.assignment_id = c.assignment_id
-        inner join spas_study_group g on g.group_id = c.group_id
-        left join spas_knowledge k on k.knowledge_id = a.knowledge_id
-        where c.practice_date = #{practiceDate} and i.finish_status = '3'
-          and coalesce(c.status,'0') = '0' and coalesce(i.voided,'0') = '0'
-        <include refid="deptFilter"/>
-        group by a.knowledge_id, k.knowledge_name
+        from (
+            select i.item_id,
+                   coalesce(
+                     nullif(split_part(coalesce(i.knowledge_ids, ''), ',', 1), '')::bigint,
+                     a.knowledge_id
+                   ) as kid
+            from spas_practice_checkout_item i
+            inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
+            inner join spas_practice_assignment a on a.assignment_id = c.assignment_id
+            inner join spas_study_group g on g.group_id = c.group_id
+            where c.practice_date = #{practiceDate} and i.finish_status = '3'
+              and coalesce(c.status,'0') = '0' and coalesce(i.voided,'0') = '0'
+            <include refid="deptFilter"/>
+        ) t
+        left join spas_knowledge k on k.knowledge_id = t.kid
+        group by kid, k.knowledge_name
         order by count(1) desc
     </select>
 
     <select id="selectDifficultyItems" resultType="java.util.HashMap">
         select i.item_id as "itemId", i.student_id as "studentId", s.student_name as "studentName", s.student_no as "studentNo",
                i.difficulty_note as "difficultyNote", g.group_name as "groupName",
-               i.follow_status as "followStatus", a.knowledge_id as "knowledgeId"
+               i.follow_status as "followStatus",
+               i.knowledge_ids as "knowledgeIds",
+               coalesce(
+                 nullif(split_part(coalesce(i.knowledge_ids, ''), ',', 1), '')::bigint,
+                 a.knowledge_id
+               ) as "knowledgeId"
         from spas_practice_checkout_item i
         inner join spas_practice_checkout c on c.checkout_id = i.checkout_id
         inner join spas_practice_assignment a on a.assignment_id = c.assignment_id
@@ -390,4 +463,17 @@
             #{itemId}, #{studentId}, #{groupId}, #{checkerStudentId}, #{spotResult}, #{spotBy}, now(), #{spotRemark}
         )
     </insert>
+
+    <update id="expirePendingAckBefore">
+        update spas_practice_checkout_item i
+        set member_ack = '3',
+            ack_time = now()
+        from spas_practice_checkout c
+        where i.checkout_id = c.checkout_id
+          and c.practice_date &lt; #{beforeDate}
+          and coalesce(c.status,'0') = '0'
+          and coalesce(i.voided,'0') = '0'
+          and coalesce(i.member_ack,'0') = '0'
+          and coalesce(i.finish_status,'') not in ('0','L','A')
+    </update>
 </mapper>

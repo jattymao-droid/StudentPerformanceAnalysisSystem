@@ -75,32 +75,6 @@
       </el-form-item>
     </el-form>
 
-    <el-alert
-      type="info"
-      :closable="false"
-      show-icon
-      class="mb8"
-      title="可单选一份试卷，或勾选多份对比考查分布。优先干预默认 masteryScope=papers：掌握度与所选试卷同源（加权引擎），不再混用全量快照。"
-    />
-
-    <el-alert
-      v-if="scopeHint"
-      :title="scopeHint"
-      type="warning"
-      :closable="false"
-      show-icon
-      class="mb8"
-    />
-
-    <el-alert
-      v-if="annotationHint"
-      type="error"
-      :closable="false"
-      show-icon
-      class="mb8"
-      :title="annotationHint"
-    />
-
     <el-empty v-if="!queried" description="请选择试卷后查询考查频次">
       <div class="empty-actions">
         <el-button type="primary" size="mini" icon="el-icon-search" @click="handleQuery" :disabled="!(queryParams.paperIds && queryParams.paperIds.length)">立即查询</el-button>
@@ -109,15 +83,51 @@
     </el-empty>
 
     <template v-else>
-      <el-row :gutter="16" class="overview-row" v-loading="loading">
-        <el-col :xs="12" :sm="8" :md="6" v-for="card in overviewCards" :key="card.key">
-          <div class="stat-card" :class="'tone-' + card.tone">
-            <div class="stat-label">{{ card.label }}</div>
-            <div class="stat-value">{{ card.value }}</div>
-            <div class="stat-hint" v-if="card.hint">{{ card.hint }}</div>
-          </div>
-        </el-col>
-      </el-row>
+      <spas-analysis-verdict
+        v-loading="loading || priorityLoading"
+        :level="insightVerdict.level"
+        :title="insightVerdict.title"
+        :subtitle="insightVerdict.subtitle"
+        :metrics="insightVerdict.metrics"
+      >
+        <template slot="actions">
+          <el-button
+            v-if="(prioritySummary.priorityCount || 0) > 0"
+            type="warning"
+            plain
+            size="mini"
+            :disabled="!priorityRows.length"
+            @click="exportRemediationPack"
+          >导出补弱包</el-button>
+          <el-button
+            v-if="(prioritySummary.priorityCount || 0) > 0"
+            type="primary"
+            plain
+            size="mini"
+            @click="setQuadrantFilter('priority')"
+          >看优先干预</el-button>
+          <el-button
+            v-if="annotationHint"
+            type="danger"
+            plain
+            size="mini"
+            @click="$router.push('/spas/quality')"
+          >去质量看板</el-button>
+        </template>
+      </spas-analysis-verdict>
+
+      <div class="tips-fold mb8">
+        <el-button type="text" size="mini" @click="tipsExpanded = !tipsExpanded">
+          {{ tipsExpanded ? '收起口径与说明' : '展开口径与说明' }}
+          <i :class="tipsExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'" />
+        </el-button>
+        <div v-show="tipsExpanded" class="tips-fold-body">
+          <el-alert type="info" :closable="false" show-icon class="mb8" :title="scopeBanner" />
+          <el-alert v-if="scopeHint" :title="scopeHint" type="warning" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="annotationHint" type="error" :closable="false" show-icon class="mb8" :title="annotationHint" />
+          <el-alert type="info" :closable="false" show-icon class="mb8" :title="priorityHint" />
+        </div>
+      </div>
 
       <el-card shadow="never" class="chart-card" v-loading="loading">
         <div slot="header" class="card-header">
@@ -165,12 +175,44 @@
           :title="priorityHint"
         />
         <el-row :gutter="12" class="overview-row">
-          <el-col :span="6"><div class="stat-card tone-warn"><div class="stat-label">优先干预</div><div class="stat-value">{{ prioritySummary.priorityCount || 0 }}</div></div></el-col>
-          <el-col :span="6"><div class="stat-card tone-info"><div class="stat-label">证据不足</div><div class="stat-value">{{ prioritySummary.lowEvidenceCount || 0 }}</div></div></el-col>
-          <el-col :span="6"><div class="stat-card tone-ok"><div class="stat-label">稳固</div><div class="stat-value">{{ prioritySummary.solidCount || 0 }}</div></div></el-col>
-          <el-col :span="6"><div class="stat-card tone-info"><div class="stat-label">关注</div><div class="stat-value">{{ watchCount }}</div></div></el-col>
+          <el-col :span="6">
+            <div class="stat-card tone-warn is-clickable" :class="{ active: quadrantFilter === 'priority' }" @click="setQuadrantFilter('priority')">
+              <div class="stat-label">优先干预</div>
+              <div class="stat-value">{{ prioritySummary.priorityCount || 0 }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat-card tone-info is-clickable" :class="{ active: quadrantFilter === 'low_evidence' }" @click="setQuadrantFilter('low_evidence')">
+              <div class="stat-label">证据不足</div>
+              <div class="stat-value">{{ prioritySummary.lowEvidenceCount || 0 }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat-card tone-ok is-clickable" :class="{ active: quadrantFilter === 'solid' }" @click="setQuadrantFilter('solid')">
+              <div class="stat-label">稳固</div>
+              <div class="stat-value">{{ prioritySummary.solidCount || 0 }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat-card tone-info is-clickable" :class="{ active: quadrantFilter === 'watch' }" @click="setQuadrantFilter('watch')">
+              <div class="stat-label">关注</div>
+              <div class="stat-value">{{ watchCount }}</div>
+            </div>
+          </el-col>
         </el-row>
-        <el-table :data="priorityRows" max-height="360" highlight-current-row class="clickable-table" @row-click="goKnowledge">
+        <div v-if="quadrantFilter" class="mb8" style="font-size:12px;color:#64748B;">
+          当前筛选：{{ quadrantLabel(quadrantFilter) }}
+          <el-button type="text" size="mini" @click="setQuadrantFilter('')">清除</el-button>
+          <el-button
+            v-if="quadrantFilter === 'priority'"
+            type="text"
+            size="mini"
+            v-hasPermi="['spas:intervene:add']"
+            :disabled="!queryParams.deptId || !filteredPriorityRows.length"
+            @click="batchAllPriorityIntervene"
+          >对本象限批量干预</el-button>
+        </div>
+        <el-table :data="filteredPriorityRows" max-height="360" highlight-current-row class="clickable-table" @row-click="goKnowledge">
           <el-table-column label="知识点" prop="knowledgeName" min-width="140" :show-overflow-tooltip="true" />
           <el-table-column label="象限" width="110" align="center">
             <template slot-scope="scope">
@@ -187,11 +229,12 @@
             </template>
           </el-table-column>
           <el-table-column label="参与人数" prop="studentCount" width="90" align="center" />
-          <el-table-column label="操作" width="180" align="center" fixed="right">
+          <el-table-column label="操作" width="230" align="center" fixed="right">
             <template slot-scope="scope">
               <el-button size="mini" type="text" @click.stop="goKnowledge(scope.row)" v-hasPermi="['spas:analysis:knowledge']">分析</el-button>
               <el-button size="mini" type="text" @click.stop="goInterveneHint(scope.row)" v-hasPermi="['spas:intervene:add']">干预</el-button>
               <el-button size="mini" type="text" @click.stop="batchWeakIntervene(scope.row)" v-hasPermi="['spas:intervene:add']" :disabled="!queryParams.deptId">批量</el-button>
+              <el-button size="mini" type="text" @click.stop="goRemediate(scope.row)" v-hasPermi="['spas:qb:question:list']">补弱</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -211,13 +254,16 @@ import { optionselectSubject } from '@/api/spas/subject'
 import { listMyTeachingDepts } from '@/api/spas/teacher'
 import { boundClassRoleFromDepts } from '@/utils/spasTeacherRole'
 import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDeptTree'
+import { buildScopeBanner, buildFrequencyVerdict } from '@/utils/spasAnalysisScope'
 import SpasChart from '@/components/spas/charts/SpasChart'
+import SpasAnalysisVerdict from '@/components/spas/SpasAnalysisVerdict'
 
 export default {
   name: 'AnalysisFrequency',
-  components: { SpasChart, Treeselect },
+  components: { SpasChart, Treeselect, SpasAnalysisVerdict },
   data() {
     return {
+      tipsExpanded: false,
       loading: false,
       queried: false,
       subjectOptions: [],
@@ -226,10 +272,13 @@ export default {
       myDepts: [],
       priorityLoading: false,
       priorityRows: [],
+      quadrantFilter: '',
       prioritySummary: { priorityCount: 0, solidCount: 0, lowEvidenceCount: 0 },
       priorityThresholds: {},
       annotationHint: '',
       unboundRatioThreshold: 0.20,
+      empiricalEnabled: false,
+      allocationMode: 'proportional',
       items: [],
       byPaper: [],
       papers: [],
@@ -277,6 +326,11 @@ export default {
       const l = this.prioritySummary.lowEvidenceCount || 0
       return Math.max(n - p - s - l, 0)
     },
+    filteredPriorityRows() {
+      const rows = this.priorityRows || []
+      if (!this.quadrantFilter) return rows
+      return rows.filter(r => r.quadrant === this.quadrantFilter)
+    },
     scopeHint() {
       const id = this.queryParams.deptId
       if (!id) return ''
@@ -287,7 +341,7 @@ export default {
       if (!node) return ''
       const hasChild = !!(node.children && node.children.length)
       return hasChild
-        ? '当前为年级/校级范围，掌握度统计含下级班级'
+        ? '当前为年级/校级范围，掌握度统计含下级班级；干预名单请改选具体班'
         : '当前为班级范围（仅本班）'
     },
     priorityHint() {
@@ -295,7 +349,16 @@ export default {
       const q = t.questionMin != null ? t.questionMin : 2
       const w = t.weakRate != null ? Math.round(Number(t.weakRate) * 100) : 60
       const a = t.attemptMid != null ? t.attemptMid : 3
-      return '阈值：题次≥' + q + ' 且得分率<' + w + '% 且练习次数≥' + a + ' → 优先干预；练习<' + a + ' → 证据不足'
+      return '优先干预：题次≥' + q + ' 且班均得分率<' + w + '% 且练习≥' + a + '。本象限不要求达到正式薄弱的定级次数；与班级页「正式薄弱人数」不一致是正常的。练习<' + a + ' → 证据不足。'
+    },
+    scopeBanner() {
+      const core = buildScopeBanner({
+        analysisMode: 'papers',
+        paperIds: this.queryParams.paperIds,
+        empiricalEnabled: this.empiricalEnabled,
+        allocationMode: this.allocationMode
+      })
+      return core + '。可单选或勾选多卷对比考查分布；优先干预掌握度与所选试卷同源，不混用全量快照。'
     },
     overviewCards() {
       return [
@@ -304,6 +367,14 @@ export default {
         { key: 'q', label: '题次合计', value: this.summary.questionLinkCount || 0, tone: 'warn', hint: '各知识点题次数之和' },
         { key: 'w', label: '权重合计', value: this.formatNum(this.summary.weightSum, 2), tone: 'info', hint: '考查强度参考' }
       ]
+    },
+    insightVerdict() {
+      return buildFrequencyVerdict({
+        summary: this.summary,
+        priority: this.prioritySummary,
+        blocked: !!this.annotationHint,
+        blockReason: this.annotationHint
+      })
     },
     tableRows() {
       const rows = (this.items || []).slice()
@@ -378,6 +449,8 @@ export default {
       if (annot.unboundRatioThreshold != null) {
         this.unboundRatioThreshold = Number(annot.unboundRatioThreshold) || 0.20
       }
+      this.empiricalEnabled = !!(cfg.empiricalEnabled || (cfg.empiricalDifficulty && cfg.empiricalDifficulty.enabled))
+      if (cfg.allocationMode) this.allocationMode = cfg.allocationMode
     }).catch(() => {})
     this.loadSubjects()
     this.loadPapers()
@@ -460,6 +533,35 @@ export default {
       const map = { priority: '优先干预', low_evidence: '证据不足', solid: '稳固', watch: '关注' }
       return map[q] || q || '-'
     },
+    setQuadrantFilter(q) {
+      this.quadrantFilter = this.quadrantFilter === q ? '' : (q || '')
+    },
+    batchAllPriorityIntervene() {
+      const rows = (this.filteredPriorityRows || []).filter(r => r.quadrant === 'priority')
+      if (!rows.length || !this.queryParams.deptId) {
+        this.$modal.msgWarning('请先选择班级，并确保有优先干预知识点')
+        return
+      }
+      this.$modal.confirm('将依次为「优先干预」象限共 ' + rows.length + ' 个知识点批量创建薄弱干预，确认？').then(async () => {
+        let created = 0
+        let skipped = 0
+        for (const row of rows) {
+          try {
+            const res = await batchWeakInterveneApi({
+              deptId: this.queryParams.deptId,
+              subjectId: this.queryParams.subjectId,
+              knowledgeId: row.knowledgeId || row.id,
+              title: '薄弱干预：' + (row.knowledgeName || row.name || row.knowledgeId),
+              targetRate: 0.6
+            })
+            const d = (res && res.data) || {}
+            created += Number(d.created || 0)
+            skipped += Number(d.skipped || 0)
+          } catch (e) { /* continue */ }
+        }
+        this.$modal.msgSuccess('已创建 ' + created + ' 条，跳过 ' + skipped + ' 条')
+      }).catch(() => {})
+    },
     onFreqBarClick(params) {
       const name = params && (params.name || (params.data && params.data.name))
       if (!name) return
@@ -477,6 +579,22 @@ export default {
       if (this.queryParams.subjectId) query.subjectId = this.queryParams.subjectId
       if (this.queryParams.deptId) query.deptId = this.queryParams.deptId
       this.$router.push({ path: '/spas/analysis/knowledge', query })
+    },
+    goRemediate(row) {
+      const knowledgeId = row && (row.knowledgeId || row.id)
+      const subjectId = this.queryParams.subjectId
+      if (!knowledgeId) {
+        this.$modal.msgWarning('无法定位知识点')
+        return
+      }
+      if (!subjectId) {
+        this.$modal.msgWarning('请先选择学科再去选题补弱')
+        return
+      }
+      this.$router.push({
+        path: '/spas/qb/select',
+        query: { subjectId, knowledgeId }
+      }).catch(() => {})
     },
     goInterveneHint(row) {
       const knowledgeId = row.knowledgeId || row.id
@@ -569,10 +687,15 @@ export default {
       }
       this.loading = true
       this.queried = true
-      knowledgeFrequency({
+      const paperIds = this.queryParams.paperIds.join(',')
+      const freqReq = knowledgeFrequency({
         subjectId: this.queryParams.subjectId,
-        paperIds: this.queryParams.paperIds.join(',')
-      }).then(res => {
+        paperIds
+      })
+      // Priority + annotation in parallel (do not block frequency first paint longer than needed)
+      this.loadPriority()
+      this.loadAnnotationCoverage()
+      freqReq.then(res => {
         const data = res.data || {}
         this.items = data.items || []
         this.byPaper = data.byPaper || []
@@ -585,8 +708,6 @@ export default {
         }
         this.sortProp = this.queryParams.metric || 'questionCount'
         this.sortOrder = 'descending'
-        this.loadPriority()
-        this.loadAnnotationCoverage()
       }).finally(() => {
         this.loading = false
       })
@@ -670,6 +791,16 @@ export default {
   margin-left: 4px;
 }
 .mb8 { margin-bottom: 8px; }
+.tips-fold {
+  margin-bottom: 8px;
+}
+.tips-fold-body {
+  margin-top: 4px;
+  padding: 8px 10px 2px;
+  border-radius: 10px;
+  background: rgba(245, 247, 251, 0.9);
+  border: 1px dashed #E2E8F0;
+}
 .overview-row { margin-bottom: 16px; }
 .stat-card {
   background: #fff;
@@ -683,6 +814,9 @@ export default {
 .stat-card.tone-ok { border-left-color: #10B981; }
 .stat-card.tone-warn { border-left-color: #D97706; }
 .stat-card.tone-info { border-left-color: #0E7490; }
+.stat-card.is-clickable { cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+.stat-card.is-clickable:hover { box-shadow: 0 2px 8px rgba(15, 23, 42, .08); }
+.stat-card.is-clickable.active { border-color: #0E7490; box-shadow: 0 0 0 1px #0E7490 inset; }
 .stat-label {
   color: #64748B;
   font-size: 12px;

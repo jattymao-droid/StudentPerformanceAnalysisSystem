@@ -66,6 +66,17 @@ REQUIRED = [
     "spas_group_practice.sql",
     "spas_student_points.sql",
     "spas_practice_checkout.sql",
+    "spas_checkout_knowledge.sql",
+    "spas_checkout_item_knowledge.sql",
+    "spas_checkout_ack_timeout_job.sql",
+    "spas_checkout_spot_unique.sql",
+    "spas_assignment_knowledge_ids.sql",
+    "spas_practice_menu_fix.sql",
+    "spas_homework_assign_menu.sql",
+    "spas_practice_menu_dedupe.sql",
+    "spas_score_menu_rename.sql",
+    "spas_paper_menu_rename.sql",
+    "spas_score_prev_source.sql",
 ]
 
 OPTIONAL_DEMO = [
@@ -100,6 +111,11 @@ CHECKS = [
         "column",
         "spas_score_detail.score_source",
         "select 1 from information_schema.columns where table_name='spas_score_detail' and column_name='score_source'",
+    ),
+    (
+        "column",
+        "spas_score_detail.prev_score_source",
+        "select 1 from information_schema.columns where table_name='spas_score_detail' and column_name='prev_score_source'",
     ),
     (
         "column",
@@ -167,6 +183,11 @@ CHECKS = [
     ("table", "spas_practice_checkout", "select to_regclass('public.spas_practice_checkout')"),
     ("table", "spas_practice_checkout_item", "select to_regclass('public.spas_practice_checkout_item')"),
     ("table", "spas_practice_spot", "select to_regclass('public.spas_practice_spot')"),
+    (
+        "menu",
+        "practice menu dedupe 2410 hidden",
+        "select 1 from sys_menu where menu_id=2410 and visible='1'",
+    ),
 ]
 
 

@@ -1,6 +1,7 @@
 -- SPAS: 学生积分与等级（打卡发分 + 掌握度进步发分 + 班内榜）
 -- PostgreSQL · idempotent
 -- Doc: docs/spas-group-daily-practice-desktop.md
+-- 菜单/一键发分权限见 spas_point_menu.sql（序号 40b）
 
 create table if not exists spas_student_point_account (
   student_id          int8 primary key,

@@ -5,8 +5,8 @@
       type="info"
       :closable="false"
       show-icon
-      title="各科实考分与校次请用「实考校次」导入。本页仅导入单张试卷的小题得分，用于知识点分析。"
-      description="导入前请确保该卷题目已绑知识点、权重之和为1、且已选题型；否则后端会拦截。导分成功后请先核对质量看板，再看分析结论。"
+      title="各科实考分与校次请用「实考校次」导入。本页仅导入已发布分析卷的小题得分，用于知识点掌握度。"
+      description="导入前请确保该卷已发布、题目已绑知识点、权重之和为1、且已选题型；否则后端会拦截。空单元格默认跳过；勾选「空白置零」才会把空格写成 0 分。导分成功后请先核对质量看板，再看分析结论。"
     />
     <el-alert
       v-if="postImportQualityTip"
@@ -234,14 +234,23 @@
     />
     </template>
 
-    <!-- 成绩导入对话框 -->
-    <el-dialog title="导入成绩" :visible.sync="upload.open" width="400px" append-to-body @close="handleUploadClose">
+    <!-- 小题成绩导入对话框 -->
+    <el-dialog title="导入成绩" :visible.sync="upload.open" width="440px" append-to-body @close="handleUploadClose">
+      <el-form size="small" label-width="100px" style="margin-bottom: 8px;">
+        <el-form-item label="空白置零">
+          <el-switch v-model="upload.blankAsZero" active-text="开" inactive-text="关" />
+          <div style="color: #909399; font-size: 12px; line-height: 1.5; margin-top: 4px;">
+            关：空单元格跳过、不写入；开：空单元格按 0 分计入掌握度（score_source=空白置零）。缺考/未做请填「缺考」「未做」。
+          </div>
+        </el-form-item>
+      </el-form>
       <el-upload
         ref="upload"
         :limit="1"
         accept=".xlsx, .xls"
         :headers="upload.headers"
         :action="upload.url"
+        :data="uploadData"
         :disabled="upload.isUploading"
         :on-progress="handleFileUploadProgress"
         :on-success="handleFileSuccess"
@@ -252,11 +261,11 @@
         <i class="el-icon-upload"></i>
         <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
         <div class="el-upload__tip text-center" slot="tip">
-          <span>仅允许导入 xls、xlsx 格式文件。</span><br>
-          <span>空单元格跳过、不计入掌握度；可填「缺考」「未做」或 ABS/NA（不计入）；数字 0 为实得 0 分。</span>
+          <span>支持 xls / xlsx。仅已发布分析卷可导入。</span><br>
+          <span>可填「缺考」「未做」或 ABS/NA（不计入掌握）；数字 0 为实得 0 分。</span>
           <el-link type="primary" :underline="false" style="font-size: 12px; vertical-align: baseline" @click="handleDownloadTemplate">下载模板</el-link>
           <div style="margin-top: 8px; color: #D97706; line-height: 1.5;">
-            未作答请留空或填缺考/未做，不要用空单元格表示 0 分。
+            默认空单元格不写分；需要把空格当 0 分时再打开「空白置零」。
           </div>
         </div>
       </el-upload>
@@ -331,6 +340,7 @@ export default {
         batchId: undefined,
         studentNo: undefined,
         studentName: undefined,
+        questionId: undefined,
         questionNo: undefined,
         scoreSource: undefined
       },
@@ -349,9 +359,15 @@ export default {
       upload: {
         open: false,
         isUploading: false,
+        blankAsZero: false,
         headers: { Authorization: 'Bearer ' + getToken() },
         url: ''
       }
+    }
+  },
+  computed: {
+    uploadData() {
+      return { blankAsZero: this.upload.blankAsZero ? 'true' : 'false' }
     }
   },
   created() {
@@ -359,23 +375,40 @@ export default {
     const q = this.$route.query || {}
     if (q.paperId) {
       this.queryParams.paperId = isNaN(Number(q.paperId)) ? q.paperId : Number(q.paperId)
+      this.detailQuery.paperId = this.queryParams.paperId
     }
     if (q.batchId) {
       this.detailQuery.batchId = isNaN(Number(q.batchId)) ? q.batchId : Number(q.batchId)
     }
+    if (q.questionId != null && q.questionId !== '') {
+      this.detailQuery.questionId = isNaN(Number(q.questionId)) ? q.questionId : Number(q.questionId)
+    }
+    if (q.questionNo) {
+      this.detailQuery.questionNo = q.questionNo
+    }
+    if (q.studentNo) {
+      this.detailQuery.studentNo = q.studentNo
+    }
     if (this.queryParams.paperId) {
-      this.$nextTick(() => this.handleQuery())
+      this.$nextTick(() => {
+        this.handleQuery()
+        if (this.detailQuery.questionId || this.detailQuery.questionNo || this.detailQuery.studentNo || this.detailQuery.batchId) {
+          this.$nextTick(() => {
+            this.$modal.msgSuccess('已按质量问题定位明细筛选')
+            const el = document.querySelector('.score-detail-anchor')
+            if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          })
+        }
+      })
     }
   },
   methods: {
     loadPapers() {
+      // 与后端一致：仅已发布分析卷可导小题成绩 / 下模板
       listPaper({ pageNum: 1, pageSize: 200, status: '1' }).then(response => {
         this.paperOptions = response.rows || []
-        // 若无已发布，也加载全部供选择
         if (!this.paperOptions.length) {
-          listPaper({ pageNum: 1, pageSize: 200 }).then(res => {
-            this.paperOptions = res.rows || []
-          })
+          this.$modal.msgWarning('暂无已发布分析卷。请先在「分析试卷」发布后再导入小题成绩。')
         }
       })
     },
@@ -387,6 +420,7 @@ export default {
     },
     handlePaperChange() {
       this.detailQuery.batchId = undefined
+      this.detailQuery.questionId = undefined
       this.detailList = []
       this.detailTotal = 0
       this.handleQuery()
@@ -408,6 +442,7 @@ export default {
       this.detailQuery.batchId = undefined
       this.detailQuery.studentNo = undefined
       this.detailQuery.studentName = undefined
+      this.detailQuery.questionId = undefined
       this.detailQuery.questionNo = undefined
       this.detailQuery.scoreSource = undefined
       this.handleQuery()
@@ -544,6 +579,11 @@ export default {
         this.$modal.msgWarning('请先选择试卷')
         return
       }
+      const paper = this.paperOptions.find(p => p.paperId === this.queryParams.paperId)
+      if (paper && paper.status && paper.status !== '1') {
+        this.$modal.msgWarning('仅已发布的分析试卷可下载成绩模板')
+        return
+      }
       const paperId = this.queryParams.paperId
       this.download('spas/score/template/' + paperId, {}, `score_template_${paperId}.xlsx`)
     },
@@ -552,7 +592,13 @@ export default {
         this.$modal.msgWarning('请先选择试卷')
         return
       }
+      const paper = this.paperOptions.find(p => p.paperId === this.queryParams.paperId)
+      if (paper && paper.status && paper.status !== '1') {
+        this.$modal.msgWarning('仅已发布的分析试卷可导入小题成绩，请先发布试卷')
+        return
+      }
       this.upload.headers = { Authorization: 'Bearer ' + getToken() }
+      this.upload.blankAsZero = false
       this.upload.url = process.env.VUE_APP_BASE_API + '/spas/score/import/' + this.queryParams.paperId
       this.upload.open = true
     },
@@ -577,22 +623,38 @@ export default {
       let html = '<div style="padding:8px 4px;line-height:1.7;">'
       html += '<div>成功：<strong>' + (data.successRows != null ? data.successRows : '-') + '</strong> 行</div>'
       html += '<div>失败：<strong>' + (data.failRows != null ? data.failRows : '-') + '</strong> 行</div>'
+      if (data.paperQuestionCount != null && data.matchedQuestionCols != null) {
+        html += '<div>题列：匹配 <strong>' + data.matchedQuestionCols + '</strong> / 试卷 <strong>' + data.paperQuestionCount + '</strong> 题</div>'
+      }
+      if (data.importWarning) {
+        html += '<div style="margin-top:8px;color:#D97706;">' + data.importWarning + '</div>'
+        html += '<div style="margin-top:4px;color:#64748B;">建议重新下载本卷模板，补齐题号列后再导。</div>'
+      }
       if (Number(data.successRows) > 0) {
         html += '<div style="margin-top:8px;color:#10B981;">已自动重算该卷相关学生的知识点快照（全部口径）。本学期即时分析无需额外重算。</div>'
         html += '<div style="margin-top:6px;color:#D97706;">建议先核对质量看板（权重/题型/标注覆盖），再查看分析结论。</div>'
       }
-      if (data.errorLog) {
+      if (data.errorLog && Number(data.failRows) > 0) {
         html += '<div style="margin-top:8px;color:#D97706;">部分行失败，可在批次中查看错误日志。</div>'
-      } else if (response && response.msg) {
+      } else if (response && response.msg && !data.importWarning) {
         html += '<div style="margin-top:8px;">' + response.msg + '</div>'
       }
       html += '</div>'
       const success = Number(data.successRows) > 0
-      this.$alert(html, '导入结果', { dangerouslyUseHTMLString: true }).then(() => {
-        if (success) this.afterImportQualityGate()
-      }).catch(() => {
-        if (success) this.afterImportQualityGate()
-      })
+      const afterOk = () => { if (success) this.afterImportQualityGate() }
+      if (data.importWarning) {
+        this.$confirm(html, '导入结果 · 题列不完整', {
+          dangerouslyUseHTMLString: true,
+          type: 'warning',
+          confirmButtonText: '下载完整模板',
+          cancelButtonText: '稍后处理'
+        }).then(() => {
+          this.handleDownloadTemplate()
+          afterOk()
+        }).catch(() => { afterOk() })
+      } else {
+        this.$alert(html, '导入结果', { dangerouslyUseHTMLString: true }).then(afterOk).catch(afterOk)
+      }
       this.getBatchList()
       this.getDetailList()
     },
@@ -663,9 +725,10 @@ export default {
     },
     goQuality() {
       const paper = this.paperOptions.find(p => p.paperId === this.queryParams.paperId)
-      const query = {}
+      const query = { metric: 'Q_NO_KNOWLEDGE' }
       if (paper && paper.deptId) query.deptId = paper.deptId
       if (paper && paper.subjectId) query.subjectId = paper.subjectId
+      if (this.queryParams.paperId) query.paperId = this.queryParams.paperId
       this.$router.push({ path: '/spas/quality', query }).catch(() => {})
     },
     goWarning() {
@@ -691,7 +754,13 @@ export default {
       this.download('spas/score/export', params, `score_detail_${this.queryParams.paperId}.xlsx`)
     },
     handleRevokeBatch(row) {
-      this.$modal.confirm('确认撤销批次 ' + row.batchId + ' 的导入成绩？将删除该批次明细并重算知识点。').then(() => {
+      this.$modal.confirm(
+        '确认撤销批次 ' + row.batchId + ' 的导入成绩？\n'
+        + '• 被本批覆盖的小题会恢复为「上一批」得分与来源；\n'
+        + '• 本批首次写入的小题会删除；\n'
+        + '• 仅保留一层历史，连续重导多次时更早批次无法还原。\n'
+        + '撤销后将重算知识点。'
+      ).then(() => {
         return revokeScoreBatch(row.batchId)
       }).then(() => {
         this.$modal.msgSuccess('批次已撤销')

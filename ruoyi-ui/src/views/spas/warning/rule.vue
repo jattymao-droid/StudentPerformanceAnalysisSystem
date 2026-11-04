@@ -293,6 +293,11 @@ export default {
     }
   },
   created() {
+    const q = this.$route.query || {}
+    const allowed = ['semester', 'last30d', 'last90d', 'all', 'prev_semester']
+    if (q.window && allowed.indexOf(String(q.window)) >= 0) {
+      this.runWindow = String(q.window)
+    }
     this.getList()
     warningNotifyStatus().then(res => {
       this.webhookConfigured = !!(res.data && res.data.webhookConfigured)

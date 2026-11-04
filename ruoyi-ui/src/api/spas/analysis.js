@@ -9,6 +9,15 @@ export function summaryStudent(studentId, query) {
   })
 }
 
+/** 学生分析首屏聚合（summary+radar+trend+weak+persist） */
+export function dashboardStudent(studentId, query) {
+  return request({
+    url: '/spas/analysis/student/' + studentId + '/dashboard',
+    method: 'get',
+    params: query
+  })
+}
+
 /** 学生知识点雷达 */
 export function radarStudent(studentId, query) {
   return request({
@@ -58,6 +67,15 @@ export function heatmapClass(deptId, query) {
 export function overviewClass(deptId, query) {
   return request({
     url: '/spas/analysis/class/' + deptId + '/overview',
+    method: 'get',
+    params: query
+  })
+}
+
+/** 班级分析首屏聚合（overview + weakTop） */
+export function dashboardClass(deptId, query) {
+  return request({
+    url: '/spas/analysis/class/' + deptId + '/dashboard',
     method: 'get',
     params: query
   })

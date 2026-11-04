@@ -192,6 +192,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             prev_score = spas_score_detail.score,
             prev_full_score = spas_score_detail.full_score,
             prev_rate = spas_score_detail.rate,
+            prev_score_source = spas_score_detail.score_source,
             batch_id = excluded.batch_id,
             score = excluded.score,
             full_score = excluded.full_score,
@@ -216,10 +217,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             score = prev_score,
             full_score = prev_full_score,
             rate = prev_rate,
+            score_source = coalesce(prev_score_source, score_source),
             prev_batch_id = null,
             prev_score = null,
             prev_full_score = null,
             prev_rate = null,
+            prev_score_source = null,
             update_time = now()
         where batch_id = #{batchId}
           and prev_batch_id is not null

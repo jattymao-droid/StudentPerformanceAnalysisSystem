@@ -5,7 +5,7 @@
       type="info"
       :closable="false"
       show-icon
-      title="导入各科实考得分与校次。优先按「学号」匹配所选班级学生；学号为空时才按姓名，同班重名必须填学号。模板已含学号、姓名及语文/数学/英语/物理/化学/生物学、总分列。选择考试后会关联试卷，但校次不写入小题成绩。同班同名考试默认可覆盖。"
+      title="导入各科实考得分与校次（仅写校次/实考分，不写入小题成绩、不参与知识点掌握度）。优先按「学号」匹配所选班级；学号为空时才按姓名，同班重名必须填学号。可选关联分析卷仅作考试命名参考。覆盖同名考试时会先校验表头再删旧数据。"
     />
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
       <el-form-item label="班级" prop="deptId" class="class-row">
@@ -107,12 +107,12 @@
           </template>
           <treeselect v-else v-model="importForm.deptId" :options="deptOptions" placeholder="匹配学生的班级" style="width: 280px" />
         </el-form-item>
-        <el-form-item label="考试名称" required>
+        <el-form-item label="关联试卷">
           <el-select
             v-model="importForm.paperId"
             filterable
             clearable
-            placeholder="从作业考试中选择考试"
+            placeholder="可选：从分析卷带出名称与日期（不写小题分）"
             style="width: 100%"
             @change="onPaperChange"
           >
@@ -124,12 +124,15 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="考试名称" required>
+          <el-input v-model="importForm.examName" placeholder="必填；可手填或从上方试卷带出" maxlength="100" clearable />
+        </el-form-item>
         <el-form-item label="考试日期">
-          <el-date-picker v-model="importForm.examDate" type="date" value-format="yyyy-MM-dd" placeholder="选择考试后自动带出" style="width: 100%" />
+          <el-date-picker v-model="importForm.examDate" type="date" value-format="yyyy-MM-dd" placeholder="可选；选试卷后可自动带出" style="width: 100%" />
         </el-form-item>
         <el-form-item label="覆盖同名">
           <el-switch v-model="importForm.overwrite" active-text="开" inactive-text="关" />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px">同班同名考试将整批覆盖</span>
+          <span style="margin-left: 8px; color: #909399; font-size: 12px">同班同名将整批覆盖；失败时旧数据保留（先校验再删除）</span>
         </el-form-item>
         <el-form-item label="文件" required>
           <el-upload
@@ -363,7 +366,6 @@ export default {
       this.importForm = {
         deptId: this.queryParams.deptId || this.preferredDeptId,
         paperId: undefined,
-        paperId: undefined,
         examName: '',
         examDate: '',
         file: null,
@@ -390,8 +392,8 @@ export default {
         this.$modal.msgWarning('请选择班级')
         return
       }
-      if (!this.importForm.paperId || !this.importForm.examName) {
-        this.$modal.msgWarning('请从作业考试中选择考试')
+      if (!this.importForm.examName || !String(this.importForm.examName).trim()) {
+        this.$modal.msgWarning('请填写考试名称（可选手动填写，或从上方面分析卷带出）')
         return
       }
       if (!this.importForm.file) {

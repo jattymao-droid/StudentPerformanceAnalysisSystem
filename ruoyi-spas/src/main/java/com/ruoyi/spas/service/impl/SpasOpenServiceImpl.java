@@ -21,6 +21,7 @@ import com.ruoyi.spas.open.SpasOpenToken;
 import com.ruoyi.spas.open.config.SpasOpenProperties;
 import com.ruoyi.spas.service.ISpasAnalysisService;
 import com.ruoyi.spas.service.ISpasOpenService;
+import com.ruoyi.spas.service.ISpasPortfolioService;
 
 @Service
 public class SpasOpenServiceImpl implements ISpasOpenService
@@ -41,6 +42,9 @@ public class SpasOpenServiceImpl implements ISpasOpenService
 
     @Autowired
     private ISpasAnalysisService analysisService;
+
+    @Autowired
+    private ISpasPortfolioService portfolioService;
 
     @Autowired
     private RedisCache redisCache;
@@ -130,7 +134,7 @@ public class SpasOpenServiceImpl implements ISpasOpenService
         {
             throw new ServiceException("学生不存在");
         }
-        Map<String, Object> data = new HashMap<>();
+        Map<String, Object> data = new HashMap<>(portfolioService.getAnalysisSlices(studentId, subjectId));
         Map<String, Object> profile = new HashMap<>();
         profile.put("studentId", student.getStudentId());
         profile.put("studentNo", student.getStudentNo());
@@ -138,11 +142,6 @@ public class SpasOpenServiceImpl implements ISpasOpenService
         profile.put("deptId", student.getDeptId());
         profile.put("gender", student.getGender());
         data.put("student", profile);
-        data.put("radar", analysisService.studentRadar(studentId, subjectId));
-        data.put("trend", analysisService.studentTrend(studentId, subjectId));
-        data.put("weakTop", analysisService.studentWeakTop(studentId, subjectId, 10));
-        data.put("openWarnings", warningRecordMapper.selectOpenByStudent(studentId));
-        data.put("openWarningCount", warningRecordMapper.countOpenByStudent(studentId));
         return data;
     }
 

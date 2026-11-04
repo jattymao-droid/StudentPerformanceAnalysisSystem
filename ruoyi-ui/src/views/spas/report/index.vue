@@ -151,8 +151,9 @@
       <el-col :xs="24" :md="8">
         <el-card shadow="hover">
           <div slot="header">班级分析报告</div>
-          <p class="tip">班级弱项、覆盖与热力概览</p>
+          <p class="tip">班级弱项、覆盖与热力概览；也可在班级分析页一键导出全班每位学生的学情 ZIP</p>
           <el-button type="text" @click="quickKind('class')">填入本页表单</el-button>
+          <el-button type="text" @click="goClassBatchStudents">去班级分析页批量导出</el-button>
         </el-card>
       </el-col>
       <el-col :xs="24" :md="8">
@@ -322,6 +323,16 @@ export default {
           query: { studentId: this.form.studentId || undefined, subjectId: this.form.subjectId || undefined }
         }).catch(() => {})
       }
+    },
+    goClassBatchStudents() {
+      this.$router.push({
+        path: '/spas/analysis/class',
+        query: {
+          deptId: this.form.deptId || undefined,
+          subjectId: this.form.subjectId || undefined,
+          window: this.form.window || 'semester'
+        }
+      }).catch(() => {})
     },
     goTermCompare(kind) {
       if (kind === 'class') {

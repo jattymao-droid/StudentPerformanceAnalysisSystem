@@ -38,6 +38,7 @@ nbdist/
 
 ######################################################################
 # Others
+.codegraph/
 *.log
 *.xml.versionsBackup
 node_modules/
@@ -95,3 +96,20 @@ data/xkw_bio/captured.json
 
 # Local cloud secrets (use env.sh.example)
 deploy/xq.xmls.vip/config/env.sh
+
+# Local smoke / secrets (do not commit)
+_spas_token.txt
+captcha-tmp.png
+_analysis_cfg.json
+_class_*.json
+_delta_*.json
+_delta_*.txt
+_hint_out.txt
+_papers.json
+_radar.json
+_*.pdf
+*.local.pdf
+sql/_try_*.py
+sql/_forge_*.py
+sql/_farm_demo_via_api.py
+sql/_write_farm_sql.py

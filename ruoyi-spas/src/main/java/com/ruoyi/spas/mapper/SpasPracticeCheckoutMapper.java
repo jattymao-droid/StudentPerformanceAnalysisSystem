@@ -37,11 +37,19 @@ public interface SpasPracticeCheckoutMapper
 
     int insertItem(SpasPracticeCheckoutItem item);
 
+    /** Update finish/difficulty/knowledge/ack for pending amend (keeps item_id). */
+    int updateItemContent(SpasPracticeCheckoutItem item);
+
     int updateItemAck(SpasPracticeCheckoutItem item);
 
     int updateItemSpot(SpasPracticeCheckoutItem item);
 
     int updateItemFollow(@Param("itemId") Long itemId, @Param("followStatus") String followStatus);
+
+    int countSpotByItemId(@Param("itemId") Long itemId);
+
+    /** Expire pending member acks for practice_date before today → member_ack=3 */
+    int expirePendingAcksBefore(@Param("beforeDate") Date beforeDate);
 
     SpasPracticeCheckoutItem selectItemById(Long itemId);
 
@@ -59,6 +67,9 @@ public interface SpasPracticeCheckoutMapper
         @Param("practiceDate") Date practiceDate);
 
     List<Map<String, Object>> selectDisputes(@Param("deptId") Long deptId, @Param("subjectId") Long subjectId,
+        @Param("practiceDate") Date practiceDate);
+
+    List<Map<String, Object>> selectTimeouts(@Param("deptId") Long deptId, @Param("subjectId") Long subjectId,
         @Param("practiceDate") Date practiceDate);
 
     List<Map<String, Object>> selectDifficultySummary(@Param("deptId") Long deptId, @Param("subjectId") Long subjectId,
@@ -84,4 +95,7 @@ public interface SpasPracticeCheckoutMapper
     int insertSpot(@Param("itemId") Long itemId, @Param("studentId") Long studentId, @Param("groupId") Long groupId,
         @Param("checkerStudentId") Long checkerStudentId, @Param("spotResult") String spotResult,
         @Param("spotBy") String spotBy, @Param("spotRemark") String spotRemark);
+
+    /** Expire pending member ack before a practice date (typically yesterday). */
+    int expirePendingAckBefore(@Param("beforeDate") Date beforeDate);
 }

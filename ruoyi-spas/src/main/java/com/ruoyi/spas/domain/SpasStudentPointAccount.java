@@ -28,6 +28,12 @@ public class SpasStudentPointAccount
     private Integer levelMaxPoints;
     private Integer pointsToNext;
     private Integer lastAwardPoints;
+    /** transient: 成长农场阶段 seed/seedling/sapling/tree（与 Lv 独立） */
+    private String farmStage;
+    private String farmStageLabel;
+    private Integer farmStageMinPoints;
+    private Integer farmStageMaxPoints;
+    private Integer pointsToNextFarmStage;
 
     public Long getStudentId() { return studentId; }
     public void setStudentId(Long studentId) { this.studentId = studentId; }
@@ -61,4 +67,14 @@ public class SpasStudentPointAccount
     public void setPointsToNext(Integer pointsToNext) { this.pointsToNext = pointsToNext; }
     public Integer getLastAwardPoints() { return lastAwardPoints; }
     public void setLastAwardPoints(Integer lastAwardPoints) { this.lastAwardPoints = lastAwardPoints; }
+    public String getFarmStage() { return farmStage; }
+    public void setFarmStage(String farmStage) { this.farmStage = farmStage; }
+    public String getFarmStageLabel() { return farmStageLabel; }
+    public void setFarmStageLabel(String farmStageLabel) { this.farmStageLabel = farmStageLabel; }
+    public Integer getFarmStageMinPoints() { return farmStageMinPoints; }
+    public void setFarmStageMinPoints(Integer farmStageMinPoints) { this.farmStageMinPoints = farmStageMinPoints; }
+    public Integer getFarmStageMaxPoints() { return farmStageMaxPoints; }
+    public void setFarmStageMaxPoints(Integer farmStageMaxPoints) { this.farmStageMaxPoints = farmStageMaxPoints; }
+    public Integer getPointsToNextFarmStage() { return pointsToNextFarmStage; }
+    public void setPointsToNextFarmStage(Integer pointsToNextFarmStage) { this.pointsToNextFarmStage = pointsToNextFarmStage; }
 }

@@ -179,10 +179,12 @@ create table spas_score_detail (
   score numeric(8,2) not null,
   full_score numeric(8,2) not null,
   rate numeric(6,4) not null,
+  score_source char(1) default '2',
   prev_batch_id int8,
   prev_score numeric(8,2),
   prev_full_score numeric(8,2),
   prev_rate numeric(6,4),
+  prev_score_source char(1),
   create_time timestamp,
   update_time timestamp,
   primary key (detail_id),
@@ -190,7 +192,9 @@ create table spas_score_detail (
 );
 create index idx_spas_score_student on spas_score_detail(student_id, paper_id);
 comment on table spas_score_detail is 'student question score';
+comment on column spas_score_detail.score_source is '1=manual 2=import 3=blank-as-zero 4=absent 5=not-attempted';
 comment on column spas_score_detail.prev_batch_id is 'previous batch before last upsert (for revoke restore)';
+comment on column spas_score_detail.prev_score_source is 'previous score_source before last upsert (for revoke restore)';
 
 -- 9 knowledge stat snapshot
 drop table if exists spas_student_knowledge_stat cascade;

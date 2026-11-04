@@ -1,5 +1,12 @@
 <template>
   <div class="app-container">
+    <el-alert
+      class="mb8"
+      type="info"
+      :closable="false"
+      show-icon
+      title="在此组卷，发布后进入「分析试卷」再导入小题成绩。校次排名请用「实考校次」，勿与分析卷混淆。"
+    />
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
       <el-form-item label="卷名" prop="paperTitle">
         <el-input v-model="queryParams.paperTitle" clearable @keyup.enter.native="handleQuery" />

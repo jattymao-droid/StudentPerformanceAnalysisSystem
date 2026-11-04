@@ -195,12 +195,24 @@
     <select id="selectGroupTodayProgress" resultType="java.util.HashMap">
         select s.student_id as "studentId", s.student_no as "studentNo", s.student_name as "studentName",
                m.role_in_group as "roleInGroup",
-               case when exists (
-                   select 1 from spas_practice_log p
-                   where p.student_id = s.student_id and p.practice_date = #{practiceDate} and p.status = '0'
-               ) then true else false end as "submitted"
+               i.finish_status as "finishStatus",
+               i.member_ack as "memberAck",
+               i.knowledge_ids as "knowledgeIds",
+               case when i.item_id is not null then true else false end as "submitted"
         from spas_study_group_member m
         inner join spas_student s on s.student_id = m.student_id
+        left join lateral (
+            select ci.item_id, ci.finish_status, ci.member_ack, ci.knowledge_ids
+            from spas_practice_checkout_item ci
+            inner join spas_practice_checkout c on c.checkout_id = ci.checkout_id
+            where ci.student_id = s.student_id
+              and c.group_id = #{groupId}
+              and c.practice_date = #{practiceDate}
+              and coalesce(c.status,'0') = '0'
+              and coalesce(ci.voided,'0') = '0'
+            order by ci.item_id desc
+            limit 1
+        ) i on true
         where m.group_id = #{groupId} and m.leave_time is null
         order by m.role_in_group desc, s.student_no
     </select>
@@ -425,5 +437,16 @@
             update_time = now(),
             status = case when #{confirmStatus} = '3' then '1' else status end
         where log_id = #{logId} and status = '0' and proxy_flag = '1' and confirm_status = '1'
+    </update>
+
+    <select id="countByRemark" resultType="int">
+        select count(1) from spas_practice_log
+        where status = '0' and remark = #{remark}
+    </select>
+
+    <update id="voidByRemark">
+        update spas_practice_log
+        set status = '1', update_time = now()
+        where remark = #{remark} and coalesce(status,'0') = '0'
     </update>
 </mapper>

@@ -51,6 +51,32 @@ public class SpasAnalysisController extends BaseController
         }
     }
 
+    /**
+     * Primary student analysis bundle (summary/radar/trend/weak/persist) in one round-trip.
+     */
+    @PreAuthorize("@ss.hasPermi('spas:analysis:student')")
+    @GetMapping("/student/{studentId}/dashboard")
+    public AjaxResult studentDashboard(@PathVariable Long studentId,
+        @RequestParam(required = false) Long subjectId,
+        @RequestParam(required = false) String window,
+        @RequestParam(required = false) String paperIds,
+        @RequestParam(required = false, defaultValue = "10") Integer limit,
+        @RequestParam(required = false) String baselineWindow,
+        @RequestParam(required = false) Boolean useRecency)
+    {
+        accessService.checkStudentAccess(studentId);
+        applyRecencyOverride(useRecency);
+        try
+        {
+            return success(analysisService.studentDashboard(studentId, subjectId, window, parsePaperIds(paperIds),
+                limit, baselineWindow));
+        }
+        finally
+        {
+            KnowledgeStatCalculator.clearRecencyOverride();
+        }
+    }
+
     @PreAuthorize("@ss.hasPermi('spas:analysis:student')")
     @GetMapping("/student/{studentId}/radar")
     public AjaxResult studentRadar(@PathVariable Long studentId,
@@ -213,6 +239,27 @@ public class SpasAnalysisController extends BaseController
         {
             Map<String, Object> data = analysisService.classHeatmap(deptId, subjectId, window, parsePaperIds(paperIds));
             return success(data);
+        }
+        finally
+        {
+            KnowledgeStatCalculator.clearRecencyOverride();
+        }
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:analysis:class')")
+    @GetMapping("/class/{deptId}/dashboard")
+    public AjaxResult classDashboard(@PathVariable Long deptId,
+        @RequestParam(required = false) Long subjectId,
+        @RequestParam(required = false) String window,
+        @RequestParam(required = false) String paperIds,
+        @RequestParam(required = false, defaultValue = "10") Integer limit,
+        @RequestParam(required = false) Boolean useRecency)
+    {
+        accessService.checkClassAnalysisDept(deptId);
+        applyRecencyOverride(useRecency);
+        try
+        {
+            return success(analysisService.classDashboard(deptId, subjectId, window, parsePaperIds(paperIds), limit));
         }
         finally
         {

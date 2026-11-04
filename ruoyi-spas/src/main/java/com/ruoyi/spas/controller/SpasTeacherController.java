@@ -47,7 +47,7 @@ public class SpasTeacherController extends BaseController
     }
 
     /** Teaching depts for current user (used by analysis quick switch) */
-    @PreAuthorize("@ss.hasAnyPermi('spas:analysis:class,spas:analysis:student,spas:analysis:knowledge,spas:analysis:frequency,spas:portfolio:list,spas:score:list,spas:quality:list,spas:examScore:list,spas:student:list,spas:teacher:list,spas:paper:list,spas:intervene:list,spas:warning:record,spas:report:export')")
+    @PreAuthorize("@ss.hasAnyPermi('spas:analysis:class,spas:analysis:student,spas:analysis:knowledge,spas:analysis:frequency,spas:portfolio:list,spas:score:list,spas:quality:list,spas:examScore:list,spas:student:list,spas:teacher:list,spas:paper:list,spas:intervene:list,spas:warning:record,spas:report:export,spas:practice:list,spas:practice:stat,spas:practice:query,spas:practice:edit,spas:practice:spot')")
     @GetMapping("/my-depts")
     public AjaxResult myDepts()
     {

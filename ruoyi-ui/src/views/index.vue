@@ -23,7 +23,7 @@
                     size="small"
                     icon="el-icon-upload2"
                     @click="go('/spas/biz/score')"
-                  >成绩导入</el-button>
+                  >小题成绩</el-button>
                   <el-button
                     v-hasPermi="['spas:analysis:student']"
                     plain
@@ -87,7 +87,7 @@
         <el-col :xs="24" :md="14">
           <el-card shadow="never" class="panel-card">
             <div slot="header" class="card-header">
-              <span>最近成绩导入</span>
+              <span>最近小题成绩导入</span>
               <div class="card-header-actions">
                 <el-button type="text" size="mini" icon="el-icon-refresh" @click="loadDashboard">刷新</el-button>
                 <el-button type="text" size="mini" @click="goIfPerm({ path: '/spas/biz/score', perms: ['spas:score:list'] })">全部</el-button>

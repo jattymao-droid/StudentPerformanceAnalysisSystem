@@ -508,6 +508,35 @@ public class KnowledgeStatCalculator
         return Math.max(thresholdsFor(subjectId).minAttempts, 1);
     }
 
+    public int resolveSevereMinAttempts()
+    {
+        return resolveSevereMinAttempts(null);
+    }
+
+    public int resolveSevereMinAttempts(Long subjectId)
+    {
+        ThresholdBundle t = thresholdsFor(subjectId);
+        int severeMin = t.severeMinAttempts > 0 ? t.severeMinAttempts : t.minAttempts;
+        return Math.max(severeMin, 1);
+    }
+
+    public String resolveSubjectCode(Long subjectId)
+    {
+        if (subjectId == null || subjectMapper == null)
+        {
+            return null;
+        }
+        try
+        {
+            SpasSubject subject = subjectMapper.selectSpasSubjectById(subjectId);
+            return subject == null ? null : subject.getSubjectCode();
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+
     public double resolveWeakThreshold()
     {
         return resolveWeakThreshold(null);
@@ -546,6 +575,21 @@ public class KnowledgeStatCalculator
             return "proportional";
         }
         return tuningProperties.getAllocationMode().trim();
+    }
+
+    public boolean isEmpiricalEnabled()
+    {
+        return empiricalEnabled && empiricalBlend > 0;
+    }
+
+    public int getEmpiricalMinStudents()
+    {
+        return empiricalMinStudents;
+    }
+
+    public double getEmpiricalBlend()
+    {
+        return empiricalBlend;
     }
 
     private ThresholdBundle thresholdsFor(Long subjectId)

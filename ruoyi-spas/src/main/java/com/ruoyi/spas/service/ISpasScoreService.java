@@ -25,7 +25,10 @@ public interface ISpasScoreService
 
     public void downloadTemplate(Long paperId, HttpServletResponse response);
 
-    public SpasScoreBatch importScores(Long paperId, MultipartFile file, String operName);
+    /**
+     * @param blankAsZeroOverride null = use config spas.score.blank-as-zero; true/false = per-upload override
+     */
+    public SpasScoreBatch importScores(Long paperId, MultipartFile file, Boolean blankAsZeroOverride, String operName);
 
     public void exportScoreDetail(SpasScoreDetail detail, HttpServletResponse response);
 

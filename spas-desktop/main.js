@@ -9,6 +9,10 @@ const DEFAULT_CONFIG = {
   autoLaunch: false,
   idleMinutes: 8,
   title: '知脉 · 每日自主练',
+  /** auto | full | lite | off — 班级/个人农场特效强度 */
+  farmFxMode: 'auto',
+  /** 农场音效静音 */
+  audioMute: false,
   appVersion: '1.5.9',
   /** 可选：固定宽高；不填则按屏幕工作区自适应 */
   windowWidth: 0,
@@ -50,7 +54,9 @@ function bundledConfigCandidates() {
 function readJson(file) {
   try {
     if (file && fs.existsSync(file)) {
-      return JSON.parse(fs.readFileSync(file, 'utf8'))
+      let raw = fs.readFileSync(file, 'utf8')
+      if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1)
+      return JSON.parse(raw)
     }
   } catch (e) {
     appendLog('config read failed ' + file + ' ' + e.message)
@@ -97,8 +103,9 @@ function resolveWindowBounds() {
   const wa = display.workAreaSize
   const cfgW = Number(appConfig.windowWidth) || 0
   const cfgH = Number(appConfig.windowHeight) || 0
-  const minW = 1100
-  const minH = 720
+  // 允许缩到约笔记本窗口，布局靠 CSS 同构压缩，不再靠藏侧栏
+  const minW = 960
+  const minH = 640
   // 默认约占工作区 92%/90%，贴近一体机全屏观感，又留一点边
   let width = cfgW > 0 ? cfgW : Math.round(wa.width * 0.92)
   let height = cfgH > 0 ? cfgH : Math.round(wa.height * 0.9)
@@ -120,8 +127,9 @@ function createWindow() {
     minWidth: bounds.minWidth,
     minHeight: bounds.minHeight,
     center: true,
-    fullscreen: !!appConfig.kiosk,
+    frame: false,
     autoHideMenuBar: true,
+    fullscreen: !!appConfig.kiosk,
     show: false,
     backgroundColor: '#d9dce8',
     webPreferences: {
@@ -147,7 +155,11 @@ function createWindow() {
     if (!url.startsWith('file://')) e.preventDefault()
   })
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  // 开发联调：清缓存，避免 app.js/css 旧版本导致「没有特效」
+  Promise.resolve()
+    .then(() => session.defaultSession.clearCache())
+    .catch(() => {})
+    .then(() => mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html')))
   mainWindow.once('ready-to-show', () => {
     if (!appConfig.kiosk && bounds.maximize) {
       try { mainWindow.maximize() } catch (e) { /* ignore */ }
@@ -226,6 +238,27 @@ if (!gotLock) {
   ipcMain.handle('write-log', (_e, message) => {
     appendLog(String(message || ''))
     return true
+  })
+
+  ipcMain.handle('window-minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize()
+    return true
+  })
+
+  ipcMain.handle('window-maximize-toggle', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+    return mainWindow.isMaximized()
+  })
+
+  ipcMain.handle('window-close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
+    return true
+  })
+
+  ipcMain.handle('window-is-maximized', () => {
+    return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized())
   })
 
   app.whenReady().then(() => {

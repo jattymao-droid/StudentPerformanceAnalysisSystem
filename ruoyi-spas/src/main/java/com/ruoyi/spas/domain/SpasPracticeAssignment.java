@@ -1,6 +1,7 @@
 package com.ruoyi.spas.domain;
 
 import java.util.Date;
+import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ruoyi.common.core.domain.BaseEntity;
 
@@ -17,6 +18,10 @@ public class SpasPracticeAssignment extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date assignDate;
     private Long knowledgeId;
+    /** CSV of default theme ids for checkout seed */
+    private String knowledgeIds;
+    /** Request/response helper: multi-select themes */
+    private List<Long> knowledgeIdList;
     private String bookName;
     private Integer pageFrom;
     private Integer pageTo;
@@ -39,6 +44,10 @@ public class SpasPracticeAssignment extends BaseEntity
     public void setAssignDate(Date assignDate) { this.assignDate = assignDate; }
     public Long getKnowledgeId() { return knowledgeId; }
     public void setKnowledgeId(Long knowledgeId) { this.knowledgeId = knowledgeId; }
+    public String getKnowledgeIds() { return knowledgeIds; }
+    public void setKnowledgeIds(String knowledgeIds) { this.knowledgeIds = knowledgeIds; }
+    public List<Long> getKnowledgeIdList() { return knowledgeIdList; }
+    public void setKnowledgeIdList(List<Long> knowledgeIdList) { this.knowledgeIdList = knowledgeIdList; }
     public String getBookName() { return bookName; }
     public void setBookName(String bookName) { this.bookName = bookName; }
     public Integer getPageFrom() { return pageFrom; }

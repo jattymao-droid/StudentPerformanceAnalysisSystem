@@ -5,6 +5,7 @@
   "autoLaunch": true,
   "idleMinutes": 8,
   "title": "知脉 · 每日自主练",
+  "farmFxMode": "auto",
   "windowWidth": 0,
   "windowHeight": 0,
   "maximize": null

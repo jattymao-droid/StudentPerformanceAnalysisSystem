@@ -7,7 +7,96 @@
       <el-tag v-else type="info" size="mini">未设置 PIN</el-tag>
     </div>
 
-    <el-row :gutter="12" class="mb8 points-row">
+    <el-card v-if="form.subjectId" shadow="never" class="mb8 prescription-mine" v-loading="prescriptionLoading">
+      <div slot="header" class="board-head">
+        <span>{{ minePrescription.title }}</span>
+        <el-button
+          v-if="minePrescription.status === 'ready' && minePrescription.knowledgeIds.length"
+          type="primary"
+          plain
+          size="mini"
+          @click="applyPrescriptionToForm"
+        >填入加练主题</el-button>
+      </div>
+      <p class="hint">{{ minePrescription.subtitle }}</p>
+      <p v-if="minePrescription.passRule" class="hint pass-rule">{{ minePrescription.passRule }}</p>
+      <el-alert
+        class="mb8"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="自主练为行为登记，不等于掌握度过关；过关以小题复测后正式薄弱退出为准。"
+      />
+      <el-table v-if="minePrescription.items.length" :data="minePrescription.items" size="mini" max-height="220">
+        <el-table-column label="#" width="44" align="center">
+          <template slot-scope="scope">{{ scope.$index + 1 }}</template>
+        </el-table-column>
+        <el-table-column label="本周优先" min-width="150" :show-overflow-tooltip="true">
+          <template slot-scope="scope">
+            <el-tag v-if="scope.row.suggestFirst" size="mini" type="success" effect="plain" style="margin-right:4px">建议先练</el-tag>
+            {{ scope.row.knowledgeName }}
+          </template>
+        </el-table-column>
+        <el-table-column label="先修提示" min-width="140" :show-overflow-tooltip="true">
+          <template slot-scope="scope">{{ scope.row.prereq || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="得分率" width="80" align="center" prop="rateLabel" />
+      </el-table>
+      <p v-else class="hint">{{ minePrescription.status === 'none' ? '当前无正式薄弱，可自选主题加练。' : '选择学科后加载本周要点。' }}</p>
+    </el-card>
+
+    <el-card
+      v-if="checkoutBundle.assignment || (checkoutBundle.pendingAck || []).length"
+      shadow="never"
+      class="mb8"
+      :class="{ 'ack-priority': (checkoutBundle.pendingAck || []).length }"
+    >
+      <div slot="header">
+        <span>组长线下检查（当日确认）</span>
+        <el-tag v-if="(checkoutBundle.pendingAck || []).length" type="warning" size="mini" style="margin-left:8px">
+          {{ (checkoutBundle.pendingAck || []).length }} 条待确认
+        </el-tag>
+      </div>
+      <el-alert
+        v-if="(checkoutBundle.pendingAck || []).length"
+        title="请先确认检查结果（属实可获积分）；加练与积分区已暂时收起"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb8"
+      />
+      <el-table v-if="(checkoutBundle.pendingAck || []).length" :data="checkoutBundle.pendingAck" size="mini">
+        <el-table-column prop="studentName" label="检查对象" width="90" />
+        <el-table-column label="状态" width="90">
+          <template slot-scope="scope">{{ finishLabel(scope.row.finishStatus) }}</template>
+        </el-table-column>
+        <el-table-column label="知识主题" min-width="140" :show-overflow-tooltip="true">
+          <template slot-scope="scope">{{ (scope.row.knowledgeNames || []).join('、') || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="difficultyNote" label="卡点" />
+        <el-table-column label="操作" width="200">
+          <template slot-scope="scope">
+            <el-button type="primary" size="mini" @click="ackCheck(scope.row, true)">属实</el-button>
+            <el-button type="danger" plain size="mini" @click="ackCheck(scope.row, false)">异议</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p v-else-if="checkoutBundle.myItem" class="hint">
+        今日检查状态：已记录，{{ ackLabel(checkoutBundle.myItem.memberAck) }}
+        <span v-if="(checkoutBundle.myKnowledgeNames || []).length"> · 主题 {{ (checkoutBundle.myKnowledgeNames || []).join('、') }}</span>
+      </p>
+      <p v-else-if="checkoutBundle.assignment" class="hint">
+        今日已布置（{{ checkoutBundle.assignment.subjectName || '本学科' }}）
+        <span v-if="assignHintText"> · {{ assignHintText }}</span>
+        ，等待组长座位检查后上机登记。
+      </p>
+      <p v-if="checkoutBundle.assignment && checkoutBundle.assignment.completeDefinition" class="hint">
+        已完成定义：{{ checkoutBundle.assignment.completeDefinition }}
+      </p>
+      <p v-else class="hint">等待组长在座位检查后上机登记。加练请用下方表单（不计入组达标）。</p>
+    </el-card>
+
+    <el-row v-show="!(checkoutBundle.pendingAck || []).length" :gutter="12" class="mb8 points-row">
       <el-col :xs="24" :md="10">
         <el-card shadow="never" class="points-card">
           <div class="points-head">
@@ -24,9 +113,17 @@
             color="#7c5cfc"
           />
           <div class="sub mt4">距下一级还需 {{ pointAccount.pointsToNext != null ? pointAccount.pointsToNext : '-' }}</div>
+          <div class="sub mt4">
+            植物阶段：{{ pointAccount.farmStageLabel || '萌芽' }}
+            <template v-if="pointAccount.farmStage !== 'tree' && pointAccount.pointsToNextFarmStage != null">
+              · 距下阶段 {{ pointAccount.pointsToNextFarmStage }}
+            </template>
+          </div>
+          <div v-if="farmThresholdHint" class="sub">{{ farmThresholdHint }}</div>
+          <div class="sub mt4">本周班榜：{{ weekRank ? ('第 ' + weekRank + ' 名') : '暂未上榜' }}</div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :md="14" v-if="false">
+      <el-col :xs="24" :md="14">
         <el-card shadow="never" class="points-card">
           <div slot="header" class="board-head">
             <span>本班积分榜 · {{ boardRange === 'week' ? '本周' : '累计' }}</span>
@@ -35,9 +132,13 @@
               <el-radio-button label="all">总榜</el-radio-button>
             </el-radio-group>
           </div>
-          <el-table :data="boardList" size="mini" max-height="180" empty-text="暂无上榜">
+          <el-table :data="boardList" size="mini" max-height="180" empty-text="暂无上榜" :row-class-name="boardRowClass">
             <el-table-column prop="rankNo" label="#" width="50" />
-            <el-table-column prop="studentName" label="姓名" />
+            <el-table-column label="姓名">
+              <template slot-scope="scope">
+                {{ scope.row.studentName }}{{ isBoardMe(scope.row) ? '（我）' : '' }}
+              </template>
+            </el-table-column>
             <el-table-column label="积分" width="90">
               <template slot-scope="scope">{{ boardRange === 'week' ? (scope.row.weekPoints || 0) : (scope.row.totalPoints || 0) }}</template>
             </el-table-column>
@@ -48,43 +149,23 @@
       </el-col>
     </el-row>
 
-    <el-card v-if="ledgerList.length" shadow="never" class="mb8">
+    <el-card v-show="!(checkoutBundle.pendingAck || []).length && ledgerList.length" shadow="never" class="mb8">
       <div slot="header">最近积分流水</div>
       <el-table :data="ledgerList" size="mini" max-height="200">
         <el-table-column prop="createTime" label="时间" width="160" />
         <el-table-column prop="reasonLabel" label="原因" width="100" />
         <el-table-column label="分值" width="70">
-          <template slot-scope="scope">+{{ scope.row.points }}</template>
+          <template slot-scope="scope">
+            <span :class="{ 'pts-pos': scope.row.points > 0, 'pts-neg': scope.row.points < 0 }">
+              {{ scope.row.points > 0 ? '+' : '' }}{{ scope.row.points }}
+            </span>
+          </template>
         </el-table-column>
         <el-table-column prop="remark" label="备注" :show-overflow-tooltip="true" />
       </el-table>
     </el-card>
 
-    <el-card v-if="checkoutBundle.assignment || (checkoutBundle.pendingAck || []).length" shadow="never" class="mb8">
-      <div slot="header">组长线下检查（当日确认登记）</div>
-      <p v-if="checkoutBundle.assignment" class="hint">
-        今日任务：{{ checkoutBundle.assignment.bookName }}
-        p.{{ checkoutBundle.assignment.pageFrom }}-{{ checkoutBundle.assignment.pageTo }}
-        / {{ checkoutBundle.assignment.questionText }}
-      </p>
-      <el-table v-if="(checkoutBundle.pendingAck || []).length" :data="checkoutBundle.pendingAck" size="mini">
-        <el-table-column prop="studentName" label="检查对象" width="90" />
-        <el-table-column label="状态" width="90">
-          <template slot-scope="scope">{{ finishLabel(scope.row.finishStatus) }}</template>
-        </el-table-column>
-        <el-table-column prop="difficultyNote" label="卡点" />
-        <el-table-column label="操作" width="160">
-          <template slot-scope="scope">
-            <el-button type="text" size="mini" @click="ackCheck(scope.row, true)">属实</el-button>
-            <el-button type="text" size="mini" style="color:#F56C6C" @click="ackCheck(scope.row, false)">异议</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <p v-else-if="checkoutBundle.myItem" class="hint">今日检查状态：已记录，{{ checkoutBundle.myItem.memberAck === '1' ? '已确认属实' : (checkoutBundle.myItem.memberAck === '2' ? '已提异议' : '待确认') }}</p>
-      <p v-else class="hint">等待组长在座位检查后上机登记。加练请用下方表单（不计入组达标）。</p>
-    </el-card>
-
-    <el-form :model="form" size="small" label-width="90px" style="max-width: 720px">
+    <el-form v-show="!(checkoutBundle.pendingAck || []).length" :model="form" size="small" label-width="90px" style="max-width: 720px">
       <el-form-item label="学科" required>
         <el-select v-model="form.subjectId" placeholder="选择学科" style="width: 100%" @change="onSubjectChange">
           <el-option v-for="s in subjectOptions" :key="s.subjectId" :label="s.subjectName" :value="s.subjectId" />
@@ -132,31 +213,21 @@
       <el-table-column label="状态" width="90">
         <template slot-scope="scope">{{ { '1': '已完成', '2': '部分', '3': '有困难' }[scope.row.finishStatus] }}</template>
       </el-table-column>
-      <el-table-column label="代提" width="100">
+      <el-table-column label="来源" width="110">
         <template slot-scope="scope">
-          <span v-if="scope.row.proxyFlag === '1'" class="proxy">代提·{{ confirmLabel(scope.row.confirmStatus) }}</span>
-          <span v-else>本人</span>
+          <span v-if="scope.row.proxyFlag === '1'" class="proxy">历史代提·{{ confirmLabel(scope.row.confirmStatus) }}</span>
+          <span v-else-if="scope.row.sourceType === 'checkout' || scope.row.fromCheckout === true">检查单</span>
+          <span v-else>本人加练</span>
         </template>
       </el-table-column>
     </el-table>
 
     <div v-if="groupProgress.length" class="mt16">
-      <el-divider content-position="left">本组进度</el-divider>
-      <el-tag v-for="m in groupProgress" :key="m.studentId" :type="m.submitted ? 'success' : 'info'" class="mr8">
-        {{ m.studentName }} {{ m.submitted ? '已交' : '未交' }}
+      <el-divider content-position="left">本组检查进度</el-divider>
+      <el-tag v-for="m in groupProgress" :key="m.studentId" :type="progressTagType(m)" class="mr8">
+        {{ m.studentName }} {{ progressLabel(m) }}
       </el-tag>
     </div>
-
-    <el-dialog title="帮组员登记" :visible.sync="proxyOpen" width="480px">
-      <el-alert type="warning" :closable="false" show-icon class="mb8" title="代提后需组员次日确认；驳回将作废该记录。" />
-      <el-select v-model="proxyStudentId" placeholder="选择组员" style="width: 100%">
-        <el-option v-for="m in groupProgress" :key="m.studentId" :label="m.studentName" :value="m.studentId" />
-      </el-select>
-      <div slot="footer">
-        <el-button type="primary" @click="submitProxy">代提</el-button>
-        <el-button @click="proxyOpen = false">取消</el-button>
-      </div>
-    </el-dialog>
 
     <el-dialog :title="pinSet ? '修改一体机 PIN' : '设置一体机 PIN'" :visible.sync="pinOpen" width="420px">
       <el-form size="small" label-width="90px">
@@ -179,9 +250,10 @@
 </template>
 
 <script>
-import { minePracticeToday, suggestPracticeWeak, suggestPracticeBooks, addPractice, practicePinStatus, setPracticePin, practicePointsMine, practicePointsLedger, checkoutToday, ackCheckoutItem } from '@/api/spas/practice'
+import { minePracticeToday, suggestPracticeWeak, suggestPracticeBooks, addPractice, practicePinStatus, setPracticePin, practicePointsMine, practicePointsLedger, practicePointsLeaderboard, checkoutToday, ackCheckoutItem } from '@/api/spas/practice'
 import { optionselectSubject } from '@/api/spas/subject'
 import { treeKnowledge } from '@/api/spas/knowledge'
+import { buildStudentPrescription } from '@/utils/spasAnalysisScope'
 import { parseTime } from '@/utils/ruoyi'
 
 export default {
@@ -190,23 +262,25 @@ export default {
     return {
       subjectOptions: [],
       knowledgeOptions: [],
+      prescriptionLoading: false,
+      prescriptionRows: [],
       todayLogs: [],
       groupProgress: [],
-      pendingConfirm: [],
       leader: false,
       submitting: false,
-      proxyOpen: false,
-      proxyStudentId: undefined,
       studentName: '',
       pinSet: false,
       pinOpen: false,
       pinSaving: false,
       pinForm: { pin: '', pin2: '', oldPin: '' },
       pointAccount: {},
+      farmThresholds: {},
       ledgerList: [],
       boardList: [],
       boardRange: 'week',
       myBoardRank: null,
+      myStudentId: null,
+      weekRank: null,
       checkoutBundle: {},
       form: {
         subjectId: undefined,
@@ -224,7 +298,15 @@ export default {
   computed: {
     welcome() {
       const name = this.studentName || '同学'
-      return name + '，针对薄弱知识点自主找题训练，提交书名、页码和题号。有困难请写清卡点。'
+      return name + '，主路径是组长座位检查后上机登记；本页可确认检查结果，或提交加练（不加组达标）。'
+    },
+    assignHintText() {
+      const a = this.checkoutBundle && this.checkoutBundle.assignment
+      if (!a) return ''
+      const page = a.pageFrom
+        ? ('p.' + a.pageFrom + (a.pageTo && a.pageTo !== a.pageFrom ? ('-' + a.pageTo) : ''))
+        : ''
+      return [a.bookName, page, a.questionText ? ('题 ' + a.questionText) : ''].filter(Boolean).join(' · ')
     },
     levelPct() {
       const a = this.pointAccount || {}
@@ -233,6 +315,25 @@ export default {
       const max = Number(a.levelMaxPoints || 50)
       const span = Math.max(1, max - min)
       return Math.max(0, Math.min(100, Math.round(((total - min) / span) * 100)))
+    },
+    farmThresholdHint() {
+      const t = this.farmThresholds || {}
+      const a = Number(t.seedling)
+      const b = Number(t.sapling)
+      const c = Number(t.tree)
+      if (!(a > 0 && b > a && c > b)) return ''
+      return '植物阶段按累计积分 ' + a + ' / ' + b + ' / ' + c + '（与 Lv 独立）'
+    },
+    minePrescription() {
+      if (!this.form.subjectId) {
+        return buildStudentPrescription({ empty: true })
+      }
+      return buildStudentPrescription({
+        weakRows: this.prescriptionRows,
+        limit: 5,
+        minAttempts: 3,
+        targetRate: 0.6
+      })
     }
   },
   created() {
@@ -240,6 +341,7 @@ export default {
     this.loadToday()
     this.loadPinStatus()
     this.loadPoints()
+    this.loadBoard()
   },
   methods: {
     parseTime,
@@ -247,12 +349,31 @@ export default {
       practicePointsMine().then(r => {
         const d = r.data || {}
         this.pointAccount = d.account || {}
-      }).catch(() => { this.pointAccount = {} })
+        this.farmThresholds = d.farmThresholds || {}
+        this.weekRank = d.weekRank != null ? d.weekRank : null
+        if (d.studentId != null) this.myStudentId = d.studentId
+      }).catch(() => { this.pointAccount = {}; this.farmThresholds = {}; this.weekRank = null })
       practicePointsLedger({ limit: 20 }).then(r => {
         this.ledgerList = r.data || []
       }).catch(() => { this.ledgerList = [] })
     },
     loadBoard() {
+      practicePointsLeaderboard({ range: this.boardRange, limit: 10 }).then(res => {
+        const data = res.data || {}
+        this.boardList = data.list || []
+        this.myBoardRank = data.myRank != null ? data.myRank : null
+        if (data.myStudentId != null) this.myStudentId = data.myStudentId
+        if (this.boardRange === 'week') this.weekRank = this.myBoardRank
+      }).catch(() => {
+        this.boardList = []
+        this.myBoardRank = null
+      })
+    },
+    isBoardMe(row) {
+      return this.myStudentId != null && row && Number(row.studentId) === Number(this.myStudentId)
+    },
+    boardRowClass({ row }) {
+      return this.isBoardMe(row) ? 'board-me' : ''
     },
     loadPinStatus() {
       practicePinStatus().then(r => {
@@ -280,56 +401,98 @@ export default {
         this.loadPinStatus()
       }).catch(() => { this.pinSaving = false })
     },
-    canConfirm(row) {
-      if (!row || !row.practiceDate) return false
-      const d = this.parseTime(row.practiceDate, '{y}-{m}-{d}')
-      const today = this.parseTime(new Date(), '{y}-{m}-{d}')
-      return d && today && d < today
-    },
     confirmLabel(v) {
       return ({ '0': '本人', '1': '待确认', '2': '已确认', '3': '已驳回' })[v] || ''
     },
-    doConfirm(row, accept) {
-      const tip = accept ? '确认该代提记录属实？' : '驳回后记录将作废，确定？'
-      this.$modal.confirm(tip).then(() => confirmProxyPractice(row.logId, accept)).then((res) => {
-        const awarded = res && res.awardedPoints
-        this.$modal.msgSuccess(accept ? (awarded ? ('已确认，积分 +' + awarded) : '已确认') : '已驳回')
-        this.loadToday()
-        this.loadPoints()
-      }).catch(() => {})
-    },
     loadToday() {
-      minePracticeToday({ subjectId: this.form.subjectId }).then(r => {
-        const d = r.data || {}
+      const subjectId = this.form.subjectId
+      Promise.all([
+        minePracticeToday({ subjectId }),
+        checkoutToday({ subjectId }).catch(() => ({ data: {} }))
+      ]).then(([mineRes, coRes]) => {
+        const d = (mineRes && mineRes.data) || {}
         this.todayLogs = d.logs || []
-        this.groupProgress = d.groupProgress || []
-        this.pendingConfirm = d.pendingConfirm || []
         this.leader = !!d.leader
         this.studentName = (d.student && d.student.studentName) || ''
+        this.checkoutBundle = (coRes && coRes.data) || {}
+        const members = this.checkoutBundle.members || []
+        if (members.length) {
+          this.groupProgress = members.map(m => ({
+            studentId: m.studentId,
+            studentName: m.studentName,
+            roleInGroup: m.roleInGroup,
+            finishStatus: m.finishStatus,
+            memberAck: m.memberAck,
+            submitted: !!(m.finishStatus && m.finishStatus !== '0')
+          }))
+        } else {
+          this.groupProgress = d.groupProgress || []
+        }
+      }).catch(() => {
+        this.checkoutBundle = {}
       })
-      checkoutToday({ subjectId: this.form.subjectId }).then(r => {
-        this.checkoutBundle = r.data || {}
-      }).catch(() => { this.checkoutBundle = {} })
     },
     finishLabel(v) {
       return { '1': '已完成', '2': '部分', '3': '有困难', '0': '未做', 'L': '请假', 'A': '未到/没带本' }[v] || v
     },
+    ackLabel(v) {
+      return { '1': '已确认属实', '2': '已提异议', '3': '超时未确认', '0': '待确认' }[v] || '待确认'
+    },
+    progressLabel(m) {
+      if (!m) return '未登记'
+      if (m.memberAck === '2') return '有异议'
+      if (m.memberAck === '3') return '超时未确认'
+      if (m.memberAck === '0' && m.finishStatus && !['0', 'L', 'A'].includes(m.finishStatus)) return '待确认'
+      if (m.finishStatus === '1') return m.memberAck === '1' ? '已确认' : '已完成'
+      if (m.finishStatus === '2') return m.memberAck === '1' ? '已确认·部分' : '部分'
+      if (m.finishStatus === '3') return m.memberAck === '1' ? '已确认·困难' : '有困难'
+      if (m.finishStatus === '0') return '未做'
+      if (m.finishStatus === 'L') return '请假'
+      if (m.finishStatus === 'A') return '未到'
+      if (m.submitted) return '已登记'
+      return '未登记'
+    },
+    progressTagType(m) {
+      if (!m) return 'info'
+      if (m.memberAck === '2' || m.finishStatus === '3') return 'danger'
+      if (m.memberAck === '3') return 'warning'
+      if (m.memberAck === '0' && m.finishStatus && !['0', 'L', 'A'].includes(m.finishStatus)) return 'warning'
+      if (m.finishStatus === '0' || m.finishStatus === 'L' || m.finishStatus === 'A') return 'info'
+      if (m.finishStatus === '1' || m.finishStatus === '2') return 'success'
+      if (m.submitted) return 'success'
+      return 'info'
+    },
     ackCheck(row, accept) {
-      ackCheckoutItem(row.itemId, accept).then(r => {
-        const pts = r && r.awardedPoints
-        this.$modal.msgSuccess(accept ? ('已确认属实' + (pts ? ('，积分 +' + pts) : '')) : '已提出异议')
-        this.loadToday()
-      })
+      const run = () => {
+        ackCheckoutItem(row.itemId, accept).then(r => {
+          const pts = r && r.awardedPoints
+          this.$modal.msgSuccess(accept ? ('已确认属实' + (pts ? ('，积分 +' + pts) : '')) : '已提出异议，等待老师抽检')
+          this.loadToday()
+          this.loadPoints()
+          this.loadBoard()
+        })
+      }
+      if (!accept) {
+        this.$confirm('提出异议后将进入教师抽检，确认继续？', '提出异议', { type: 'warning' })
+          .then(run)
+          .catch(() => {})
+        return
+      }
+      run()
     },
     onSubjectChange() {
       this.form.knowledgeIds = []
       this.knowledgeOptions = []
+      this.prescriptionRows = []
       this.loadToday()
       if (!this.form.subjectId) return
+      this.prescriptionLoading = true
       const weakReq = suggestPracticeWeak({ subjectId: this.form.subjectId, limit: 8 })
       const treeReq = treeKnowledge(this.form.subjectId)
       Promise.all([weakReq, treeReq]).then(([weakRes, treeRes]) => {
-        const weak = (weakRes.data || []).map(k => ({
+        const raw = weakRes.data || []
+        this.prescriptionRows = raw
+        const weak = raw.map(k => ({
           knowledgeId: k.knowledgeId,
           knowledgeName: k.knowledgeName,
           weak: true
@@ -344,7 +507,16 @@ export default {
           merged.push(k)
         })
         this.knowledgeOptions = merged.slice(0, 80)
-      })
+      }).finally(() => { this.prescriptionLoading = false })
+    },
+    applyPrescriptionToForm() {
+      const ids = (this.minePrescription.knowledgeIds || []).slice()
+      if (!ids.length) {
+        this.$modal.msgWarning('暂无正式薄弱主题可填入')
+        return
+      }
+      this.form.knowledgeIds = ids
+      this.$modal.msgSuccess('已填入本周优先 ' + ids.length + ' 个主题（自主练≠掌握度过关）')
     },
     flattenTree(nodes, out) {
       (nodes || []).forEach(n => {
@@ -384,6 +556,7 @@ export default {
         this.submitting = false
         this.loadToday()
         this.loadPoints()
+        this.loadBoard()
       }).catch(() => { this.submitting = false })
     }
   }
@@ -398,6 +571,8 @@ export default {
 .toolbar-row { display: flex; align-items: center; gap: 8px; }
 .pending-card { max-width: 900px; }
 .hint { color: #909399; font-size: 12px; }
+.pass-rule { color: #334155; background: #EEF2FF; padding: 6px 10px; border-radius: 8px; }
+.prescription-mine { border: 1px solid #E0E7FF; }
 .proxy { color: #E6A23C; }
 .points-row { max-width: 960px; }
 .points-card { margin-bottom: 8px; }
@@ -410,4 +585,18 @@ export default {
 .points-head .pts { font-size: 18px; font-weight: 800; }
 .sub { color: #909399; font-size: 12px; }
 .board-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pts-pos { color: #67c23a; font-weight: 600; }
+.pts-neg { color: #f56c6c; font-weight: 600; }
+.ack-priority {
+  border: 1px solid #f5dab1 !important;
+  background: #fffaf2;
+  box-shadow: 0 2px 10px rgba(230, 162, 60, 0.12);
+}
+.ack-priority ::v-deep .el-card__header {
+  font-weight: 700;
+  color: #b88230;
+}
+</style>
+<style>
+.board-me > td { background: #f3efff !important; font-weight: 600; }
 </style>

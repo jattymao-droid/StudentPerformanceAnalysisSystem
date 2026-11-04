@@ -1,5 +1,12 @@
 <template>
   <div class="app-container">
+    <el-alert
+      class="mb8"
+      type="info"
+      :closable="false"
+      show-icon
+      title="本页管理「分析试卷」（绑定知识点后导入小题成绩）。新卷请优先在「题库组卷」组好再发布到此处；手工新建仍可用于补录旧卷。"
+    />
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
       <el-form-item label="试卷名称" prop="paperName">
         <el-input v-model="queryParams.paperName" placeholder="请输入试卷名称" clearable @keyup.enter.native="handleQuery" />
@@ -201,6 +208,13 @@
 
       <el-divider content-position="left">小题设置</el-divider>
       <el-alert
+        title="填空/计算/实验题可用行内「添加小问」拆成 N(1)、N(2)…（首次可一次拆成多问）。各小问各自设满分与知识点；成绩导入按题号列对齐。其他题型用上方「添加小题」。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb8"
+      />
+      <el-alert
         v-if="!form.subjectId"
         title="请先选择学科，再添加小题（题型随学科加载）"
         type="info"
@@ -279,14 +293,29 @@
         empty-text="请添加小题并绑定知识点"
         :row-class-name="questionRowClass"
       >
-        <el-table-column label="题号" width="90" align="center">
+        <el-table-column label="题号" width="110" align="center">
           <template slot-scope="scope">
-            <el-input v-model="scope.row.questionNo" size="mini" placeholder="题号" :disabled="structureLocked" />
+            <el-input
+              v-model="scope.row.questionNo"
+              size="mini"
+              placeholder="题号"
+              :disabled="structureLocked"
+              :class="{ 'sub-question-no': isSubQuestionRow(scope.row) }"
+            />
+            <div v-if="isGroupHead(scope.$index)" class="group-score-tip">组满分合计 {{ groupScoreSum(scope.row.questionNo) }}</div>
           </template>
         </el-table-column>
         <el-table-column label="题型" width="130" align="center">
           <template slot-scope="scope">
-            <el-select v-model="scope.row.questionType" size="mini" clearable placeholder="题型" style="width: 100%" :disabled="structureLocked" @change="refreshLocalMetaWarnings">
+            <el-select
+              v-model="scope.row.questionType"
+              size="mini"
+              clearable
+              placeholder="题型"
+              style="width: 100%"
+              :disabled="structureLocked"
+              @change="onQuestionTypeChange(scope.$index)"
+            >
               <el-option
                 v-for="item in questionTypeOptions"
                 :key="item.typeCode"
@@ -341,8 +370,16 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="80" align="center">
+        <el-table-column label="操作" width="160" align="center">
           <template slot-scope="scope">
+            <el-button
+              v-if="canHaveParts(scope.row.questionType)"
+              type="text"
+              size="mini"
+              icon="el-icon-plus"
+              :disabled="structureLocked"
+              @click="addSubQuestion(scope.$index)"
+            >添加小问</el-button>
             <el-button type="text" size="mini" icon="el-icon-delete" :disabled="structureLocked" @click="removeQuestion(scope.$index)">删除</el-button>
           </template>
         </el-table-column>
@@ -669,8 +706,15 @@ export default {
       })
     },
     questionRowClass({ row }) {
-      if (this.focusQuestionId == null || row == null || row.questionId == null) return ''
-      return String(row.questionId) === String(this.focusQuestionId) ? 'focus-question-row' : ''
+      const classes = []
+      if (this.isSubQuestionRow(row)) {
+        classes.push('is-sub-question')
+      }
+      if (this.focusQuestionId != null && row != null && row.questionId != null
+        && String(row.questionId) === String(this.focusQuestionId)) {
+        classes.push('focus-question-row')
+      }
+      return classes.join(' ')
     },
     scrollToFocusQuestion() {
       if (this.focusQuestionId == null) return
@@ -736,6 +780,109 @@ export default {
         this.questionTypeOptions = []
       })
     },
+    parseQuestionNo(no) {
+      const raw = String(no == null ? '' : no).trim()
+      if (!raw) {
+        return { major: '', part: null }
+      }
+      const m = raw.match(/^(.+?)\s*\(\s*(\d+)\s*\)\s*$/)
+      if (m) {
+        return { major: m[1].trim(), part: Number(m[2]) }
+      }
+      return { major: raw, part: null }
+    },
+    formatPartNo(major, part) {
+      return String(major) + '(' + part + ')'
+    },
+    typeNameOf(typeCode) {
+      if (!typeCode) return ''
+      const hit = (this.questionTypeOptions || []).find(t => t && t.typeCode === typeCode)
+      return hit && hit.typeName ? String(hit.typeName) : ''
+    },
+    canHaveParts(typeCode) {
+      const code = String(typeCode || '').toLowerCase()
+      if (['fill', 'blank', 'cloze', 'calc', 'experiment'].indexOf(code) >= 0) {
+        return true
+      }
+      const name = this.typeNameOf(typeCode)
+      return /填空|计算|实验/.test(name)
+    },
+    isSubQuestionRow(row) {
+      if (!row) return false
+      return this.parseQuestionNo(row.questionNo).part != null
+    },
+    nextMajorQuestionNo() {
+      let max = 0
+      let hasNumeric = false
+      ;(this.form.questions || []).forEach(q => {
+        const parsed = this.parseQuestionNo(q && q.questionNo)
+        const n = parseInt(parsed.major, 10)
+        if (!isNaN(n)) {
+          hasNumeric = true
+          if (n > max) max = n
+        }
+      })
+      if (hasNumeric) {
+        return String(max + 1)
+      }
+      return String((this.form.questions || []).length + 1)
+    },
+    findGroupRange(major) {
+      const qs = this.form.questions || []
+      let first = -1
+      let last = -1
+      let maxPart = 0
+      let count = 0
+      qs.forEach((q, i) => {
+        const p = this.parseQuestionNo(q && q.questionNo)
+        if (p.major === major) {
+          if (first < 0) first = i
+          last = i
+          count++
+          if (p.part != null && p.part > maxPart) maxPart = p.part
+        }
+      })
+      return { first, last, maxPart, count }
+    },
+    isGroupHead(index) {
+      const qs = this.form.questions || []
+      const row = qs[index]
+      if (!row || !this.isSubQuestionRow(row)) return false
+      const major = this.parseQuestionNo(row.questionNo).major
+      const range = this.findGroupRange(major)
+      return range.count > 1 && range.first === index
+    },
+    groupScoreSum(questionNo) {
+      const major = this.parseQuestionNo(questionNo).major
+      if (!major) return '0'
+      let sum = 0
+      ;(this.form.questions || []).forEach(q => {
+        const p = this.parseQuestionNo(q && q.questionNo)
+        if (p.major === major) {
+          sum += Number(q.fullScore || 0)
+        }
+      })
+      return (Math.round(sum * 10) / 10).toString()
+    },
+    onQuestionTypeChange(index) {
+      const qs = this.form.questions || []
+      const current = qs[index]
+      if (!current) {
+        this.refreshLocalMetaWarnings()
+        return
+      }
+      const parsed = this.parseQuestionNo(current.questionNo)
+      if (parsed.part != null && parsed.major) {
+        const type = current.questionType
+        qs.forEach(q => {
+          const p = this.parseQuestionNo(q && q.questionNo)
+          if (p.major === parsed.major && p.part != null) {
+            this.$set(q, 'questionType', type)
+          }
+        })
+      }
+      this.refreshLocalMetaWarnings()
+    },
     addQuestion() {
       if (!this.form.subjectId) {
         this.$modal.msgWarning('请先选择学科')
@@ -745,7 +892,7 @@ export default {
         this.$modal.msgWarning('当前学科暂无题型，请先在学科管理中配置题型')
         return
       }
-      const nextNo = String((this.form.questions || []).length + 1)
+      const nextNo = this.nextMajorQuestionNo()
       const defaultType = this.questionTypeOptions.length ? this.questionTypeOptions[0].typeCode : undefined
       this.form.questions.push({
         questionNo: nextNo,
@@ -755,6 +902,69 @@ export default {
         bloomLevel: undefined,
         knowledgeList: []
       })
+      this.refreshLocalMetaWarnings()
+    },
+    addSubQuestion(index) {
+      if (this.structureLocked) return
+      const qs = this.form.questions || []
+      const current = qs[index]
+      if (!current) return
+      if (!this.canHaveParts(current.questionType)) {
+        this.$modal.msgWarning('仅填空/计算/实验题可添加小问')
+        return
+      }
+      const parsed = this.parseQuestionNo(current.questionNo)
+      if (parsed.part == null) {
+        this.$prompt('请输入要拆成的小问数量（含本题，2～20）', '添加小问', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          inputValue: '2',
+          inputPattern: /^([2-9]|1[0-9]|20)$/,
+          inputErrorMessage: '请输入 2～20 的整数'
+        }).then(({ value }) => {
+          this.splitIntoParts(index, parseInt(value, 10))
+        }).catch(() => {})
+        return
+      }
+      this.appendOnePart(index)
+    },
+    makePartRow(major, partNo, template) {
+      return {
+        questionNo: this.formatPartNo(major, partNo),
+        questionType: template.questionType,
+        fullScore: 0,
+        difficulty: template.difficulty || '2',
+        bloomLevel: template.bloomLevel,
+        knowledgeList: []
+      }
+    },
+    splitIntoParts(index, totalParts) {
+      const qs = this.form.questions || []
+      const current = qs[index]
+      if (!current) return
+      let major = this.parseQuestionNo(current.questionNo).major
+      if (!major) {
+        major = this.nextMajorQuestionNo()
+      }
+      const n = Math.max(2, Math.min(20, totalParts || 2))
+      this.$set(current, 'questionNo', this.formatPartNo(major, 1))
+      const rows = []
+      for (let p = 2; p <= n; p++) {
+        rows.push(this.makePartRow(major, p, current))
+      }
+      qs.splice(index + 1, 0, ...rows)
+      this.refreshLocalMetaWarnings()
+    },
+    appendOnePart(index) {
+      const qs = this.form.questions || []
+      const current = qs[index]
+      if (!current) return
+      const major = this.parseQuestionNo(current.questionNo).major
+      if (!major) return
+      const range = this.findGroupRange(major)
+      const nextPart = (range.maxPart || 0) + 1
+      const insertAt = range.last >= 0 ? range.last + 1 : index + 1
+      qs.splice(insertAt, 0, this.makePartRow(major, nextPart, current))
       this.refreshLocalMetaWarnings()
     },
     removeQuestion(index) {
@@ -1004,29 +1214,43 @@ export default {
         this.$modal.msgError('请至少添加一道小题')
         return false
       }
+      const seen = {}
+      let zeroScoreParts = 0
       for (let i = 0; i < this.form.questions.length; i++) {
         const q = this.form.questions[i]
         if (!q.questionNo) {
           this.$modal.msgError('第 ' + (i + 1) + ' 题题号不能为空')
           return false
         }
-        if (q.fullScore == null || q.fullScore < 0) {
-          this.$modal.msgError('第 ' + (i + 1) + ' 题满分无效')
+        const noKey = String(q.questionNo).trim()
+        if (seen[noKey] != null) {
+          this.$modal.msgError('题号重复：' + noKey + '（第 ' + (seen[noKey] + 1) + ' 与第 ' + (i + 1) + ' 题）')
           return false
         }
+        seen[noKey] = i
+        if (q.fullScore == null || q.fullScore < 0) {
+          this.$modal.msgError('题号 ' + noKey + ' 满分无效')
+          return false
+        }
+        if (this.isSubQuestionRow(q) && Number(q.fullScore) === 0) {
+          zeroScoreParts++
+        }
         if (!q.knowledgeList || !q.knowledgeList.length) {
-          this.$modal.msgError('第 ' + (i + 1) + ' 题请选择知识点')
+          this.$modal.msgError('题号 ' + noKey + ' 请选择知识点')
           return false
         }
         if (!q.questionType && this.questionTypeOptions && this.questionTypeOptions.length) {
-          this.$modal.msgError('第 ' + (i + 1) + ' 题请选择题型')
+          this.$modal.msgError('题号 ' + noKey + ' 请选择题型')
           return false
         }
         const sum = q.knowledgeList.reduce((s, k) => s + Number(k.weight || 0), 0)
         if (Math.abs(sum - 1) > 0.0001) {
-          this.$modal.msgError('第 ' + (i + 1) + ' 题知识点权重之和必须为 1')
+          this.$modal.msgError('题号 ' + noKey + ' 知识点权重之和必须为 1')
           return false
         }
+      }
+      if (zeroScoreParts > 0) {
+        this.$modal.msgWarning('有 ' + zeroScoreParts + ' 个小问满分为 0，请确认是否已设置各空分值')
       }
       return true
     },
@@ -1142,5 +1366,18 @@ export default {
 }
 ::v-deep .focus-question-row:hover > td {
   background: #FDE68A !important;
+}
+::v-deep .is-sub-question > td:first-child {
+  box-shadow: inset 3px 0 0 #409EFF;
+}
+.sub-question-no {
+  margin-left: 12px;
+  width: calc(100% - 12px);
+}
+.group-score-tip {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #909399;
+  line-height: 1.2;
 }
 </style>

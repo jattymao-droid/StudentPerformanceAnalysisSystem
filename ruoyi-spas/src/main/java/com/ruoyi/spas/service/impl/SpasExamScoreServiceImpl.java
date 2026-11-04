@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -20,11 +21,14 @@ import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.xssf.usermodel.XSSFRow;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.annotation.DataScope;
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUtils;
@@ -37,6 +41,7 @@ import com.ruoyi.spas.mapper.SpasExamScoreMapper;
 import com.ruoyi.spas.mapper.SpasPaperMapper;
 import com.ruoyi.spas.mapper.SpasStudentMapper;
 import com.ruoyi.spas.service.ISpasExamScoreService;
+import com.ruoyi.spas.service.ISpasStudentPointService;
 import com.ruoyi.spas.support.ExamStudentResolver;
 import com.ruoyi.spas.support.SpasAccessService;
 import com.ruoyi.spas.support.SpasTeacherScopeService;
@@ -49,11 +54,15 @@ import com.ruoyi.spas.warning.WarningEngine;
 @Service
 public class SpasExamScoreServiceImpl implements ISpasExamScoreService
 {
+    private static final Logger log = LoggerFactory.getLogger(SpasExamScoreServiceImpl.class);
+
     private static final String SUFFIX_SCORE = "\u5f97\u5206";
     private static final String SUFFIX_RANK = "\u6821\u6b21";
     private static final String COL_NO = "\u5b66\u53f7";
     private static final String COL_NAME = "\u59d3\u540d";
     private static final String TOTAL_LABEL = "\u603b\u5206";
+    private static final String IMPORT_LOCK_PREFIX = "spas:examScore:import:";
+    private static final int IMPORT_LOCK_MINUTES = 15;
 
     /** Fixed template subjects. Import accepts any score/rank column pairs from Excel. */
     private static final List<String> TEMPLATE_SUBJECTS = Collections.unmodifiableList(Arrays.asList(
@@ -82,6 +91,12 @@ public class SpasExamScoreServiceImpl implements ISpasExamScoreService
 
     @Autowired
     private WarningEngine warningEngine;
+
+    @Autowired
+    private ISpasStudentPointService studentPointService;
+
+    @Autowired
+    private RedisCache redisCache;
 
     @Override
     public List<SpasExam> selectSpasExamList(SpasExam exam)
@@ -256,42 +271,30 @@ public class SpasExamScoreServiceImpl implements ISpasExamScoreService
         }
 
         String nameTrim = examName.trim();
-        SpasExam existing = examScoreMapper.selectSpasExamByDeptAndName(deptId, nameTrim);
-        SpasExam exam;
-        if (existing != null)
+        String lockKey = IMPORT_LOCK_PREFIX + deptId + ":" + nameTrim;
+        Boolean locked = redisCache.redisTemplate.opsForValue().setIfAbsent(
+            lockKey, operName != null ? operName : "import", IMPORT_LOCK_MINUTES, TimeUnit.MINUTES);
+        if (!Boolean.TRUE.equals(locked))
         {
-            if (!overwrite)
-            {
-                throw new ServiceException("\u540c\u73ed\u5df2\u5b58\u5728\u540c\u540d\u8003\u8bd5\uff0c\u8bf7\u52fe\u9009\u8986\u76d6\u6216\u66f4\u6362\u540d\u79f0");
-            }
-            exam = existing;
-            examScoreMapper.deleteSpasExamScoreByExamId(exam.getExamId());
-            exam.setExamDate(examDate);
-            exam.setPaperId(paperId);
-            exam.setFileName(file.getOriginalFilename());
-            exam.setStatus(SpasExam.STATUS_PROCESSING);
-            exam.setTotalRows(0);
-            exam.setSuccessRows(0);
-            exam.setFailRows(0);
-            exam.setErrorLog("");
-            exam.setUpdateBy(operName);
-            exam.setRemark("overwrite");
-            examScoreMapper.updateSpasExam(exam);
+            throw new ServiceException("\u8be5\u73ed\u540c\u540d\u8003\u8bd5\u6b63\u5728\u5bfc\u5165\u4e2d\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5");
         }
-        else
+        try
         {
-            exam = new SpasExam();
-            exam.setExamName(nameTrim);
-            exam.setExamDate(examDate);
-            exam.setDeptId(deptId);
-            exam.setPaperId(paperId);
-            exam.setFileName(file.getOriginalFilename());
-            exam.setStatus(SpasExam.STATUS_PROCESSING);
-            exam.setTotalRows(0);
-            exam.setSuccessRows(0);
-            exam.setFailRows(0);
-            exam.setCreateBy(operName);
-            examScoreMapper.insertSpasExam(exam);
+            return doImportExamScores(nameTrim, examDate, deptId, paperId, file, overwrite, operName);
+        }
+        finally
+        {
+            redisCache.deleteObject(lockKey);
+        }
+    }
+
+    private SpasExam doImportExamScores(String nameTrim, Date examDate, Long deptId, Long paperId, MultipartFile file,
+        boolean overwrite, String operName) throws Exception
+    {
+        SpasExam existing = examScoreMapper.selectSpasExamByDeptAndName(deptId, nameTrim);
+        if (existing != null && !overwrite)
+        {
+            throw new ServiceException("\u540c\u73ed\u5df2\u5b58\u5728\u540c\u540d\u8003\u8bd5\uff0c\u8bf7\u52fe\u9009\u8986\u76d6\u6216\u66f4\u6362\u540d\u79f0");
         }
 
         Map<String, List<SpasStudent>> nameIndex = buildNameIndex(deptId);
@@ -301,8 +304,10 @@ public class SpasExamScoreServiceImpl implements ISpasExamScoreService
         int total = 0;
         int success = 0;
         int fail = 0;
+        SpasExam exam = null;
 
         DataFormatter formatter = new DataFormatter();
+        // 先打开并校验表头，再删旧数据，避免覆盖失败导致空库
         try (Workbook workbook = WorkbookFactory.create(file.getInputStream()))
         {
             Sheet sheet = workbook.getSheetAt(0);
@@ -311,6 +316,47 @@ public class SpasExamScoreServiceImpl implements ISpasExamScoreService
                 throw new ServiceException("Excel\u4e3a\u7a7a");
             }
             HeaderLayout layout = parseHeader(sheet.getRow(0), formatter);
+            if (layout.studentNoCol < 0 && layout.nameCol < 0)
+            {
+                throw new ServiceException("\u8868\u5934\u987b\u542b\u300c\u5b66\u53f7\u300d\u6216\u300c\u59d3\u540d\u300d");
+            }
+            if ((layout.subjects == null || layout.subjects.isEmpty())
+                && layout.totalScoreCol < 0 && layout.totalRankCol < 0)
+            {
+                throw new ServiceException("\u8868\u5934\u672a\u8bc6\u522b\u5230\u79d1\u76ee\u5f97\u5206/\u6821\u6b21\u6216\u603b\u5206\u5217");
+            }
+
+            if (existing != null)
+            {
+                exam = existing;
+                examScoreMapper.deleteSpasExamScoreByExamId(exam.getExamId());
+                exam.setExamDate(examDate);
+                exam.setPaperId(paperId);
+                exam.setFileName(file.getOriginalFilename());
+                exam.setStatus(SpasExam.STATUS_PROCESSING);
+                exam.setTotalRows(0);
+                exam.setSuccessRows(0);
+                exam.setFailRows(0);
+                exam.setErrorLog("");
+                exam.setUpdateBy(operName);
+                exam.setRemark("overwrite");
+                examScoreMapper.updateSpasExam(exam);
+            }
+            else
+            {
+                exam = new SpasExam();
+                exam.setExamName(nameTrim);
+                exam.setExamDate(examDate);
+                exam.setDeptId(deptId);
+                exam.setPaperId(paperId);
+                exam.setFileName(file.getOriginalFilename());
+                exam.setStatus(SpasExam.STATUS_PROCESSING);
+                exam.setTotalRows(0);
+                exam.setSuccessRows(0);
+                exam.setFailRows(0);
+                exam.setCreateBy(operName);
+                examScoreMapper.insertSpasExam(exam);
+            }
 
             int last = sheet.getLastRowNum();
             for (int r = 1; r <= last; r++)
@@ -383,16 +429,23 @@ public class SpasExamScoreServiceImpl implements ISpasExamScoreService
         }
         catch (ServiceException e)
         {
-            exam.setStatus(SpasExam.STATUS_FAILED);
-            exam.setErrorLog(e.getMessage());
-            exam.setTotalRows(total);
-            exam.setSuccessRows(success);
-            exam.setFailRows(fail);
-            exam.setUpdateBy(operName);
-            examScoreMapper.updateSpasExam(exam);
+            if (exam != null)
+            {
+                exam.setStatus(SpasExam.STATUS_FAILED);
+                exam.setErrorLog(e.getMessage());
+                exam.setTotalRows(total);
+                exam.setSuccessRows(success);
+                exam.setFailRows(fail);
+                exam.setUpdateBy(operName);
+                examScoreMapper.updateSpasExam(exam);
+            }
             throw e;
         }
 
+        if (exam == null)
+        {
+            throw new ServiceException("Excel\u6821\u9a8c\u5931\u8d25\uff0c\u672a\u5199\u5165\u6570\u636e");
+        }
         exam.setTotalRows(total);
         exam.setSuccessRows(success);
         exam.setFailRows(fail);
@@ -409,6 +462,17 @@ public class SpasExamScoreServiceImpl implements ISpasExamScoreService
             catch (Exception ex)
             {
                 appendError(errors, 0, "校次预警评估失败: " + ex.getMessage());
+                exam.setErrorLog(errors.length() == 0 ? null : errors.toString());
+                examScoreMapper.updateSpasExam(exam);
+            }
+            try
+            {
+                // 按本班名次赋分：第1名=参赛人数分，名次越低分越少；覆盖重导自动冲销旧分
+                studentPointService.syncExamClassRankPoints(exam.getExamId());
+            }
+            catch (Exception ex)
+            {
+                appendError(errors, 0, "班级名次积分发放失败: " + ex.getMessage());
                 exam.setErrorLog(errors.length() == 0 ? null : errors.toString());
                 examScoreMapper.updateSpasExam(exam);
             }
@@ -522,6 +586,18 @@ public class SpasExamScoreServiceImpl implements ISpasExamScoreService
             }
         }
         accessService.assertCanWrite();
+        for (Long id : examIds)
+        {
+            try
+            {
+                studentPointService.clearExamClassRankPoints(id);
+            }
+            catch (Exception ex)
+            {
+                // 冲销失败不阻断删除（避免事务回滚把考试删掉又还原），但必须可观测便于对账
+                log.error("删除考试时冲销班级名次积分失败，请人工核对流水 examId={}", id, ex);
+            }
+        }
         examScoreMapper.deleteSpasExamScoreByExamIds(examIds);
         return examScoreMapper.deleteSpasExamByIds(examIds);
     }

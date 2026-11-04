@@ -3,6 +3,7 @@ package com.ruoyi.spas.analysis;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -12,9 +13,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.spas.config.SpasAnalysisTuningProperties;
 import com.ruoyi.spas.domain.SpasAnalysisScoreRow;
 import com.ruoyi.spas.domain.SpasKnowledge;
@@ -52,6 +55,13 @@ public class KnowledgeStatQueryService
     @Autowired(required = false)
     private SpasAnalysisTuningProperties tuningProperties;
 
+    @Autowired(required = false)
+    private RedisCache redisCache;
+
+    /** Class-scope score rows Redis TTL (seconds). Shared across parallel analysis APIs. */
+    @Value("${spas.analysis.class-rows-cache-seconds:120}")
+    private int classRowsCacheSeconds;
+
     @Value("${spas.analysis.persistent-weak.min-papers:3}")
     private int persistMinPapers;
 
@@ -85,13 +95,157 @@ public class KnowledgeStatQueryService
     }
 
     /**
+     * Load score rows with request-scope reuse; class-wide scopes also hit a short Redis TTL.
+     */
+    @SuppressWarnings("unchecked")
+    private List<SpasAnalysisScoreRow> loadScoreRows(Long studentId, Long subjectId, Date examDateFrom,
+        List<Long> paperIds, Long deptId, Long knowledgeId)
+    {
+        String key = AnalysisQueryRequestCache.scoreKey(studentId, subjectId, examDateFrom, paperIds, deptId,
+            knowledgeId);
+        List<SpasAnalysisScoreRow> cached = AnalysisQueryRequestCache.getScoreRows(key);
+        if (cached != null)
+        {
+            return cached;
+        }
+        boolean classScope = studentId == null && deptId != null && knowledgeId == null;
+        String redisKey = classScope ? ("spas:an:classrows:" + key) : null;
+        if (redisKey != null && redisCache != null && classRowsCacheSeconds > 0)
+        {
+            try
+            {
+                List<SpasAnalysisScoreRow> fromRedis = redisCache.getCacheObject(redisKey);
+                if (fromRedis != null)
+                {
+                    AnalysisQueryRequestCache.putScoreRows(key, fromRedis);
+                    return fromRedis;
+                }
+            }
+            catch (Exception ignored)
+            {
+            }
+        }
+        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(studentId, subjectId, examDateFrom,
+            paperIds, deptId, knowledgeId);
+        if (rows == null)
+        {
+            rows = Collections.emptyList();
+        }
+        AnalysisQueryRequestCache.putScoreRows(key, rows);
+        if (redisKey != null && redisCache != null && classRowsCacheSeconds > 0)
+        {
+            try
+            {
+                redisCache.setCacheObject(redisKey, rows, Integer.valueOf(classRowsCacheSeconds), TimeUnit.SECONDS);
+            }
+            catch (Exception ignored)
+            {
+            }
+        }
+        return rows;
+    }
+
+    private SpasStudent loadStudent(Long studentId)
+    {
+        if (studentId == null)
+        {
+            return null;
+        }
+        SpasStudent cached = AnalysisQueryRequestCache.getStudent(studentId);
+        if (cached != null)
+        {
+            return cached;
+        }
+        SpasStudent student = studentMapper.selectSpasStudentById(studentId);
+        AnalysisQueryRequestCache.putStudent(studentId, student);
+        return student;
+    }
+
+    /** One round-trip for many students; fills request cache. */
+    private Map<Long, SpasStudent> loadStudentsByIds(Collection<Long> studentIds)
+    {
+        Map<Long, SpasStudent> out = new HashMap<Long, SpasStudent>();
+        if (studentIds == null || studentIds.isEmpty())
+        {
+            return out;
+        }
+        List<Long> missing = new ArrayList<Long>();
+        for (Long id : studentIds)
+        {
+            if (id == null)
+            {
+                continue;
+            }
+            SpasStudent cached = AnalysisQueryRequestCache.getStudent(id);
+            if (cached != null)
+            {
+                out.put(id, cached);
+            }
+            else
+            {
+                missing.add(id);
+            }
+        }
+        if (!missing.isEmpty())
+        {
+            List<SpasStudent> loaded = studentMapper.selectSpasStudentByIds(missing);
+            if (loaded != null)
+            {
+                for (SpasStudent st : loaded)
+                {
+                    if (st == null || st.getStudentId() == null)
+                    {
+                        continue;
+                    }
+                    AnalysisQueryRequestCache.putStudent(st.getStudentId(), st);
+                    out.put(st.getStudentId(), st);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Drop class-scope score-row Redis entries after score import / recalc. */
+    public void invalidateClassRowsCache()
+    {
+        if (redisCache == null)
+        {
+            return;
+        }
+        try
+        {
+            Collection<String> keys = redisCache.keys("spas:an:classrows:*");
+            if (keys != null && !keys.isEmpty())
+            {
+                redisCache.deleteObject(keys);
+            }
+        }
+        catch (Exception ignored)
+        {
+        }
+    }
+
+    private static List<Map<String, Object>> copyRadarRows(List<Map<String, Object>> src)
+    {
+        if (src == null || src.isEmpty())
+        {
+            return new ArrayList<Map<String, Object>>();
+        }
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>(src.size());
+        for (Map<String, Object> row : src)
+        {
+            out.add(row == null ? null : new HashMap<String, Object>(row));
+        }
+        return out;
+    }
+
+    /**
      * Aggregate student knowledge stats for a scope. Empty paperIds + null from = full history (not written).
      */
     public List<SpasStudentKnowledgeStat> computeStudentStats(Long studentId, Long subjectId, Date examDateFrom,
         List<Long> paperIds)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(studentId, subjectId, examDateFrom,
-            paperIds, null, null);
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(studentId, subjectId, examDateFrom, paperIds, null, null);
         Map<Long, KnowledgeStatCalculator.AggView> map = calculator.aggregateViews(rows);
         List<SpasStudentKnowledgeStat> list = new ArrayList<SpasStudentKnowledgeStat>();
         for (KnowledgeStatCalculator.AggView agg : map.values())
@@ -104,7 +258,13 @@ public class KnowledgeStatQueryService
     public List<Map<String, Object>> studentRadar(Long studentId, Long subjectId, Date examDateFrom,
         List<Long> paperIds)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(studentId, subjectId, examDateFrom,
+        String cacheKey = AnalysisQueryRequestCache.radarKey(studentId, subjectId, examDateFrom, paperIds);
+        List<Map<String, Object>> cached = AnalysisQueryRequestCache.getRadar(cacheKey);
+        if (cached != null)
+        {
+            return copyRadarRows(cached);
+        }
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(studentId, subjectId, examDateFrom,
             paperIds, null, null);
         Map<Long, KnowledgeStatCalculator.AggView> map = calculator.aggregateViews(rows);
         List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
@@ -125,6 +285,7 @@ public class KnowledgeStatQueryService
         }
         attachClassKnowledgeAvg(list, studentId, subjectId, examDateFrom, paperIds);
         list.sort(Comparator.comparing(m -> String.valueOf(m.get("name") == null ? "" : m.get("name"))));
+        AnalysisQueryRequestCache.putRadar(cacheKey, copyRadarRows(list));
         return list;
     }
 
@@ -136,12 +297,17 @@ public class KnowledgeStatQueryService
         {
             return;
         }
-        SpasStudent student = studentMapper.selectSpasStudentById(studentId);
+        // All-subjects radar ? whole-class is too heavy for first paint; skip class overlay.
+        if (subjectId == null)
+        {
+            return;
+        }
+        SpasStudent student = loadStudent(studentId);
         if (student == null || student.getDeptId() == null)
         {
             return;
         }
-        List<SpasAnalysisScoreRow> classRows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> classRows = loadScoreRows(null, subjectId, examDateFrom,
             paperIds, student.getDeptId(), null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = groupRowsByStudent(classRows);
         Map<Long, List<Double>> ratesByKid = new HashMap<Long, List<Double>>();
@@ -300,11 +466,18 @@ public class KnowledgeStatQueryService
     public List<Map<String, Object>> studentWeakTop(Long studentId, Long subjectId, int limit, Date examDateFrom,
         List<Long> paperIds)
     {
-        List<Map<String, Object>> radar = studentRadar(studentId, subjectId, examDateFrom, paperIds);
+        return weakTopFromRadar(studentRadar(studentId, subjectId, examDateFrom, paperIds), limit);
+    }
+
+    /** Derive weak-top from an already-built radar (avoids a second live aggregation). */
+    public List<Map<String, Object>> weakTopFromRadar(List<Map<String, Object>> radar, int limit)
+    {
+        int top = limit <= 0 ? 10 : limit;
         List<Map<String, Object>> formal = new ArrayList<Map<String, Object>>();
         List<Map<String, Object>> lowEvidence = new ArrayList<Map<String, Object>>();
-        for (Map<String, Object> row : radar)
+        for (Map<String, Object> src : radar == null ? Collections.<Map<String, Object>>emptyList() : radar)
         {
+            Map<String, Object> row = src == null ? null : new HashMap<String, Object>(src);
             annotateEvidence(row);
             if (Boolean.TRUE.equals(row.get("formalWeak")))
             {
@@ -313,7 +486,6 @@ public class KnowledgeStatQueryService
             else if (Boolean.FALSE.equals(row.get("evidenceOk"))
                 && calculator.belowWeakRate(toDecimalOrNull(row.get("rate"))))
             {
-                // 样本不足仅作「证据不足」候选，不定正式薄弱
                 lowEvidence.add(row);
             }
         }
@@ -333,17 +505,83 @@ public class KnowledgeStatQueryService
         out.addAll(formal);
         for (Map<String, Object> row : lowEvidence)
         {
-            if (out.size() >= limit)
+            if (out.size() >= top)
             {
                 break;
             }
             out.add(row);
         }
-        if (out.size() > limit)
+        if (out.size() > top)
         {
-            return new ArrayList<Map<String, Object>>(out.subList(0, limit));
+            return new ArrayList<Map<String, Object>>(out.subList(0, top));
         }
         return out;
+    }
+
+    /**
+     * Per-subject KPI without class comparison (used by all-subjects breakdown).
+     * Avoids N? class-wide score scans that dominate student-analysis latency.
+     */
+    public Map<String, Object> studentSummarySelfOnly(Long studentId, Long subjectId, Date examDateFrom,
+        List<Long> paperIds)
+    {
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(studentId, subjectId, examDateFrom, paperIds, null, null);
+        Map<Long, KnowledgeStatCalculator.AggView> map = calculator.aggregateViews(rows);
+        List<SpasStudentKnowledgeStat> stats = new ArrayList<SpasStudentKnowledgeStat>();
+        if (map != null)
+        {
+            for (KnowledgeStatCalculator.AggView agg : map.values())
+            {
+                stats.add(calculator.toStatView(agg));
+            }
+        }
+        Map<String, Object> summary = new HashMap<String, Object>();
+        int knowledgeCount = stats.size();
+        Set<Long> questionIds = new HashSet<Long>();
+        if (rows != null)
+        {
+            for (SpasAnalysisScoreRow row : rows)
+            {
+                if (row.getQuestionId() != null)
+                {
+                    questionIds.add(row.getQuestionId());
+                }
+            }
+        }
+        int totalAttempts = questionIds.size();
+        int weakCount = 0;
+        int severeCount = 0;
+        int watchCount = 0;
+        int lowRateCount = 0;
+        for (SpasStudentKnowledgeStat s : stats)
+        {
+            if ("3".equals(s.getWeakLevel()))
+            {
+                severeCount++;
+            }
+            else if ("2".equals(s.getWeakLevel()))
+            {
+                weakCount++;
+            }
+            else if ("1".equals(s.getWeakLevel()))
+            {
+                watchCount++;
+            }
+            if (calculator.belowWeakRate(s.getWeightedRate()))
+            {
+                lowRateCount++;
+            }
+        }
+        summary.put("knowledgeCount", Integer.valueOf(knowledgeCount));
+        summary.put("totalAttempts", Integer.valueOf(totalAttempts));
+        summary.put("weakCount", Integer.valueOf(weakCount));
+        summary.put("severeCount", Integer.valueOf(severeCount));
+        summary.put("watchCount", Integer.valueOf(watchCount));
+        summary.put("lowRateCount", Integer.valueOf(lowRateCount));
+        BigDecimal avg = attemptWeightedOverall(stats);
+        summary.put("avgRate", avg);
+        summary.put("overallRate", avg);
+        return summary;
     }
 
     /** Mark formalWeak / evidenceOk on a radar/weak row. */
@@ -379,7 +617,7 @@ public class KnowledgeStatQueryService
 
     public Map<String, Object> studentSummary(Long studentId, Long subjectId, Date examDateFrom, List<Long> paperIds)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(studentId, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(studentId, subjectId, examDateFrom,
             paperIds, null, null);
         Map<Long, KnowledgeStatCalculator.AggView> map = calculator.aggregateViews(rows);
         List<SpasStudentKnowledgeStat> stats = new ArrayList<SpasStudentKnowledgeStat>();
@@ -452,6 +690,7 @@ public class KnowledgeStatQueryService
         summary.put("lowRateCount", lowRateCount);
         summary.put("lowSevereCount", lowSevereCount);
         summary.put("thinSampleCount", thinSampleCount);
+        summary.put("blankZeroCount", Integer.valueOf(countBlankZeroDetails(rows)));
         summary.put("lastExamDate", lastExam);
         BigDecimal avg = attemptWeightedOverall(stats);
         summary.put("avgRate", avg);
@@ -472,12 +711,17 @@ public class KnowledgeStatQueryService
         {
             return;
         }
-        SpasStudent student = studentMapper.selectSpasStudentById(studentId);
+        // Ranking against whole class across all subjects is rarely useful and very expensive.
+        if (subjectId == null)
+        {
+            return;
+        }
+        SpasStudent student = loadStudent(studentId);
         if (student == null || student.getDeptId() == null)
         {
             return;
         }
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom,
             paperIds, student.getDeptId(), null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = groupRowsByStudent(rows);
         List<Map<String, Object>> peers = new ArrayList<Map<String, Object>>();
@@ -527,7 +771,7 @@ public class KnowledgeStatQueryService
         }
         if (!summary.containsKey("rankNo") && myRate != null)
         {
-            // Student may have rate but no rows under dept filter edge cases — place by rate
+            // Student may have rate but no rows under dept filter edge cases ??place by rate
             int insertRank = 1;
             for (Map<String, Object> peer : peers)
             {
@@ -568,7 +812,7 @@ public class KnowledgeStatQueryService
     public List<Map<String, Object>> classWeakTop(Long deptId, Long subjectId, int limit, Date examDateFrom,
         List<Long> paperIds)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom,
             paperIds, deptId, null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = new HashMap<Long, List<SpasAnalysisScoreRow>>();
         for (SpasAnalysisScoreRow row : rows)
@@ -692,7 +936,7 @@ public class KnowledgeStatQueryService
     public List<Map<String, Object>> knowledgeExamTrend(Long studentId, Long knowledgeId, Long subjectId,
         List<Long> paperIds, Date examDateFrom)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(studentId, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(studentId, subjectId, examDateFrom,
             paperIds, null, knowledgeId);
         Map<String, List<SpasAnalysisScoreRow>> groups = new LinkedHashMap<String, List<SpasAnalysisScoreRow>>();
         for (SpasAnalysisScoreRow row : rows)
@@ -867,8 +1111,8 @@ public class KnowledgeStatQueryService
     }
 
     /**
-     * Count students tagged 反复薄弱 per knowledge using already-loaded score rows
-     * (avoids N× knowledgeExamTrend DB round-trips inside classOverview).
+     * Count students tagged ???? per knowledge using already-loaded score rows
+     * (avoids N? knowledgeExamTrend DB round-trips inside classOverview).
      */
     private Map<Long, Integer> countPersistentWeakByKnowledge(Map<Long, List<SpasAnalysisScoreRow>> byStudent,
         Long subjectId)
@@ -949,7 +1193,7 @@ public class KnowledgeStatQueryService
     public Map<String, Object> classHeatmap(Long deptId, Long subjectId, Date examDateFrom, List<Long> paperIds)
     {
         List<Map<String, Object>> students = analysisMapper.selectClassHeatmapStudents(deptId);
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom,
             paperIds, deptId, null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = new HashMap<Long, List<SpasAnalysisScoreRow>>();
         for (SpasAnalysisScoreRow row : rows)
@@ -1026,7 +1270,7 @@ public class KnowledgeStatQueryService
      */
     public Map<String, Object> classOverview(Long deptId, Long subjectId, Date examDateFrom, List<Long> paperIds)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom,
             paperIds, deptId, null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = groupRowsByStudent(rows);
         Map<Long, List<Double>> kpRates = new HashMap<Long, List<Double>>();
@@ -1154,13 +1398,17 @@ public class KnowledgeStatQueryService
             rank.put("lowSevereCount", lowSevereCount);
             rank.put("thinSampleCount", thinSampleCount);
             rank.put("totalAttempts", totalAttempts);
-            SpasStudent st = studentMapper.selectSpasStudentById(e.getKey());
+            ranking.add(rank);
+        }
+        Map<Long, SpasStudent> studentIndex = loadStudentsByIds(byStudent.keySet());
+        for (Map<String, Object> rank : ranking)
+        {
+            SpasStudent st = studentIndex.get(toLong(rank.get("studentId")));
             if (st != null)
             {
                 rank.put("studentNo", st.getStudentNo());
                 rank.put("studentName", st.getStudentName());
             }
-            ranking.add(rank);
         }
         ranking.sort((a, b) -> Double.compare(toDouble(b.get("overallRate")), toDouble(a.get("overallRate"))));
         int classSize = ranking.size();
@@ -1184,7 +1432,7 @@ public class KnowledgeStatQueryService
                     .setScale(1, RoundingMode.HALF_UP));
             }
         }
-        // UI ranks weak→strong; keep desc rates for percentile, reverse for display list
+        // UI ranks weak?strong; keep desc rates for percentile, reverse for display list
         List<Map<String, Object>> rankingAsc = new ArrayList<Map<String, Object>>(ranking);
         rankingAsc.sort((a, b) -> Double.compare(toDouble(a.get("overallRate")), toDouble(b.get("overallRate"))));
 
@@ -1235,8 +1483,28 @@ public class KnowledgeStatQueryService
         result.put("knowledgeCount", weakKnowledgeCount);
         result.put("knowledges", knowledges);
         result.put("studentRanking", rankingAsc);
+        result.put("blankZeroCount", Integer.valueOf(countBlankZeroDetails(rows)));
         result.put("dataMode", paperIds != null && !paperIds.isEmpty() ? "papers" : "live");
         return result;
+    }
+
+    /** Distinct student+question(+paper) rows with score_source=????. */
+    private int countBlankZeroDetails(List<SpasAnalysisScoreRow> rows)
+    {
+        if (rows == null || rows.isEmpty())
+        {
+            return 0;
+        }
+        Set<String> keys = new HashSet<String>();
+        for (SpasAnalysisScoreRow row : rows)
+        {
+            if (row == null || !"3".equals(row.getScoreSource()))
+            {
+                continue;
+            }
+            keys.add(String.valueOf(row.getStudentId()) + ':' + row.getQuestionId() + ':' + row.getPaperId());
+        }
+        return keys.size();
     }
 
     /**
@@ -1282,7 +1550,7 @@ public class KnowledgeStatQueryService
             }
         }
 
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom,
             paperIds, deptId, null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = groupRowsByStudent(rows);
         // chapterId -> student chapter rates
@@ -1670,9 +1938,10 @@ public class KnowledgeStatQueryService
     public Map<String, Object> knowledgeOverview(Long knowledgeId, Long subjectId, Long deptId, Date examDateFrom,
         List<Long> paperIds)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom, paperIds,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom, paperIds,
             deptId, knowledgeId);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = groupRowsByStudent(rows);
+        Map<Long, SpasStudent> studentIndex = loadStudentsByIds(byStudent.keySet());
         List<Map<String, Object>> students = new ArrayList<Map<String, Object>>();
         BigDecimal sum = BigDecimal.ZERO;
         int weakCount = 0;
@@ -1693,7 +1962,7 @@ public class KnowledgeStatQueryService
             row.put("weightedRate", stat.getWeightedRate());
             row.put("attemptCount", stat.getAttemptCount());
             row.put("weakLevel", stat.getWeakLevel());
-            SpasStudent st = studentMapper.selectSpasStudentById(e.getKey());
+            SpasStudent st = studentIndex.get(e.getKey());
             if (st != null)
             {
                 row.put("studentNo", st.getStudentNo());
@@ -1738,7 +2007,7 @@ public class KnowledgeStatQueryService
     public List<Map<String, Object>> classKnowledgeExamTrend(Long deptId, Long knowledgeId, Long subjectId,
         List<Long> paperIds, Date examDateFrom)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom, paperIds,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom, paperIds,
             deptId, knowledgeId);
         Map<String, List<SpasAnalysisScoreRow>> byPaperStudent = new LinkedHashMap<String, List<SpasAnalysisScoreRow>>();
         Map<Long, Map<String, Object>> paperMeta = new LinkedHashMap<Long, Map<String, Object>>();
@@ -1848,7 +2117,7 @@ public class KnowledgeStatQueryService
     public List<Map<String, Object>> warningStudentMetrics(String metric, Long subjectId, Long deptId,
         Date examDateFrom)
     {
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom, null,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom, null,
             deptId, null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = groupRowsByStudent(rows);
         List<Map<String, Object>> stuRows = new ArrayList<Map<String, Object>>();
@@ -2083,7 +2352,7 @@ public class KnowledgeStatQueryService
                 }
             }
         }
-        // Flat tree fallback: no versions → chapters; no chapters → leaves
+        // Flat tree fallback: no versions ??chapters; no chapters ??leaves
         if (childNodes.isEmpty() && subjectAll)
         {
             childType = "1";
@@ -2144,7 +2413,7 @@ public class KnowledgeStatQueryService
             }
         }
 
-        List<SpasAnalysisScoreRow> rows = analysisMapper.selectScoreRowsForScope(null, subjectId, examDateFrom, paperIds,
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom, paperIds,
             deptId, null);
         Map<Long, List<SpasAnalysisScoreRow>> byStudent = groupRowsByStudent(rows);
 

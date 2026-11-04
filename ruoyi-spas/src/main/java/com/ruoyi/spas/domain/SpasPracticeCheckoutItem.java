@@ -1,6 +1,7 @@
 package com.ruoyi.spas.domain;
 
 import java.util.Date;
+import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
@@ -14,6 +15,10 @@ public class SpasPracticeCheckoutItem
     /** 1 done 2 partial 0 undone 3 difficulty L leave A absent */
     private String finishStatus;
     private String difficultyNote;
+    /** comma-separated knowledge ids */
+    private String knowledgeIds;
+    /** request convenience */
+    private List<Long> knowledgeIdList;
     /** 0 pending 1 ack 2 dispute 3 timeout */
     private String memberAck;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
@@ -38,6 +43,10 @@ public class SpasPracticeCheckoutItem
     public void setFinishStatus(String finishStatus) { this.finishStatus = finishStatus; }
     public String getDifficultyNote() { return difficultyNote; }
     public void setDifficultyNote(String difficultyNote) { this.difficultyNote = difficultyNote; }
+    public String getKnowledgeIds() { return knowledgeIds; }
+    public void setKnowledgeIds(String knowledgeIds) { this.knowledgeIds = knowledgeIds; }
+    public List<Long> getKnowledgeIdList() { return knowledgeIdList; }
+    public void setKnowledgeIdList(List<Long> knowledgeIdList) { this.knowledgeIdList = knowledgeIdList; }
     public String getMemberAck() { return memberAck; }
     public void setMemberAck(String memberAck) { this.memberAck = memberAck; }
     public Date getAckTime() { return ackTime; }

@@ -108,13 +108,19 @@
     </el-empty>
 
     <template v-else>
-      <el-alert
-        :title="scopeRangeHint"
-        type="success"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
+      <spas-analysis-verdict
+        v-loading="loading"
+        :level="insightVerdict.level"
+        :title="insightVerdict.title"
+        :subtitle="insightVerdict.subtitle"
+        :metrics="insightVerdict.metrics"
+      >
+        <template slot="actions">
+          <el-button size="mini" type="primary" plain @click="$router.push('/spas/analysis/frequency')">考查频次</el-button>
+          <el-button size="mini" type="info" plain @click="$router.push('/spas/analysis/class')">班级分析</el-button>
+        </template>
+      </spas-analysis-verdict>
+
       <div v-if="versionChips.length" class="version-chip-bar mb8">
         <span class="chip-label">快捷：</span>
         <el-button
@@ -130,54 +136,21 @@
           @click="drillToChild(v)"
         >{{ v.knowledgeName }}</el-button>
       </div>
-      <el-alert
-        v-if="overview.scopeNote"
-        :title="overview.scopeNote"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        v-if="scopeHint"
-        :title="scopeHint"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        v-if="overview.headline"
-        :title="overview.headline"
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-        title="口径：按学生加权得分率汇总；严重&lt;45%、薄弱45–60%、关注60–75%、正常≥75%。练习不足3次标为样本不足并隐藏结论。"
-      />
-      <el-alert
-        v-if="scopeBanner"
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="scopeBanner"
-      />
-      <el-row :gutter="16" class="overview-row" v-loading="loading">
-        <el-col :xs="12" :sm="8" :md="6" v-for="card in overviewCards" :key="card.key">
-          <div class="stat-card" :class="'tone-' + card.tone">
-            <div class="stat-label">{{ card.label }}</div>
-            <div class="stat-value">{{ card.value }}</div>
-            <div class="stat-hint" v-if="card.hint">{{ card.hint }}</div>
-          </div>
-        </el-col>
-      </el-row>
+
+      <div class="tips-fold mb8">
+        <el-button type="text" size="mini" @click="tipsExpanded = !tipsExpanded">
+          {{ tipsExpanded ? '收起口径与说明' : '展开口径与说明' }}
+          <i :class="tipsExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'" />
+        </el-button>
+        <div v-show="tipsExpanded" class="tips-fold-body">
+          <el-alert :title="scopeRangeHint" type="success" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="scopeBanner" :title="scopeBanner" type="info" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="overview.scopeNote" :title="overview.scopeNote" type="warning" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="scopeHint" :title="scopeHint" type="warning" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="overview.headline" :title="overview.headline" type="info" :closable="false" show-icon class="mb8" />
+          <el-alert :title="bandHint" type="info" :closable="false" show-icon class="mb8" />
+        </div>
+      </div>
 
       <el-card shadow="never" class="mb8" v-if="childRows.length" v-loading="loading">
         <div slot="header" class="card-header">
@@ -306,7 +279,7 @@
 </template>
 
 <script>
-import { overviewKnowledge } from '@/api/spas/analysis'
+import { overviewKnowledge, analysisConfig } from '@/api/spas/analysis'
 import { listPaper } from '@/api/spas/paper'
 import { optionselectSubject } from '@/api/spas/subject'
 import { treeKnowledge } from '@/api/spas/knowledge'
@@ -314,16 +287,19 @@ import { listMyTeachingDepts } from '@/api/spas/teacher'
 import { boundClassRoleFromDepts } from '@/utils/spasTeacherRole'
 import { deptTreeSelect } from '@/api/system/user'
 import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDeptTree'
+import { buildScopeBanner, buildKnowledgeVerdict } from '@/utils/spasAnalysisScope'
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 import SpasChart from '@/components/spas/charts/SpasChart'
+import SpasAnalysisVerdict from '@/components/spas/SpasAnalysisVerdict'
 
 export default {
   name: 'SpasAnalysisKnowledge',
   dicts: ['spas_weak_level', 'spas_difficulty'],
-  components: { Treeselect, SpasChart },
+  components: { Treeselect, SpasChart, SpasAnalysisVerdict },
   data() {
     return {
+      tipsExpanded: false,
       loading: false,
       subjectOptions: [],
       knowledgeOptions: [],
@@ -337,6 +313,10 @@ export default {
       studentRows: [],
       studentFilterBin: null,
       studentFilterDept: null,
+      minAttempts: 3,
+      empiricalEnabled: false,
+      allocationMode: 'proportional',
+      defaultWindow: 'semester',
       distBins: [],
       questionRows: [],
       analysisMode: 'window',
@@ -423,6 +403,18 @@ export default {
       }
       return rows
     },
+    bandHint() {
+      const o = this.overview || {}
+      const pct = (key, fallback) => {
+        const v = o[key] != null ? Number(o[key]) : fallback
+        return Math.round((isNaN(v) ? fallback : v) * 100)
+      }
+      const severe = pct('severeThreshold', 0.45)
+      const weak = pct('weakThreshold', 0.6)
+      const watch = pct('watchThreshold', 0.75)
+      const min = o.minAttempts != null ? Number(o.minAttempts) : (this.minAttempts || 3)
+      return '口径：按学生加权得分率汇总；严重<' + severe + '%、薄弱' + severe + '–' + weak + '%、关注' + weak + '–' + watch + '%、正常≥' + watch + '%。练习不足' + min + '次标为样本不足并隐藏结论。'
+    },
     scopeHint() {
       const id = this.queryParams.deptId
       if (!id) return ''
@@ -433,21 +425,22 @@ export default {
       if (!node) return ''
       const hasChild = !!(node.children && node.children.length)
       return hasChild
-        ? '当前为年级/校级范围，统计含下级班级'
+        ? '当前为年级/校级范围，统计含下级班级；干预名单请改选具体班'
         : '当前为班级范围（仅本班）'
     },
     scopeBanner() {
-      const winMap = { all: '全部', last30d: '近30天', last90d: '近90天', semester: '本学期' }
-      let scope
-      if (this.analysisMode === 'papers') {
-        const n = (this.queryParams.paperIds || []).length
-        scope = '口径：选卷诊断（' + n + ' 份试卷，即时聚合）'
-      } else {
-        const w = this.queryParams.window
-        scope = '口径：时间窗=' + (winMap[w] || w) + (w === 'all' ? '（快照）' : '（窗内即时聚合）')
-      }
+      const core = buildScopeBanner({
+        analysisMode: this.analysisMode,
+        window: this.queryParams.window,
+        defaultWindow: this.defaultWindow || 'semester',
+        paperIds: this.queryParams.paperIds,
+        dataMode: this.overview && this.overview.dataMode,
+        calcTime: this.overview && (this.overview.lastCalcTime || this.overview.calcTime),
+        empiricalEnabled: this.empiricalEnabled,
+        allocationMode: this.allocationMode
+      })
       const note = this.overview && this.overview.scopeNote ? ('。' + this.overview.scopeNote) : ''
-      return scope + '。一题多知识点按权重分摊到叶子；可选章节看汇总。色阶：<45%严重 / 45-60%薄弱 / 60-75%关注 / >=75%正常。练习<3次标「样本不足」勿下结论。' + note
+      return core + '。可选章节看汇总。' + this.bandHint + note
     },
     hasDifficulty() {
       return this.studentRows.some(r => r.difficulty != null && r.difficulty !== '')
@@ -488,6 +481,13 @@ export default {
           tone: 'red'
         }
       ]
+    },
+    insightVerdict() {
+      return buildKnowledgeVerdict({
+        overview: this.overview,
+        scopeLabel: this.scopeRangeHint.replace(/^当前范围：/, '').split('（')[0] || '当前范围',
+        formatRate: v => this.formatRate(v)
+      })
     }
   },
   created() {
@@ -504,6 +504,13 @@ export default {
     if (q.deptId) {
       this.queryParams.deptId = Number(q.deptId) || q.deptId
     }
+    analysisConfig().then(res => {
+      const cfg = (res && res.data) || {}
+      if (cfg.minAttempts != null) this.minAttempts = Number(cfg.minAttempts) || 3
+      if (cfg.defaultWindow) this.defaultWindow = cfg.defaultWindow
+      this.empiricalEnabled = !!(cfg.empiricalEnabled || (cfg.empiricalDifficulty && cfg.empiricalDifficulty.enabled))
+      if (cfg.allocationMode) this.allocationMode = cfg.allocationMode
+    }).catch(() => {})
     this.loadPapers()
     Promise.all([
       optionselectSubject().then(response => {
@@ -908,11 +915,19 @@ export default {
     buildDistribution(data) {
       let bins = data.distribution || data.scoreDistribution || data.rateBins || []
       if ((!bins || !bins.length) && this.studentRows.length) {
+        const o = this.overview || {}
+        const cut = (key, fallback) => {
+          const v = o[key] != null ? Number(o[key]) : fallback
+          return Math.round((isNaN(v) ? fallback : v) * 100)
+        }
+        const severe = cut('severeThreshold', 0.45)
+        const weak = cut('weakThreshold', 0.6)
+        const watch = cut('watchThreshold', 0.75)
         const buckets = [
-          { name: '0-45%', min: 0, max: 45, count: 0 },
-          { name: '45-60%', min: 45, max: 60, count: 0 },
-          { name: '60-75%', min: 60, max: 75, count: 0 },
-          { name: '75-90%', min: 75, max: 90, count: 0 },
+          { name: '0-' + severe + '%', min: 0, max: severe, count: 0 },
+          { name: severe + '-' + weak + '%', min: severe, max: weak, count: 0 },
+          { name: weak + '-' + watch + '%', min: weak, max: watch, count: 0 },
+          { name: watch + '-90%', min: watch, max: 90, count: 0 },
           { name: '90-100%', min: 90, max: 100.0001, count: 0 }
         ]
         this.studentRows.forEach(row => {
@@ -1052,6 +1067,16 @@ export default {
   font-size: 11px;
 }
 .mb8 { margin-bottom: 8px; }
+.tips-fold {
+  margin-bottom: 8px;
+}
+.tips-fold-body {
+  margin-top: 4px;
+  padding: 8px 10px 2px;
+  border-radius: 10px;
+  background: rgba(245, 247, 251, 0.9);
+  border: 1px dashed #E2E8F0;
+}
 .version-chip-bar {
   display: flex;
   align-items: center;

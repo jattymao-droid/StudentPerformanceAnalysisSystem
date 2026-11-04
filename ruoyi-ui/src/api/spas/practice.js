@@ -12,6 +12,7 @@ export function addPractice(data) {
   return request({ url: '/spas/practice', method: 'post', data })
 }
 
+/** @deprecated 日常主路径已改为组长检查单；后端仅管理员可补录 */
 export function proxyPractice(data) {
   return request({ url: '/spas/practice/proxy', method: 'post', data })
 }
@@ -44,6 +45,7 @@ export function practiceDailyStat(query) {
   return request({ url: '/spas/practice/stat/daily', method: 'get', params: query })
 }
 
+/** @deprecated 用 practiceCheckoutAlerts */
 export function practiceAlerts(query) {
   return request({ url: '/spas/practice/stat/alerts', method: 'get', params: query })
 }
@@ -52,16 +54,23 @@ export function practiceOverlap(query) {
   return request({ url: '/spas/practice/stat/overlap', method: 'get', params: query })
 }
 
+/** @deprecated 用 practiceSpotQueue + recordCheckoutSpot */
 export function practiceSpotSample(query) {
   return request({ url: '/spas/practice/stat/spot-sample', method: 'get', params: query })
 }
 
+/** @deprecated 用 recordCheckoutSpot(itemId, …) */
 export function updatePracticeSpot(logId, data) {
   return request({ url: '/spas/practice/' + logId + '/spot', method: 'put', data })
 }
 
+/** @deprecated 用 createInterveneFromSource({ sourceType:'practice_log', sourceId }) */
 export function practiceToIntervene(logId) {
-  return request({ url: '/spas/practice/alert/' + logId + '/to-intervene', method: 'post' })
+  return request({
+    url: '/spas/intervene/from-source',
+    method: 'post',
+    data: { sourceType: 'practice_log', sourceId: logId }
+  })
 }
 
 export function practiceSessionProfile() {
@@ -108,6 +117,16 @@ export function practicePointsLeaderboard(query) {
   return request({ url: '/spas/practice/points/leaderboard', method: 'get', params: query })
 }
 
+/** 班级成长农场：本班全部学生植物长势（含 0 分） */
+export function practicePointsFarm(query) {
+  return request({ url: '/spas/practice/points/farm', method: 'get', params: query })
+}
+
+/** 教师对本班多名学生一键发放奖励分 */
+export function practicePointsBatchAward(data) {
+  return request({ url: '/spas/practice/points/batch-award', method: 'post', data })
+}
+
 export function listPracticeAssignment(query) {
   return request({ url: '/spas/practice/assignment/list', method: 'get', params: query })
 }
@@ -136,8 +155,13 @@ export function followCheckoutItem(itemId) {
   return request({ url: '/spas/practice/checkout/item/' + itemId + '/follow', method: 'put' })
 }
 
+/** 检查单项转干预（走统一 from-source） */
 export function checkoutToIntervene(itemId) {
-  return request({ url: '/spas/practice/checkout/item/' + itemId + '/to-intervene', method: 'post' })
+  return request({
+    url: '/spas/intervene/from-source',
+    method: 'post',
+    data: { sourceType: 'checkout_item', sourceId: itemId }
+  })
 }
 
 export function practiceCheckoutAlerts(query) {
@@ -150,4 +174,9 @@ export function practiceSpotQueue(query) {
 
 export function recordCheckoutSpot(itemId, data) {
   return request({ url: '/spas/practice/spot/' + itemId, method: 'put', data })
+}
+
+/** action: ack | void | dismiss */
+export function resolveCheckoutItem(itemId, action) {
+  return request({ url: '/spas/practice/checkout/item/' + itemId + '/resolve', method: 'put', data: { action } })
 }

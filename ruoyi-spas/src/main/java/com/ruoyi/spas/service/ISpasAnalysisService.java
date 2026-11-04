@@ -108,6 +108,19 @@ public interface ISpasAnalysisService
     /** Analysis runtime config (window / recency / thresholds) */
     public Map<String, Object> analysisConfig();
 
+    /**
+     * Student analysis primary bundle: summary + radar + trend + weakTop + persistentWeak
+     * (+ optional scopeCompare for papers mode). Computed in one request so score-row cache is shared.
+     */
+    public Map<String, Object> studentDashboard(Long studentId, Long subjectId, String window, List<Long> paperIds,
+        Integer weakLimit, String baselineWindow);
+
+    /**
+     * Class analysis primary bundle: overview + weakTop (heatmap deferred to secondary).
+     */
+    public Map<String, Object> classDashboard(Long deptId, Long subjectId, String window, List<Long> paperIds,
+        Integer weakLimit);
+
     public int recalculateByPaper(Long paperId, Boolean useRecency);
 
     public int recalculateByStudent(Long studentId, Boolean useRecency);

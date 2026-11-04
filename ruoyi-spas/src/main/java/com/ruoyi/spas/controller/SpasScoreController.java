@@ -91,9 +91,10 @@ public class SpasScoreController extends BaseController
     @PreAuthorize("@ss.hasPermi('spas:score:import')")
     @Log(title = "Score Import", businessType = BusinessType.IMPORT)
     @PostMapping("/import/{paperId}")
-    public AjaxResult importData(@PathVariable Long paperId, MultipartFile file) throws Exception
+    public AjaxResult importData(@PathVariable Long paperId, MultipartFile file,
+        @org.springframework.web.bind.annotation.RequestParam(value = "blankAsZero", required = false) Boolean blankAsZero) throws Exception
     {
-        SpasScoreBatch batch = scoreService.importScores(paperId, file, getUsername());
+        SpasScoreBatch batch = scoreService.importScores(paperId, file, blankAsZero, getUsername());
         return success(batch);
     }
 

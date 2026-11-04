@@ -251,4 +251,11 @@ public interface SpasAnalysisMapper
     /** Weak students in a dept tree for one knowledge (for batch intervene). */
     public List<Map<String, Object>> selectWeakStudentsByKnowledge(@Param("deptId") Long deptId,
         @Param("subjectId") Long subjectId, @Param("knowledgeId") Long knowledgeId);
+
+    /**
+     * Distinct blank-zero score rows (score_source=3) for snapshot summary tips.
+     * Pass studentId for student scope, or deptId for class/dept-tree scope.
+     */
+    public int countBlankZeroDetails(@Param("studentId") Long studentId, @Param("deptId") Long deptId,
+        @Param("subjectId") Long subjectId);
 }

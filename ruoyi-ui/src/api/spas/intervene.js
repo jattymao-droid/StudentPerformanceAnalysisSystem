@@ -31,12 +31,21 @@ export function updateIntervene(data) {
   })
 }
 
-export function createFromWarning(warningId, data) {
+/** 统一转干预：sourceType = warning | practice_log | checkout_item */
+export function createInterveneFromSource(data) {
   return request({
-    url: '/spas/intervene/from-warning/' + warningId,
+    url: '/spas/intervene/from-source',
     method: 'post',
-    data: data || {}
+    data
   })
+}
+
+/** @deprecated 请用 createInterveneFromSource({ sourceType:'warning', sourceId }) */
+export function createFromWarning(warningId, data) {
+  return createInterveneFromSource(Object.assign({}, data || {}, {
+    sourceType: 'warning',
+    sourceId: warningId
+  }))
 }
 
 export function evaluateIntervene(interveneId) {

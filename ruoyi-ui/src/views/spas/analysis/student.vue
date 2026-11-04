@@ -74,6 +74,7 @@
         <el-button type="success" plain icon="el-icon-view" size="mini" :disabled="!queryParams.studentId" :loading="previewLoading" @click="openReportPreview" v-hasPermi="['spas:report:export']">预览报告</el-button>
         <el-button type="warning" plain icon="el-icon-download" size="mini" :disabled="!queryParams.studentId" :loading="exportLoading" @click="handleExportReport('pdf')" v-hasPermi="['spas:report:export']">导出报告</el-button>
         <el-button type="info" plain icon="el-icon-document" size="mini" :disabled="!queryParams.studentId" :loading="exportLoading" @click="handleExportReport('xlsx')" v-hasPermi="['spas:report:export']">导出明细</el-button>
+        <el-button type="danger" plain icon="el-icon-bell" size="mini" @click="goWarningRun" v-hasPermi="['spas:warning:rule:run']">立即预警</el-button>
       </el-form-item>
       <template v-if="showAdvancedScope">
         <el-form-item label="模式" prop="analysisMode">
@@ -111,93 +112,224 @@
     </el-empty>
 
     <template v-else>
-      <el-alert
-        :title="scopeBanner"
-        type="success"
-        :closable="false"
-        show-icon
-        class="mb8"
-      />
-      <el-alert
-        v-if="summary.headline"
-        :title="summary.headline"
-        :type="summary.emptyKnowledge ? 'warning' : 'info'"
-        :closable="false"
-        show-icon
-        class="mb8"
+      <spas-analysis-verdict
+        v-loading="loading"
+        :level="insightVerdict.level"
+        :title="insightVerdict.title"
+        :subtitle="insightVerdict.subtitle"
+        :metrics="insightVerdict.metrics"
       >
-        <template v-if="summary.emptyKnowledge && suggestedSubjects.length" slot="default">
-          <span style="margin-right:6px">可切换到：</span>
-          <el-tag
-            v-for="s in suggestedSubjects"
-            :key="'sug-' + s.subjectId"
-            size="small"
+        <template slot="actions">
+          <el-button
+            v-if="canBatchRemediate"
+            type="primary"
+            plain
+            size="mini"
+            v-hasPermi="['spas:qb:question:list']"
+            @click="goBatchRemediate"
+          >一键补弱</el-button>
+          <el-button
+            v-if="canBatchIntervene"
             type="warning"
-            effect="plain"
-            style="margin:2px 4px;cursor:pointer"
-            @click="switchToSubject(s.subjectId)"
-          >{{ s.subjectName }}</el-tag>
+            plain
+            size="mini"
+            v-hasPermi="['spas:intervene:add']"
+            :loading="batchInterveneLoading"
+            @click="goBatchIntervene"
+          >一键建干预</el-button>
+          <el-button
+            v-if="summary.formalWeakBlocked || (summary && summary.coverageAdjusted)"
+            type="danger"
+            plain
+            size="mini"
+            @click="goQuality"
+          >去质量看板</el-button>
+          <el-button
+            v-if="masteryEmptyTip"
+            type="info"
+            plain
+            size="mini"
+            @click="$router.push('/spas/biz/examScore')"
+          >去实考校次</el-button>
+          <el-button
+            v-if="masteryEmptyTip"
+            type="primary"
+            plain
+            size="mini"
+            @click="$router.push('/spas/biz/score')"
+          >去小题成绩</el-button>
         </template>
+      </spas-analysis-verdict>
+
+      <el-card
+        v-if="!isAllSubjects"
+        shadow="never"
+        class="prescription-card mb8"
+        v-loading="loading"
+      >
+        <div slot="header" class="card-header card-header-row">
+          <span>{{ studentPrescription.title }}</span>
+          <span v-if="studentPrescription.status === 'ready'" class="prescription-actions">
+            <el-button
+              type="primary"
+              plain
+              size="mini"
+              v-hasPermi="['spas:qb:question:list']"
+              :disabled="!canBatchRemediate"
+              @click="goBatchRemediate"
+            >一键补弱</el-button>
+            <el-button
+              type="warning"
+              plain
+              size="mini"
+              v-hasPermi="['spas:intervene:add']"
+              :loading="batchInterveneLoading"
+              :disabled="!canBatchIntervene"
+              @click="goBatchIntervene"
+            >一键建干预</el-button>
+            <el-button
+              type="success"
+              plain
+              size="mini"
+              :disabled="!studentPrescription.knowledgeIds.length"
+              @click="goPrescriptionHomework"
+            >带入作业主题</el-button>
+            <el-button
+              type="info"
+              plain
+              size="mini"
+              @click="goPracticeBoard"
+              v-hasPermi="['spas:practice:list','spas:practice:stat','spas:practice:mine']"
+            >看自主练</el-button>
+          </span>
+        </div>
+        <div v-if="studentPrescription.subtitle" class="prescription-sub">{{ studentPrescription.subtitle }}</div>
+        <div v-if="studentPrescription.passRule" class="prescription-pass">{{ studentPrescription.passRule }}</div>
+        <el-table
+          v-if="studentPrescription.items.length"
+          :data="studentPrescription.items"
+          size="mini"
+          empty-text="暂无处方项"
+        >
+          <el-table-column label="优先" width="56" align="center">
+            <template slot-scope="scope">{{ scope.$index + 1 }}</template>
+          </el-table-column>
+          <el-table-column label="知识点" min-width="150" :show-overflow-tooltip="true">
+            <template slot-scope="scope">
+              <el-tag v-if="scope.row.suggestFirst" size="mini" type="success" effect="plain" style="margin-right:4px">建议先练</el-tag>
+              {{ scope.row.knowledgeName }}
+            </template>
+          </el-table-column>
+          <el-table-column label="先修/根因" min-width="160" :show-overflow-tooltip="true">
+            <template slot-scope="scope">
+              <el-tag v-if="scope.row.prereq" size="mini" type="warning" effect="plain">依赖</el-tag>
+              {{ scope.row.prereq || '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="当前得分率" width="100" align="center">
+            <template slot-scope="scope">{{ scope.row.rateLabel }}</template>
+          </el-table-column>
+          <el-table-column label="作答" width="70" align="center">
+            <template slot-scope="scope">{{ scope.row.attemptCount != null ? scope.row.attemptCount : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="88" align="center">
+            <template slot-scope="scope">
+              <el-tag size="mini" type="danger" effect="plain">仍薄弱</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="过关提示" min-width="180" :show-overflow-tooltip="true" prop="passHint" />
+          <el-table-column label="行动" width="150" align="center" fixed="right">
+            <template slot-scope="scope">
+              <el-button
+                type="text"
+                size="mini"
+                v-hasPermi="['spas:qb:question:list']"
+                @click="goRemediate(scope.row)"
+              >补弱</el-button>
+              <el-button
+                type="text"
+                size="mini"
+                v-hasPermi="['spas:intervene:add']"
+                @click="startIntervene(scope.row)"
+              >干预</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-if="prescriptionCleared.length" class="prescription-cleared">
+          <div class="prescription-cleared-title">较上次查询已退出正式薄弱（{{ prescriptionCleared.length }}）</div>
+          <el-tag
+            v-for="c in prescriptionCleared"
+            :key="'clr-' + c.knowledgeId"
+            size="mini"
+            type="success"
+            effect="plain"
+            style="margin:2px 4px"
+          >{{ c.knowledgeName || c.knowledgeId }}</el-tag>
+        </div>
+        <div
+          v-else-if="studentPrescription.status === 'blocked'"
+          class="prescription-empty"
+        >
+          <el-button type="danger" plain size="mini" @click="goQuality">去质量看板补标注</el-button>
+        </div>
+        <div
+          v-else-if="studentPrescription.status === 'empty'"
+          class="prescription-empty"
+        >
+          <el-button type="info" plain size="mini" @click="$router.push('/spas/biz/examScore')">实考校次</el-button>
+          <el-button type="primary" plain size="mini" @click="$router.push('/spas/biz/score')">小题成绩</el-button>
+        </div>
+      </el-card>
+
+      <el-alert
+        v-if="summary.emptyKnowledge && suggestedSubjects.length"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb8"
+        title="当前学科无小题数据，可切换到有数据的学科："
+      >
+        <el-tag
+          v-for="s in suggestedSubjects"
+          :key="'sug-' + s.subjectId"
+          size="small"
+          type="warning"
+          effect="plain"
+          style="margin:2px 4px;cursor:pointer"
+          @click="switchToSubject(s.subjectId)"
+        >{{ s.subjectName }}</el-tag>
       </el-alert>
-      <el-alert
-        v-if="subjectOverrideTip"
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="subjectOverrideTip"
-      />
-      <el-alert
-        v-if="summary.formalWeakBlocked"
-        type="error"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="summary.formalWeakBlockReason || '当前口径内标注不足，薄弱结论仅供参考，不得作为正式定级'"
-      />
-      <el-alert
-        v-if="analysisMode === 'papers'"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="'当前为选卷诊断 · ' + (queryParams.paperIds || []).length + ' 场考试；薄弱结论仅基于所选试卷集合（加权引擎即时聚合）'"
-      />
-      <el-alert
-        v-if="analysisMode === 'papers' && scopeCompareTitle"
-        type="info"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="scopeCompareTitle"
-      />
-      <el-alert
-        v-if="annotationHint"
-        type="error"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="annotationHint"
-      />
-      <el-alert
-        v-if="summary && summary.coverageAdjusted"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="'标注覆盖率偏低（未标注占比 ' + formatPct(summary.unboundRatio) + '），置信度已自动降级'"
-      />
-      <el-alert
-        v-if="lowConfidenceCount > 0"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb8"
-        :title="'列表中有 ' + lowConfidenceCount + ' 项为「证据不足」（样本不足），不定正式薄弱；仅 formalWeak 可作定级依据。'"
-      />
+
+      <div class="tips-fold mb8">
+        <el-button type="text" size="mini" @click="tipsExpanded = !tipsExpanded">
+          {{ tipsExpanded ? '收起口径与说明' : '展开口径与说明' }}
+          <i :class="tipsExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'" />
+        </el-button>
+        <div v-show="tipsExpanded" class="tips-fold-body">
+          <el-alert :title="scopeBanner" type="success" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="summary.headline && !summary.emptyKnowledge" :title="summary.headline" type="info" :closable="false" show-icon class="mb8" />
+          <el-alert v-if="subjectOverrideTip" type="info" :closable="false" show-icon class="mb8" :title="subjectOverrideTip" />
+          <el-alert v-if="summary.formalWeakBlocked" type="error" :closable="false" show-icon class="mb8" :title="summary.formalWeakBlockReason || '标注不足，暂不定级。'" />
+          <el-alert v-if="analysisMode === 'papers'" type="warning" :closable="false" show-icon class="mb8" :title="'当前为选卷诊断 · ' + (queryParams.paperIds || []).length + ' 场考试'" />
+          <el-alert v-if="analysisMode === 'papers' && scopeCompareTitle" type="info" :closable="false" show-icon class="mb8" :title="scopeCompareTitle" />
+          <el-alert v-if="annotationHint" type="error" :closable="false" show-icon class="mb8" :title="annotationHint" />
+          <el-alert v-if="summary && summary.coverageAdjusted" type="warning" :closable="false" show-icon class="mb8" :title="'标注覆盖率偏低（未标注占比 ' + formatPct(summary.unboundRatio) + '），置信度已降级'" />
+          <el-alert v-if="lowConfidenceCount > 0" type="warning" :closable="false" show-icon class="mb8" :title="'列表中有 ' + lowConfidenceCount + ' 项为证据不足，不定正式薄弱。'" />
+          <el-alert v-if="conclusionTip" type="warning" :closable="false" show-icon class="mb8" :title="conclusionTip" />
+          <el-alert v-if="warningWindowNote" type="info" :closable="false" show-icon class="mb8" :title="warningWindowNote" />
+          <el-alert v-if="blankZeroTip" type="warning" :closable="false" show-icon class="mb8" :title="blankZeroTip" />
+          <el-alert v-if="dimWeakTip" type="info" :closable="false" show-icon class="mb8" :title="dimWeakTip" />
+          <el-alert v-if="remediateGuideTip" type="warning" :closable="false" show-icon class="mb8" :title="remediateGuideTip" />
+          <el-alert v-if="windowCompareTip" type="info" :closable="false" show-icon class="mb8" :title="windowCompareTip" />
+          <el-alert v-if="practiceBehaviorTip" type="info" :closable="false" show-icon class="mb8" :title="practiceBehaviorTip">
+            <el-button type="text" size="mini" @click="goPracticeBoard" v-hasPermi="['spas:practice:list','spas:practice:stat','spas:practice:mine']">看自主练</el-button>
+          </el-alert>
+        </div>
+      </div>
+
       <el-row :gutter="12" class="overview-row" v-loading="loading">
-        <el-col :xs="12" :sm="8" :md="4" v-for="card in summaryCards" :key="card.key">
-          <div class="stat-card" :class="'tone-' + card.tone">
+        <el-col :xs="12" :sm="8" :md="4" v-for="card in detailSummaryCards" :key="card.key">
+          <div class="stat-card" :class="['tone-' + card.tone, { 'is-emphasis': card.emphasis }]">
             <div class="stat-label">{{ card.label }}</div>
             <div class="stat-value">{{ card.value }}</div>
             <div class="stat-hint" v-if="card.hint">{{ card.hint }}</div>
@@ -229,9 +361,9 @@
         </el-table>
       </el-card>
 
-      <el-card shadow="never" class="chart-card" style="margin-top: 16px" v-loading="rankLoading">
+      <el-card shadow="never" class="chart-card exam-rank-card" style="margin-top: 16px" v-loading="rankLoading">
         <div slot="header" class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-          <span>实考校次进退</span>
+          <span>实考校次（不参与知识点掌握度）</span>
           <el-button
             type="warning"
             plain
@@ -247,7 +379,7 @@
           type="info"
           :closable="false"
           show-icon
-          :title="'与上方学情同一口径筛选（学科/时间窗或选卷）；校次来自实考导入，掌握度来自小题成绩。'"
+          :title="'校次来自「实考校次」导入，只解释统考进退；不改写上方综合得分率、正式薄弱与雷达。无小题成绩时请勿用校次推断掌握度。'"
         />
         <el-alert
           v-if="rankSummary && rankSummary.headline"
@@ -312,17 +444,17 @@
         </el-table>
       </el-card>
 
-      <el-row :gutter="16" v-loading="loading" style="margin-top: 8px">
+      <el-row v-if="!masteryEmptyTip" :gutter="16" v-loading="loading" style="margin-top: 8px">
         <el-col :xs="24" :lg="12">
           <el-card shadow="never" class="chart-card">
-            <div slot="header" class="card-header">知识点掌握雷达（本人 vs 班级）</div>
-            <spas-chart :option="radarOption" height="360px" />
+            <div slot="header" class="card-header">知识点掌握雷达（本人 vs 班级）<span class="stat-hint"> · 点击轴名可下钻题目</span></div>
+            <spas-chart :option="radarOption" height="360px" @chart-click="onRadarClick" />
           </el-card>
         </el-col>
         <el-col :xs="24" :lg="12">
           <el-card shadow="never" class="chart-card">
-            <div slot="header" class="card-header">成绩趋势（本人 vs 班级）</div>
-            <spas-chart :option="trendOption" height="360px" />
+            <div slot="header" class="card-header">成绩趋势（本人 vs 班级）<span class="stat-hint"> · 点击场次提示用薄弱列表「趋势」</span></div>
+            <spas-chart :option="trendOption" height="360px" @chart-click="onTrendClick" />
           </el-card>
         </el-col>
       </el-row>
@@ -337,7 +469,19 @@
         <div slot="header" class="card-header">章节汇总</div>
 
         <el-alert class="mb8 chapter-formula-tip" type="info" :closable="false" show-icon
-          title="章节得分率 = attempt-weighted avg(leaf weighted_rate)" />
+          title="章节得分率 = attempt-weighted avg(leaf weighted_rate)；需知识树含「章节」节点且末级知识点挂在其下" />
+        <el-alert
+          v-if="!(chapterRadar && chapterRadar.length)"
+          class="mb8"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="暂无章节汇总。常见原因：学科知识树只有末级点、没有章节父节点。可先看薄弱知识点 Top；补齐章节树后再看本章。"
+        />
+        <div v-if="!(chapterRadar && chapterRadar.length)" class="mb8">
+          <el-button size="mini" type="primary" plain @click="goKnowledgeManage">去知识点管理</el-button>
+          <el-button size="mini" plain @click="goQuality">质量看板</el-button>
+        </div>
         <spas-chart :option="chapterRadarOption" height="320px" />
       </el-card>
 
@@ -419,7 +563,19 @@
       <el-card ref="chapterDeltaCard" shadow="never" style="margin-top: 16px" class="chart-card" id="spas-chapter-delta">
         <div slot="header" class="card-header">章节进退</div>
         <el-alert v-if="chapterDelta.baselineHint" class="mb8" :type="chapterDelta.baselineEmpty ? 'warning' : 'info'" :closable="false" show-icon :title="chapterDelta.baselineHint" />
-        <el-alert v-else-if="chapterDelta.headline" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
+        <el-alert
+          v-if="chapterDelta.chapterEmptyHint"
+          class="mb8"
+          :type="chapterDelta.chapterEmptyReason === 'insufficient_sample' ? 'info' : 'warning'"
+          :closable="false"
+          show-icon
+          :title="chapterDelta.chapterEmptyHint"
+        />
+        <el-alert v-else-if="chapterDelta.headline && !chapterDelta.baselineHint" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
+        <div v-if="chapterDeltaEmpty && (chapterDelta.chapterEmptyReason === 'no_chapter_nodes' || chapterDelta.chapterEmptyReason === 'no_chapter_data')" class="mb8">
+          <el-button size="mini" type="primary" plain @click="goKnowledgeManage">去知识点管理</el-button>
+          <el-button size="mini" plain @click="goQualityBoard">质量看板</el-button>
+        </div>
         <el-row :gutter="12">
           <el-col :xs="24" :md="12">
             <div class="card-header mb8">进步 Top</div>
@@ -460,13 +616,40 @@
             </el-table>
           </el-col>
         </el-row>
+        <div v-if="chapterDeltaEmpty && leafDeltaFallbackRows.length" style="margin-top: 12px">
+          <div class="card-header mb8">知识点级进退对照（章节暂不可用时的替代）</div>
+          <el-alert class="mb8" type="info" :closable="false" show-icon title="以下为末级知识点的反复薄弱 / 相对全量新出现薄弱，非正式章节进退。" />
+          <el-table :data="leafDeltaFallbackRows" size="mini" max-height="220">
+            <el-table-column label="知识点" min-width="140" :show-overflow-tooltip="true">
+              <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="标记" width="120" align="center">
+              <template slot-scope="scope">
+                <el-tag size="mini" :type="scope.row.tagType || 'warning'">{{ scope.row.tag || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="得分率" width="90" align="center">
+              <template slot-scope="scope">{{ formatRate(scope.row.rate != null ? scope.row.rate : scope.row.weightedRate) }}</template>
+            </el-table-column>
+          </el-table>
+        </div>
       </el-card>
 
         </el-col>
       </el-row>
 
-      <el-card shadow="never" style="margin-top: 16px">
-        <div slot="header" class="card-header">薄弱知识点明细</div>
+      <el-card shadow="never" style="margin-top: 16px" class="weak-list-card">
+        <div slot="header" class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+          <span>薄弱知识点明细</span>
+          <el-button
+            type="text"
+            size="mini"
+            icon="el-icon-notebook-2"
+            :disabled="!canBatchRemediate"
+            v-hasPermi="['spas:qb:question:list']"
+            @click="goBatchRemediate"
+          >一键补弱 Top{{ batchRemediateLimit }}</el-button>
+        </div>
         <el-table :data="weakList" v-loading="loading" empty-text="暂无薄弱知识点数据">
           <el-table-column label="知识点" align="center" prop="name" min-width="160" :show-overflow-tooltip="true">
             <template slot-scope="scope">
@@ -511,6 +694,12 @@
             </template>
           </el-table-column>
           <el-table-column label="干预效果" align="center" width="130">
+            <template slot="header">
+              <span>干预效果</span>
+              <el-tooltip content="效果按基线异步复评，刚导入成绩后可能稍后才更新" placement="top">
+                <i class="el-icon-info" style="margin-left:4px;color:#909399" />
+              </el-tooltip>
+            </template>
             <template slot-scope="scope">
               <el-tag v-if="interveneLabel(scope.row)" size="mini" :type="interveneTagType(scope.row)" style="cursor:pointer" @click="goInterveneTask(scope.row)">{{ interveneLabel(scope.row) }}</el-tag>
               <span v-else>-</span>
@@ -523,7 +712,7 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" width="200">
+          <el-table-column label="操作" align="center" width="260">
             <template slot-scope="scope">
               <el-button size="mini" type="text" icon="el-icon-data-line" @click="openKnowledgeTrend(scope.row)">趋势</el-button>
               <el-button size="mini" type="text" icon="el-icon-view" @click="openKnowledgeDrill(scope.row)">题目</el-button>
@@ -534,6 +723,13 @@
                 @click="startIntervene(scope.row)"
                 v-hasPermi="['spas:intervene:add']"
               >干预</el-button>
+              <el-button
+                size="mini"
+                type="text"
+                icon="el-icon-notebook-2"
+                @click="goRemediate(scope.row)"
+                v-hasPermi="['spas:qb:question:list']"
+              >补弱</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -752,8 +948,9 @@
 </template>
 
 <script>
-import { summaryStudent, radarStudent, trendStudent, weakTopStudent, recalcStudent, studentKnowledgeQuestions, chapterRadarStudent, analysisConfig, knowledgeExamTrend, persistentWeak as fetchPersistentWeak, paperAnnotationCoverage, scopeCompareStudent, questionTypeStudent, bloomStudent, chapterDeltaStudent } from '@/api/spas/analysis'
+import { summaryStudent, dashboardStudent, recalcStudent, studentKnowledgeQuestions, chapterRadarStudent, analysisConfig, knowledgeExamTrend, paperAnnotationCoverage, questionTypeStudent, bloomStudent, chapterDeltaStudent, persistentWeak as fetchPersistentWeak, scopeCompareStudent } from '@/api/spas/analysis'
 import { addIntervene, listIntervene } from '@/api/spas/intervene'
+import { listPractice } from '@/api/spas/practice'
 import { previewStudentReport } from '@/api/spas/report'
 import { getRankTrend } from '@/api/spas/examScore'
 import { saveErrorTag } from '@/api/spas/errorTag'
@@ -766,16 +963,18 @@ import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDep
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 import SpasChart from '@/components/spas/charts/SpasChart'
-import { buildScopeBanner, isFormalWeak, isLowEvidence, isNonDefaultScope } from '@/utils/spasAnalysisScope'
+import SpasAnalysisVerdict from '@/components/spas/SpasAnalysisVerdict'
+import { buildScopeBanner, buildAnalysisVerdict, buildDimWeakTip, buildStudentPrescription, formalWeakKnowledgeIds, isFormalWeak, isLowEvidence, isNonDefaultScope } from '@/utils/spasAnalysisScope'
 import { boundClassRoleFromDepts } from '@/utils/spasTeacherRole'
 import { checkPermi } from '@/utils/permission'
 
 export default {
   name: 'SpasAnalysisStudent',
   dicts: ['spas_weak_level', 'spas_error_cause', 'spas_error_category'],
-  components: { Treeselect, SpasChart },
+  components: { Treeselect, SpasChart, SpasAnalysisVerdict },
   data() {
     return {
+      tipsExpanded: false,
       loading: false,
       recalcLoading: false,
       exportLoading: false,
@@ -786,13 +985,19 @@ export default {
       rankExporting: false,
       rankSubjects: [],
       rankSummary: {},
+      practiceRecentCount: null,
+      practiceDifficultyCount: 0,
+      semesterWeakCount: null,
+      prescriptionBaseline: [],
+      prescriptionBaselineReady: false,
+      batchInterveneLoading: false,
       chapterRadar: [],
       questionTypeItems: [],
       questionTypeSummary: {},
       bloomItems: [],
       bloomSummary: {},
       bloomInsight: '',
-      chapterDelta: { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false },
+      chapterDelta: { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false, chapterEmptyReason: '', chapterEmptyHint: '' },
       subjectOptions: [],
       deptOptions: [],
       myDepts: [],
@@ -804,6 +1009,7 @@ export default {
       scopeCompare: null,
       summary: {},
       radarOption: {},
+      radarPoints: [],
       trendOption: {},
       weakBarOption: {},
       drillOpen: false,
@@ -819,6 +1025,8 @@ export default {
       baseMinAttempts: 3,
       subjectOverrides: {},
       subjectOverrideTip: '',
+      empiricalEnabled: false,
+      allocationMode: 'proportional',
       recencyHalfLifeDays: 60,
       scopeMaxPapers: 30,
       annotationHint: '',
@@ -922,11 +1130,19 @@ export default {
         grid: { left: 40, right: 20, top: 30, bottom: 40 },
         xAxis: { type: 'category', data: names, axisLabel: { rotate: 20 } },
         yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
-        series: [{ type: 'line', data: rates, name: '得分率', markLine: { data: [{ yAxis: 60, name: '薄弱线' }] } }]
+        series: [{ type: 'line', data: rates, name: '得分率', markLine: { data: [{ yAxis: this.weakLineNum, name: '薄弱线' + this.weakLinePct }] } }]
       }
     },
     chapterRadarOption() {
       const rows = this.chapterRadar || []
+      if (!rows.length) {
+        return {
+          title: { text: '暂无章节数据', left: 'center', top: 'middle', textStyle: { color: '#909399', fontSize: 14, fontWeight: 'normal' } },
+          xAxis: { show: false },
+          yAxis: { show: false },
+          series: []
+        }
+      }
       const names = rows.map(r => r.name || r.knowledgeName || '-')
       const rates = rows.map(r => {
         const v = Number(r.rate)
@@ -941,20 +1157,207 @@ export default {
         series: [{ type: 'bar', data: rates, name: '章节' }]
       }
     },
+    chapterDeltaEmpty() {
+      const d = this.chapterDelta || {}
+      return !(d.improved && d.improved.length) && !(d.declined && d.declined.length)
+    },
+    leafDeltaFallbackRows() {
+      const rows = []
+      const seen = {}
+      const push = (r, tag, tagType) => {
+        if (!r) return
+        const id = r.knowledgeId != null ? String(r.knowledgeId) : (r.name || r.knowledgeName || '')
+        if (!id || seen[id]) return
+        seen[id] = true
+        rows.push({
+          knowledgeId: r.knowledgeId,
+          name: r.name || r.knowledgeName,
+          knowledgeName: r.knowledgeName || r.name,
+          rate: r.rate != null ? r.rate : r.weightedRate,
+          weightedRate: r.weightedRate,
+          tag,
+          tagType
+        })
+      }
+      ;(this.weakList || []).forEach(r => {
+        if (r.persistTag === '反复薄弱' || r.persistTag === '新反复') {
+          push(r, r.persistTag, this.persistTagType(r.persistTag))
+        }
+      })
+      const news = (this.scopeCompare && this.scopeCompare.newPersistentWeaks) || []
+      news.forEach(r => push(r, '新出现反复薄弱', 'danger'))
+      return rows.slice(0, 8)
+    },
     summaryCards() {
       const s = this.summary || {}
+      const min = this.effectiveMinAttempts
+      const severeMin = this.effectiveSevereMinAttempts
       return [
         { key: 'rate', label: '综合得分率', value: this.formatRate(s.overallRate != null ? s.overallRate : s.avgRate), hint: '练习次数加权', tone: 'blue' },
         { key: 'class', label: '班级均分', value: this.formatRate(s.classAvgRate), hint: '同班同学均值', tone: 'green' },
         { key: 'rank', label: '班级名次', value: this.formatRank(s), hint: '得分率从高到低', tone: 'blue' },
         { key: 'pct', label: '百分位', value: this.formatPercentile(s.percentile), hint: '超过X%同班同学', tone: 'green' },
         { key: 'gap', label: '与班差', value: this.formatGap(s.gap), hint: '负值表示偏低', tone: 'orange' },
-        { key: 'weak', label: '正式薄弱', value: s.weakCount != null ? s.weakCount : '-', hint: '作答≥3 且低于60%', tone: 'orange' },
-        { key: 'severe', label: '正式严重', value: s.severeCount != null ? s.severeCount : '-', hint: '作答≥3 且低于45%', tone: 'red' },
+        { key: 'weak', label: '正式薄弱', value: s.weakCount != null ? s.weakCount : '-', hint: '作答≥' + min + ' 且低于薄弱线', tone: 'orange', emphasis: true },
+        { key: 'severe', label: '正式严重', value: s.severeCount != null ? s.severeCount : '-', hint: '作答≥' + severeMin + ' 且低于严重线', tone: 'red', emphasis: true },
         { key: 'low', label: '综合低分', value: s.lowRateCount != null ? s.lowRateCount : '-', hint: this.lowRateHint(s), tone: 'orange' },
-        { key: 'thin', label: '样本不足', value: s.thinSampleCount != null ? s.thinSampleCount : '-', hint: '低分但作答不足，不定级', tone: 'purple' },
+        { key: 'thin', label: '样本不足', value: s.thinSampleCount != null ? s.thinSampleCount : '-', hint: '低分但作答不足' + min + '次，不定级', tone: 'purple' },
         { key: 'conf', label: '置信度', value: this.summaryConfidenceText, hint: this.summaryConfidenceHint, tone: 'purple' }
       ]
+    },
+    /** Secondary KPI row: skip keys already shown in verdict metrics */
+    detailSummaryCards() {
+      const hide = { rate: 1, weak: 1, severe: 1, thin: 1 }
+      return (this.summaryCards || []).filter(c => !hide[c.key])
+    },
+    insightVerdict() {
+      return buildAnalysisVerdict({
+        scope: 'student',
+        summary: this.summary,
+        empty: !!this.masteryEmptyTip,
+        blocked: !!(this.summary && this.summary.formalWeakBlocked),
+        formatRate: v => this.formatRate(v)
+      })
+    },
+    weakLineRate() {
+      const s = this.summary || {}
+      const v = s.weakThreshold != null ? Number(s.weakThreshold) : 0.6
+      return isNaN(v) ? 0.6 : v
+    },
+    weakLineNum() {
+      return Math.round(this.weakLineRate * 100)
+    },
+    weakLinePct() {
+      return this.weakLineNum + '%'
+    },
+    effectiveMinAttempts() {
+      const s = this.summary || {}
+      if (s.minAttempts != null && Number(s.minAttempts) > 0) return Number(s.minAttempts)
+      return this.minAttempts || 3
+    },
+    effectiveSevereMinAttempts() {
+      const s = this.summary || {}
+      if (s.severeMinAttempts != null && Number(s.severeMinAttempts) > 0) return Number(s.severeMinAttempts)
+      return this.effectiveMinAttempts
+    },
+    conclusionTip() {
+      if (!this.queryParams.studentId || this.masteryEmptyTip) return ''
+      const s = this.summary || {}
+      if (!s || (s.overallRate == null && s.weakCount == null && !s.headline)) return ''
+      const min = this.effectiveMinAttempts
+      const severeMin = this.effectiveSevereMinAttempts
+      let tip = '读结论：正式薄弱 = 低掌握且作答≥' + min + ' 次；综合低分 ≠ 正式薄弱；样本不足不定级。'
+      if (severeMin !== min) tip += ' 正式严重另须作答≥' + severeMin + ' 次。'
+      if (s.subjectCode) tip = s.subjectCode + ' · ' + tip
+      return tip
+    },
+    masteryEmptyTip() {
+      const s = this.summary || {}
+      if (!this.queryParams.studentId) return ''
+      if (s.emptyKnowledge) {
+        return '本学科暂无小题成绩，雷达与正式薄弱不可用。校次只看下方「实考校次」，掌握度请先导入小题成绩。'
+      }
+      return ''
+    },
+    blankZeroTip() {
+      const n = Number(this.summary && this.summary.blankZeroCount)
+      if (!n || isNaN(n) || n <= 0) return ''
+      return '本窗口含空白置零 ' + n + ' 条（score_source=3），解读掌握度时请剔除'
+    },
+    dimWeakTip() {
+      if (this.masteryEmptyTip || this.isAllSubjects) return ''
+      return buildDimWeakTip(
+        this.questionTypeItems,
+        this.bloomItems,
+        this.questionTypeSummary,
+        this.bloomSummary,
+        r => this.formatRate(r)
+      )
+    },
+    batchRemediateLimit() {
+      return 5
+    },
+    formalWeakIdsForRemediate() {
+      return formalWeakKnowledgeIds(this.weakList, this.batchRemediateLimit)
+    },
+    studentPrescription() {
+      return buildStudentPrescription({
+        weakRows: this.weakList,
+        empty: !!this.masteryEmptyTip,
+        blocked: !!(this.summary && this.summary.formalWeakBlocked),
+        blockReason: (this.summary && this.summary.formalWeakBlockReason) || this.annotationHint,
+        limit: this.batchRemediateLimit,
+        minAttempts: this.effectiveMinAttempts,
+        targetRate: 0.6,
+        formatRate: v => this.formatRate(v)
+      })
+    },
+    prescriptionCleared() {
+      if (!this.prescriptionBaselineReady) return []
+      const prev = this.prescriptionBaseline || []
+      if (!prev.length) return []
+      const cur = new Set(((this.studentPrescription && this.studentPrescription.knowledgeIds) || []).map(String))
+      return prev.filter(p => p && p.knowledgeId != null && !cur.has(String(p.knowledgeId)))
+    },
+    canBatchRemediate() {
+      return !this.masteryEmptyTip && !this.isAllSubjects
+        && !!this.resolveSubjectId()
+        && this.formalWeakIdsForRemediate.length > 0
+        && !(this.summary && this.summary.formalWeakBlocked)
+    },
+    remediateGuideTip() {
+      if (this.masteryEmptyTip || this.isAllSubjects) return ''
+      if (this.summary && this.summary.formalWeakBlocked) return ''
+      if (this.canBatchRemediate || this.canBatchIntervene) {
+        return '已有 ' + this.formalWeakIdsForRemediate.length + ' 个正式薄弱点可选题补弱或建干预（仅 formalWeak，不含样本不足）。'
+      }
+      const thin = Number(this.summary && this.summary.thinSampleCount)
+      const low = Number(this.summary && this.summary.lowRateCount)
+      if ((thin > 0 || low > 0) && !(Number(this.summary && this.summary.weakCount) > 0)) {
+        return '当前多为综合低分或样本不足，暂不定级，不建议批量补弱；可先增加练习/再考，或对单点「题目」下钻。'
+      }
+      return ''
+    },
+    batchInterveneLimit() {
+      return 5
+    },
+    canBatchIntervene() {
+      return this.canBatchRemediate
+    },
+    practiceBehaviorTip() {
+      if (!this.queryParams.studentId || this.practiceRecentCount == null) return ''
+      const n = Number(this.practiceRecentCount) || 0
+      const hard = Number(this.practiceDifficultyCount) || 0
+      const weak = Number(this.summary && this.summary.weakCount)
+      let tip = '近14天自主练登记 ' + n + ' 次'
+      if (hard > 0) tip += '（含困难备注 ' + hard + '）'
+      tip += '；正式薄弱 ' + (isNaN(weak) ? '-' : weak) + ' 个。自主练≠掌握度，仅作行为对照。'
+      return tip
+    },
+    windowCompareTip() {
+      if (this.analysisMode === 'papers' || this.masteryEmptyTip) return ''
+      const win = this.queryParams.window || this.defaultWindow || 'semester'
+      if (win === 'semester') return ''
+      if (this.semesterWeakCount == null) return ''
+      const cur = Number(this.summary && this.summary.weakCount)
+      const sem = Number(this.semesterWeakCount)
+      if (isNaN(cur) || isNaN(sem)) return ''
+      const labels = { last30d: '近30天', last90d: '近90天', all: '全部(快照)', prev_semester: '上学期' }
+      const delta = cur - sem
+      const sign = delta > 0 ? '+' : ''
+      return '正式薄弱对照：当前窗「' + (labels[win] || win) + '」' + cur + ' · 本学期 ' + sem
+        + '（Δ ' + sign + delta + '）。预警默认仍按本学期，点「立即预警」可带当前窗。'
+    },
+    warningWindowNote() {
+      if (!this.queryParams.studentId) return ''
+      if (this.analysisMode === 'papers') {
+        return '选卷诊断仅影响本页掌握度；「立即预警」默认仍按系统 default-window（本学期）'
+      }
+      const win = this.queryParams.window || this.defaultWindow || 'semester'
+      const def = this.defaultWindow || 'semester'
+      if (win === def || win === 'semester') return ''
+      const labels = { last30d: '近30天', last90d: '近90天', all: '全部(快照)', prev_semester: '上学期' }
+      return '当前分析窗为「' + (labels[win] || win) + '」；开放预警列表未必同口径。点「立即预警」将带上当前窗。'
     },
     analysisHint() {
       return this.scopeBanner
@@ -967,7 +1370,9 @@ export default {
         paperIds: this.queryParams.paperIds,
         useRecency: this.useRecency,
         dataMode: this.summary && this.summary.dataMode,
-        calcTime: (this.summary && (this.summary.lastCalcTime || this.summary.calcTime)) || null
+        calcTime: (this.summary && (this.summary.lastCalcTime || this.summary.calcTime)) || null,
+        empiricalEnabled: this.empiricalEnabled,
+        allocationMode: this.allocationMode
       })
       const sub = this.subjectScopeLabel
       return sub ? ('学科：' + sub + ' · ' + base) : base
@@ -1104,10 +1509,30 @@ export default {
     lowRateHint(s) {
       const thin = Number(s && s.thinSampleCount)
       const severe = s && s.lowSevereCount
-      const parts = ['得分率低于60%的知识点']
+      const parts = ['综合低分 ≠ 正式薄弱']
       if (!isNaN(thin) && thin > 0) parts.push('含样本不足 ' + thin)
-      if (severe != null && severe !== '') parts.push('低于45% ' + severe)
+      if (severe != null && severe !== '') parts.push('低于严重线 ' + severe)
       return parts.join(' · ')
+    },
+    goQuality() {
+      const query = { metric: 'Q_NO_KNOWLEDGE' }
+      if (this.queryParams.subjectId && Number(this.queryParams.subjectId) > 0) query.subjectId = this.queryParams.subjectId
+      if (this.queryParams.deptId) query.deptId = this.queryParams.deptId
+      const pids = this.queryParams.paperIds || []
+      if (pids.length === 1) query.paperId = pids[0]
+      else if (pids.length > 1) query.paperIds = pids.join(',')
+      this.$router.push({ path: '/spas/quality', query }).catch(() => {})
+    },
+    goWarningRun() {
+      const query = {}
+      if (this.analysisMode === 'window' && this.queryParams.window) {
+        query.window = this.queryParams.window
+      } else if (this.defaultWindow) {
+        query.window = this.defaultWindow
+      } else {
+        query.window = 'semester'
+      }
+      this.$router.push({ path: '/spas/warning/rule', query }).catch(() => {})
     },
     checkPermi,
     findDeptNode(nodes, id) {
@@ -1356,7 +1781,10 @@ export default {
       }
       const bits = []
       if (o.weak != null) bits.push('薄弱线 ' + Number(o.weak).toFixed(2))
-      if (o.minAttempts != null) bits.push('最低练习 ' + o.minAttempts + ' 次')
+      if (o.minAttempts != null) bits.push('正式定级至少 ' + o.minAttempts + ' 次')
+      if (o.severeMinAttempts != null && Number(o.severeMinAttempts) !== Number(o.minAttempts || this.minAttempts)) {
+        bits.push('严重另须 ' + o.severeMinAttempts + ' 次')
+      }
       if (bits.length) {
         this.subjectOverrideTip = (hit.subjectName || code) + '分科口径：' + bits.join('，')
       }
@@ -1429,6 +1857,8 @@ export default {
           this.minAttempts = this.baseMinAttempts
         }
         this.subjectOverrides = cfg.subjectOverrides || {}
+        this.empiricalEnabled = !!(cfg.empiricalEnabled || (cfg.empiricalDifficulty && cfg.empiricalDifficulty.enabled))
+        this.allocationMode = cfg.allocationMode || 'proportional'
         this.applySubjectThresholds()
         const annot = cfg.annotationCoverage || {}
         if (annot.unboundRatioThreshold != null) {
@@ -1575,6 +2005,226 @@ export default {
         if (action === 'cancel') {
           this.startIntervene(hit)
         }
+      })
+    },
+    onRadarClick(params) {
+      const points = this.radarPoints || []
+      let hit = null
+      // Axis label click (radar.triggerEvent) → params.name is knowledge name
+      const name = params && params.name
+      if (name && name !== '本人' && name !== '班级均值') {
+        hit = points.find(k => (k.name || k.knowledgeName) === name)
+          || (this.weakList || []).find(k => (k.name || k.knowledgeName) === name)
+      }
+      // Vertex click may expose dimension index on event target
+      if (!hit && params && params.event && params.event.target) {
+        const dim = params.event.target.__dimIdx
+        if (dim != null && points[dim]) hit = points[dim]
+      }
+      if (!hit && params && params.dataIndex != null && points.length === 1) {
+        hit = points[0]
+      }
+      if (!hit || !(hit.knowledgeId || hit.id)) {
+        this.$modal.msgInfo('请点击雷达轴上的知识点名称下钻题目')
+        return
+      }
+      this.openKnowledgeDrill(hit)
+    },
+    onTrendClick() {
+      this.$modal.msgInfo('整卷趋势不含单知识点明细；请在薄弱列表点「趋势」查看该点各场得分率')
+      const el = this.$el && this.$el.querySelector('.weak-list-card')
+      if (el && el.scrollIntoView) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    },
+    goRemediate(row) {
+      const knowledgeId = row && (row.knowledgeId || row.id)
+      const subjectId = this.resolveSubjectId()
+      if (!knowledgeId) {
+        this.$modal.msgWarning('无法定位知识点')
+        return
+      }
+      if (!subjectId) {
+        this.$modal.msgWarning('请先选择学科再去选题补弱')
+        return
+      }
+      this.$router.push({
+        path: '/spas/qb/select',
+        query: { subjectId, knowledgeId }
+      }).catch(() => {})
+    },
+    goBatchRemediate() {
+      const subjectId = this.resolveSubjectId()
+      const ids = this.formalWeakIdsForRemediate
+      if (!subjectId) {
+        this.$modal.msgWarning('请先选择学科再去选题补弱')
+        return
+      }
+      if (!ids.length) {
+        this.$modal.msgWarning('暂无正式薄弱知识点，无法批量补弱')
+        return
+      }
+      this.$router.push({
+        path: '/spas/qb/select',
+        query: { subjectId, knowledgeIds: ids.join(',') }
+      }).catch(() => {})
+    },
+    goBatchIntervene() {
+      if (!this.canBatchIntervene) {
+        this.$modal.msgWarning('暂无正式薄弱知识点，无法批量建干预')
+        return
+      }
+      if (this.summary && this.summary.formalWeakBlocked) {
+        this.$modal.msgWarning('当前标注不足，禁止批量建干预。请先补齐知识点标注。')
+        return
+      }
+      const ids = this.formalWeakIdsForRemediate
+      const rows = (this.weakList || []).filter(r => {
+        const id = r && (r.knowledgeId != null ? r.knowledgeId : r.id)
+        return id != null && ids.map(String).indexOf(String(id)) >= 0
+      })
+      const tip = '将为 ' + ids.length + ' 个正式薄弱点依次创建干预任务并冻结基线，确认？'
+      this.$modal.confirm(tip).then(async () => {
+        this.batchInterveneLoading = true
+        let created = 0
+        for (const row of rows) {
+          const knowledgeId = row.knowledgeId || row.id
+          try {
+            await addIntervene({
+              studentId: this.queryParams.studentId,
+              subjectId: this.resolveSubjectId(),
+              sourceType: '2',
+              sourceId: knowledgeId,
+              knowledgeIds: knowledgeId ? String(knowledgeId) : undefined,
+              title: '薄弱干预：' + (row.name || row.knowledgeName || knowledgeId),
+              targetRate: 0.6
+            })
+            created++
+          } catch (e) { /* continue */ }
+        }
+        this.$modal.msgSuccess('已创建 ' + created + ' 条干预任务')
+        this.loadInterveneOverlay()
+        if (created > 0) {
+          this.$router.push({ path: '/spas/intervene', query: { studentId: this.queryParams.studentId, status: '0' } }).catch(() => {})
+        }
+      }).catch(() => {}).finally(() => {
+        this.batchInterveneLoading = false
+      })
+    },
+    goPracticeBoard() {
+      const q = {}
+      if (this.queryParams.deptId) q.deptId = this.queryParams.deptId
+      const sid = this.resolveSubjectId()
+      if (sid) q.subjectId = sid
+      this.$router.push({ path: '/spas/biz/practice', query: q }).catch(() => {
+        this.$router.push({ path: '/myspas/practice', query: q }).catch(() => {})
+      })
+    },
+    goPrescriptionHomework() {
+      const sid = this.resolveSubjectId()
+      const ids = (this.studentPrescription && this.studentPrescription.knowledgeIds) || []
+      if (!sid) {
+        this.$modal.msgWarning('请先选择学科')
+        return
+      }
+      if (!ids.length) {
+        this.$modal.msgWarning('暂无正式薄弱点可带入作业主题')
+        return
+      }
+      const q = {
+        subjectId: sid,
+        knowledgeIds: ids.join(',')
+      }
+      if (this.queryParams.deptId) q.deptId = this.queryParams.deptId
+      this.$router.push({ path: '/spas/biz/hw-task', query: q }).catch(() => {
+        this.$router.push({ path: '/spas/homework/task', query: q }).catch(() => {
+          this.$modal.msgWarning('未找到作业布置页，已改为选题中心补弱')
+          this.goBatchRemediate()
+        })
+      })
+    },
+    prescriptionStorageKey() {
+      const sid = this.resolveSubjectId()
+      const stu = this.queryParams.studentId
+      if (!sid || !stu) return ''
+      return 'spas_prescription_' + stu + '_' + sid
+    },
+    resetPrescriptionBaseline() {
+      this.prescriptionBaseline = []
+      this.prescriptionBaselineReady = false
+      const key = this.prescriptionStorageKey()
+      if (!key || typeof localStorage === 'undefined') {
+        this.prescriptionBaselineReady = true
+        return
+      }
+      try {
+        const raw = localStorage.getItem(key)
+        const arr = raw ? JSON.parse(raw) : []
+        this.prescriptionBaseline = Array.isArray(arr) ? arr : []
+      } catch (e) {
+        this.prescriptionBaseline = []
+      }
+      this.prescriptionBaselineReady = true
+    },
+    savePrescriptionSnapshot() {
+      const key = this.prescriptionStorageKey()
+      const rx = this.studentPrescription
+      if (!key || !rx || typeof localStorage === 'undefined') return
+      const items = (rx.items || []).map(it => ({
+        knowledgeId: it.knowledgeId,
+        knowledgeName: it.knowledgeName
+      }))
+      try {
+        localStorage.setItem(key, JSON.stringify(items))
+      } catch (e) { /* ignore */ }
+    },
+    loadPracticeBehavior() {
+      const studentId = this.queryParams.studentId
+      if (!studentId) {
+        this.practiceRecentCount = null
+        this.practiceDifficultyCount = 0
+        return Promise.resolve()
+      }
+      const end = new Date()
+      const begin = new Date()
+      begin.setDate(begin.getDate() - 13)
+      const pad = n => (n < 10 ? '0' + n : '' + n)
+      const fmt = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+      const params = {
+        studentId,
+        pageNum: 1,
+        pageSize: 50,
+        params: {
+          beginPracticeDate: fmt(begin),
+          endPracticeDate: fmt(end)
+        }
+      }
+      const sid = this.resolveSubjectId()
+      if (sid) params.subjectId = sid
+      return listPractice(params).then(res => {
+        const rows = res.rows || []
+        this.practiceRecentCount = res.total != null ? Number(res.total) : rows.length
+        this.practiceDifficultyCount = rows.filter(r => r && r.difficultyNote && String(r.difficultyNote).trim()).length
+      }).catch(() => {
+        this.practiceRecentCount = null
+        this.practiceDifficultyCount = 0
+      })
+    },
+    loadWindowCompare() {
+      this.semesterWeakCount = null
+      if (this.analysisMode === 'papers' || !this.queryParams.studentId || this.masteryEmptyTip) {
+        return Promise.resolve()
+      }
+      const win = this.queryParams.window || this.defaultWindow || 'semester'
+      if (win === 'semester') return Promise.resolve()
+      const q = this.scopeQuery({ window: 'semester' })
+      delete q.paperIds
+      q.window = 'semester'
+      return summaryStudent(this.queryParams.studentId, q).then(res => {
+        const d = (res && res.data) || {}
+        this.semesterWeakCount = d.weakCount != null ? Number(d.weakCount) : 0
+      }).catch(() => {
+        this.semesterWeakCount = null
       })
     },
     goPortfolio() {
@@ -1740,7 +2390,7 @@ export default {
       this.bloomItems = []
       this.bloomSummary = {}
       this.bloomInsight = ''
-      this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '' }
+      this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false, chapterEmptyReason: '', chapterEmptyHint: '' }
       this.chapterRadar = []
     },
     applyDimPayload(res, itemsKey, summaryKey) {
@@ -1800,7 +2450,9 @@ export default {
         this.chapterDelta = {
           items: [], improved: [], declined: [], headline: '', baselineWindow: '',
           baselineHint: this.isAllSubjects ? '章节进退需指定学科，请先选择科目' : '',
-          baselineEmpty: !!this.isAllSubjects
+          baselineEmpty: !!this.isAllSubjects,
+          chapterEmptyReason: '',
+          chapterEmptyHint: ''
         }
         return Promise.resolve()
       }
@@ -1813,11 +2465,23 @@ export default {
           headline: data.headline || '',
           baselineWindow: data.baselineWindow || 'prev_semester',
           baselineHint: data.baselineHint || '',
-          baselineEmpty: !!data.baselineEmpty
+          baselineEmpty: !!data.baselineEmpty,
+          chapterEmptyReason: data.chapterEmptyReason || '',
+          chapterEmptyHint: data.chapterEmptyHint || ''
         }
       }).catch(() => {
-        this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false }
+        this.chapterDelta = { items: [], improved: [], declined: [], headline: '', baselineWindow: '', baselineHint: '', baselineEmpty: false, chapterEmptyReason: '', chapterEmptyHint: '' }
       })
+    },
+    goKnowledgeManage() {
+      const q = {}
+      if (this.queryParams.subjectId) q.subjectId = this.queryParams.subjectId
+      this.$router.push({ path: '/spas/base/knowledge', query: q }).catch(() => {})
+    },
+    goQualityBoard() {
+      const q = {}
+      if (this.queryParams.subjectId) q.subjectId = this.queryParams.subjectId
+      this.$router.push({ path: '/spas/quality', query: q }).catch(() => {})
     },
 
     loadRankTrend() {
@@ -1889,36 +2553,28 @@ export default {
         this.$modal.msgWarning('选卷诊断请至少勾选一份试卷')
         return
       }
+      this.resetPrescriptionBaseline()
       const query = this.scopeQuery({ limit: this.queryParams.limit })
-      this.loading = true
-      let chainedReload = false
-      const tasks = [
-        summaryStudent(studentId, this.scopeQuery()),
-        radarStudent(studentId, query),
-        trendStudent(studentId, this.scopeQuery()),
-        weakTopStudent(studentId, query),
-        fetchPersistentWeak(studentId, this.scopeQuery())
-      ]
       if (this.analysisMode === 'papers') {
-        tasks.push(scopeCompareStudent(studentId, Object.assign({ baselineWindow: 'all' }, this.scopeQuery())))
+        query.baselineWindow = 'all'
       } else {
         this.scopeCompare = null
       }
-      Promise.all(tasks).then((results) => {
-        const summaryRes = results[0]
-        const radarRes = results[1]
-        const trendRes = results[2]
-        const weakRes = results[3]
-        const persistRes = results[4]
-        const compareRes = results[5]
-        this.summary = (summaryRes && summaryRes.data) ? summaryRes.data : {}
-        // Default subject sort may land on 语文 while this student only has 物理小题数据
-        // Skip auto-switch when user chose「所有科目」or manually picked a subject
-        // Exception: term-compare focus needs a concrete subject for chapterDelta
+      this.loading = true
+      let chainedReload = false
+      // Primary bundle in one request (shares backend score-row cache)
+      dashboardStudent(studentId, query).then((dashRes) => {
+        const data = (dashRes && dashRes.data) ? dashRes.data : {}
+        this.summary = data.summary || {}
+        // Prefer a concrete subject for depth + speed (all-subjects path is expensive).
+        // Skip when user explicitly picked「所有科目」or a subject.
         const focusDelta = (this.$route.query || {}).focus === 'chapterDelta'
-        if ((focusDelta && this.isAllSubjects && this.summary.suggestedSubjectId != null)
-          || (!this.isAllSubjects && this.summary.emptyKnowledge && this.summary.suggestedSubjectId != null && !this.subjectPickedByUser)) {
-          const sid = Number(this.summary.suggestedSubjectId)
+        const suggested = this.summary.suggestedSubjectId
+          || ((this.summary.subjectsWithData || [])[0] && (this.summary.subjectsWithData || [])[0].subjectId)
+        if (this.isAllSubjects && !this.subjectPickedByUser && suggested != null
+          || (focusDelta && this.isAllSubjects && suggested != null)
+          || (!this.isAllSubjects && this.summary.emptyKnowledge && suggested != null && !this.subjectPickedByUser)) {
+          const sid = Number(suggested)
           if (!isNaN(sid) && sid !== Number(this.queryParams.subjectId)) {
             chainedReload = true
             this.autoSwitchingSubject = true
@@ -1929,19 +2585,15 @@ export default {
             return this.loadAnalysis()
           }
         }
-        this.buildRadar(this.unwrapList(radarRes))
-        this.buildTrend(this.unwrapList(trendRes))
-        const weak = this.mergePersistTags(this.unwrapList(weakRes), this.unwrapList(persistRes))
+        this.buildRadar(Array.isArray(data.radar) ? data.radar : [])
+        this.buildTrend(Array.isArray(data.trend) ? data.trend : [])
+        const weak = Array.isArray(data.weakTop) ? data.weakTop : []
         this.weakList = weak
-        this.loadInterveneOverlay()
-        this.scopeCompare = compareRes && compareRes.data ? compareRes.data : null
-        this.loadChapterRadar()
-        this.loadQuestionType()
-        this.loadBloom()
-        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
-        this.loadAnnotationCoverage()
         this.buildWeakBar(weak)
-        this.loadRankTrend()
+        this.scopeCompare = data.scopeCompare || null
+        this.$nextTick(() => this.savePrescriptionSnapshot())
+        // Secondary panels after first paint (do not block loading spinner)
+        this.$nextTick(() => this.loadSecondaryAnalysis())
       }).catch(() => {
         this.summary = {}
         this.radarOption = {}
@@ -1949,6 +2601,8 @@ export default {
         this.weakBarOption = {}
         this.weakList = []
         this.scopeCompare = null
+        this.practiceRecentCount = null
+        this.semesterWeakCount = null
         this.clearAdvancedAnalysis()
         this.$modal.msgError('加载学生分析失败')
       }).finally(() => {
@@ -1957,19 +2611,67 @@ export default {
         }
       })
     },
+    /** Non-blocking panels: chapter / type / bloom / practice / rank … */
+    loadSecondaryAnalysis() {
+      const run = (fn, delay) => setTimeout(() => { try { fn.call(this) } catch (e) { /* ignore */ } }, delay)
+      // Wave A — tags / overlays that enrich already-visible KPI
+      run(function() { this.loadPersistentTags() }, 0)
+      run(function() { this.loadInterveneOverlay() }, 0)
+      run(function() { this.loadAnnotationCoverage() }, 40)
+      run(function() { this.loadPracticeBehavior() }, 80)
+      run(function() { this.loadWindowCompare() }, 80)
+      // Wave B — charts below the fold
+      run(function() { this.loadChapterRadar() }, 160)
+      run(function() { this.loadQuestionType() }, 220)
+      run(function() { this.loadBloom() }, 280)
+      run(function() {
+        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
+      }, 360)
+      run(function() { this.loadRankTrend() }, 420)
+      if (this.analysisMode === 'papers') {
+        run(function() { this.loadScopeCompare() }, 120)
+      }
+    },
+    loadPersistentTags() {
+      if (!this.queryParams.studentId) return Promise.resolve()
+      return fetchPersistentWeak(this.queryParams.studentId, this.scopeQuery()).then(res => {
+        const persist = this.unwrapList(res)
+        this.weakList = this.mergePersistTags(this.weakList || [], persist)
+        this.buildWeakBar(this.weakList)
+      }).catch(() => {})
+    },
+    loadScopeCompare() {
+      if (this.analysisMode !== 'papers' || !this.queryParams.studentId) {
+        this.scopeCompare = null
+        return Promise.resolve()
+      }
+      return scopeCompareStudent(this.queryParams.studentId, Object.assign({ baselineWindow: 'all' }, this.scopeQuery())).then(res => {
+        this.scopeCompare = (res && res.data) ? res.data : null
+      }).catch(() => { this.scopeCompare = null })
+    },
     buildRadar(list) {
-      if (!list.length) {
+      const raw = list || []
+      this.radarPoints = raw
+      if (!raw.length) {
         this.radarOption = {
           title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { color: '#64748B', fontSize: 14 } }
         }
         return
       }
-      const indicator = list.map(item => ({
+      // Cap axes for chart readability/render cost; full list stays in radarPoints for drill-down.
+      const chartList = raw.length > 12
+        ? raw.slice().sort((a, b) => {
+          const aa = Number(a.attemptCount) || 0
+          const bb = Number(b.attemptCount) || 0
+          return bb - aa
+        }).slice(0, 12)
+        : raw
+      const indicator = chartList.map(item => ({
         name: item.name || item.knowledgeName || '-',
         max: 100
       }))
-      const values = list.map(item => this.toPercent(item.rate != null ? item.rate : item.weightedRate))
-      const classValues = list.map(item => {
+      const values = chartList.map(item => this.toPercent(item.rate != null ? item.rate : item.weightedRate))
+      const classValues = chartList.map(item => {
         if (item.classAvgRate == null && item.classRate == null) return null
         return this.toPercent(item.classAvgRate != null ? item.classAvgRate : item.classRate)
       })
@@ -1987,7 +2689,7 @@ export default {
         color: ['#2442ED', '#94A3B8'],
         tooltip: {},
         legend: hasClass ? { data: ['本人', '班级均值'], bottom: 0 } : undefined,
-        radar: { indicator, radius: '62%', center: ['50%', '48%'] },
+        radar: { indicator, radius: '62%', center: ['50%', '48%'], triggerEvent: true },
         series: [{ type: 'radar', areaStyle: { opacity: 0.25 }, data: seriesData }]
       }
     },
@@ -2017,7 +2719,7 @@ export default {
         areaStyle: { opacity: 0.12, color: 'rgba(36, 66, 237, 0.18)' },
         markLine: {
           silent: true,
-          data: [{ yAxis: 60, name: '参考线60%' }]
+          data: [{ yAxis: this.weakLineNum, name: '薄弱线' + this.weakLinePct }]
         }
       }]
       if (hasClass) {
@@ -2139,6 +2841,9 @@ export default {
 .stat-card.tone-green { border-left-color: #10B981; }
 .stat-card.tone-red { border-left-color: #FF5A5F; }
 .stat-card.tone-purple { border-left-color: #0E7490; }
+.stat-card.is-emphasis {
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.12), 0 8px 18px rgba(15, 23, 42, 0.06);
+}
 .stat-label {
   color: #64748B;
   font-size: 12px;
@@ -2158,6 +2863,62 @@ export default {
   margin-top: 4px;
   color: #94A3B8;
   font-size: 11px;
+}
+.tips-fold {
+  margin-bottom: 8px;
+}
+.tips-fold-body {
+  margin-top: 4px;
+  padding: 8px 10px 2px;
+  border-radius: 10px;
+  background: rgba(245, 247, 251, 0.9);
+  border: 1px dashed #E2E8F0;
+}
+.prescription-card {
+  border: 1px solid #E0E7FF;
+  background: linear-gradient(180deg, #F8FAFF 0%, #fff 48%);
+}
+.prescription-card .card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.prescription-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.prescription-sub {
+  font-size: 13px;
+  color: #64748B;
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+.prescription-pass {
+  font-size: 12px;
+  color: #334155;
+  background: #EEF2FF;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+.prescription-empty {
+  padding: 8px 0 4px;
+}
+.prescription-cleared {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #F0FDF9;
+  border: 1px dashed #A7F3D0;
+}
+.prescription-cleared-title {
+  font-size: 12px;
+  color: #047857;
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 .mb8 { margin-bottom: 8px; }
 .mb4 { margin-bottom: 4px; }
