@@ -54,7 +54,7 @@
       type="info"
       :closable="false"
       show-icon
-      title="可勾选学生后「给选中学生发分」，或点「一键发分」从全班名单多选。奖励计入日封顶 40；同批次不可重复发放。"
+      title="可勾选学生后「给选中学生发分」，或点「一键发分」按学生/科目小组选人。奖励计入日封顶 40；同批次不可重复发放。"
     />
 
     <el-table
@@ -83,14 +83,60 @@
       <el-table-column prop="weekPoints" label="本周积分" width="100" />
     </el-table>
 
-    <el-dialog title="一键发放积分" :visible.sync="awardOpen" width="560px" append-to-body @closed="resetAward">
+    <el-dialog title="一键发放积分" :visible.sync="awardOpen" width="580px" append-to-body @closed="resetAward">
       <el-form ref="awardForm" :model="awardForm" :rules="awardRules" label-width="88px" size="small">
         <el-form-item label="班级">
           <span>{{ currentDeptName }}</span>
         </el-form-item>
+        <el-form-item label="选人方式">
+          <el-radio-group v-model="awardPickMode" size="mini" @change="onAwardPickModeChange">
+            <el-radio-button label="student">按学生</el-radio-button>
+            <el-radio-button label="group">按科目小组</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="awardPickMode === 'group'">
+          <el-form-item label="科目">
+            <el-select
+              v-model="awardSubjectId"
+              filterable
+              placeholder="选择科目"
+              style="width: 100%"
+              @change="onAwardSubjectChange"
+            >
+              <el-option label="通用组（不分科）" value="" />
+              <el-option
+                v-for="s in subjectOptions"
+                :key="s.subjectId"
+                :label="s.subjectName"
+                :value="s.subjectId"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="学习小组">
+            <el-select
+              v-model="awardGroupIds"
+              multiple
+              filterable
+              collapse-tags
+              placeholder="选择小组（可多选）"
+              style="width: 100%"
+              :loading="groupLoading"
+              @change="onAwardGroupsChange"
+            >
+              <el-option
+                v-for="g in awardGroupOptions"
+                :key="g.groupId"
+                :label="(g.groupName || ('组#' + g.groupId)) + ' · ' + (g.memberCount || 0) + '人'"
+                :value="g.groupId"
+              />
+            </el-select>
+            <div class="tip mt4">选中小组后自动填入成员；可多选合并发分</div>
+          </el-form-item>
+        </template>
         <el-form-item label="学生" prop="studentIds">
           <div class="award-toolbar mb8">
-            <el-button type="text" size="mini" @click="selectAllRoster">全选本班</el-button>
+            <el-button v-if="awardPickMode === 'student'" type="text" size="mini" @click="selectAllRoster">全选本班</el-button>
+            <el-button v-else type="text" size="mini" :loading="groupMemberLoading" @click="fillStudentsFromGroups">重新填入组成员</el-button>
             <el-button type="text" size="mini" @click="awardForm.studentIds = []">清空</el-button>
             <span class="tip">已选 {{ awardForm.studentIds.length }} 人（最多 80）</span>
           </div>
@@ -101,7 +147,7 @@
             collapse-tags
             placeholder="选择学生"
             style="width: 100%"
-            :loading="rosterLoading"
+            :loading="rosterLoading || groupMemberLoading"
           >
             <el-option
               v-for="s in roster"
@@ -116,7 +162,7 @@
           <span class="tip ml8">1～20，计入当日封顶 40</span>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
-          <el-input v-model="awardForm.remark" maxlength="180" show-word-limit placeholder="如：课堂表现优秀" />
+          <el-input v-model="awardForm.remark" maxlength="180" show-word-limit placeholder="如：课堂表现优秀 / 小组合作优秀" />
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -129,6 +175,8 @@
 
 <script>
 import { practicePointsLeaderboard, practicePointsFarm, practicePointsBatchAward } from '@/api/spas/practice'
+import { listStudyGroup, getStudyGroup } from '@/api/spas/group'
+import { optionselectSubject } from '@/api/spas/subject'
 import { deptTreeSelect } from '@/api/system/user'
 import { listMyTeachingDepts } from '@/api/spas/teacher'
 import { applyTeachingDeptContext } from '@/utils/spasDeptTree'
@@ -143,12 +191,19 @@ export default {
       loading: false,
       myDepts: [],
       deptOptions: [],
+      subjectOptions: [],
       boardList: [],
       selection: [],
       roster: [],
       rosterLoading: false,
       awardOpen: false,
       awardSaving: false,
+      awardPickMode: 'student',
+      awardSubjectId: '',
+      awardGroupIds: [],
+      awardGroupOptions: [],
+      groupLoading: false,
+      groupMemberLoading: false,
       awardForm: {
         studentIds: [],
         points: 5,
@@ -173,6 +228,7 @@ export default {
     }
   },
   created() {
+    optionselectSubject().then(r => { this.subjectOptions = r.data || [] }).catch(() => { this.subjectOptions = [] })
     applyTeachingDeptContext(this, listMyTeachingDepts, deptTreeSelect).then(() => {
       if (this.queryParams.deptId) this.query.deptId = this.queryParams.deptId
       this.loadBoard()
@@ -232,6 +288,10 @@ export default {
         return
       }
       const ids = (preselectRows || []).map(r => r.studentId).filter(Boolean)
+      this.awardPickMode = ids.length ? 'student' : 'student'
+      this.awardSubjectId = ''
+      this.awardGroupIds = []
+      this.awardGroupOptions = []
       this.awardForm = {
         studentIds: ids.slice(0, 80),
         points: 5,
@@ -244,11 +304,99 @@ export default {
         }
       })
     },
+    onAwardPickModeChange(mode) {
+      this.awardGroupIds = []
+      this.awardGroupOptions = []
+      if (mode === 'group') {
+        this.awardForm.studentIds = []
+        this.loadAwardGroups()
+      }
+    },
+    onAwardSubjectChange() {
+      this.awardGroupIds = []
+      this.awardForm.studentIds = []
+      this.loadAwardGroups()
+    },
+    loadAwardGroups() {
+      if (!this.query.deptId) {
+        this.awardGroupOptions = []
+        return Promise.resolve()
+      }
+      this.groupLoading = true
+      const params = {
+        deptId: this.query.deptId,
+        status: '0',
+        pageNum: 1,
+        pageSize: 200
+      }
+      if (this.awardSubjectId !== '' && this.awardSubjectId != null) {
+        params.subjectId = this.awardSubjectId
+      } else {
+        params['params[requireNullSubject]'] = true
+      }
+      return listStudyGroup(params).then(res => {
+        this.awardGroupOptions = res.rows || []
+      }).catch(() => {
+        this.awardGroupOptions = []
+      }).finally(() => {
+        this.groupLoading = false
+      })
+    },
+    onAwardGroupsChange() {
+      this.fillStudentsFromGroups()
+    },
+    fillStudentsFromGroups() {
+      const ids = (this.awardGroupIds || []).filter(Boolean)
+      if (!ids.length) {
+        this.awardForm.studentIds = []
+        return Promise.resolve()
+      }
+      this.groupMemberLoading = true
+      return Promise.all(ids.map(id => getStudyGroup(id).then(res => res.data || {}).catch(() => ({}))))
+        .then(groups => {
+          const seen = {}
+          const studentIds = []
+          const names = []
+          const rosterMap = {}
+          ;(this.roster || []).forEach(s => { rosterMap[s.studentId] = s })
+          groups.forEach(g => {
+            if (g.groupName) names.push(g.groupName)
+            ;(g.members || []).forEach(m => {
+              if (!m || !m.studentId || seen[m.studentId]) return
+              seen[m.studentId] = true
+              studentIds.push(m.studentId)
+              if (!rosterMap[m.studentId]) {
+                this.roster.push({
+                  studentId: m.studentId,
+                  studentNo: m.studentNo,
+                  studentName: m.studentName
+                })
+              }
+            })
+          })
+          this.awardForm.studentIds = studentIds.slice(0, 80)
+          if (!this.awardForm.remark && names.length) {
+            this.awardForm.remark = '科目小组：' + names.slice(0, 4).join('、') + (names.length > 4 ? '等' : '')
+          }
+          if (!studentIds.length) {
+            this.$modal.msgWarning('所选小组暂无成员')
+          } else if (studentIds.length > 80) {
+            this.$modal.msgWarning('合并后超过 80 人，已截取前 80 人')
+          }
+        })
+        .finally(() => { this.groupMemberLoading = false })
+    },
     selectAllRoster() {
       this.awardForm.studentIds = (this.roster || []).map(s => s.studentId).filter(Boolean).slice(0, 80)
     },
     resetAward() {
       this.awardSaving = false
+      this.awardPickMode = 'student'
+      this.awardSubjectId = ''
+      this.awardGroupIds = []
+      this.awardGroupOptions = []
+      this.groupLoading = false
+      this.groupMemberLoading = false
       if (this.$refs.awardForm) this.$refs.awardForm.clearValidate()
     },
     submitAward() {
@@ -260,8 +408,9 @@ export default {
           return
         }
         const pts = Number(this.awardForm.points) || 0
+        const via = this.awardPickMode === 'group' ? '（按科目小组）' : ''
         this.$modal.confirm(
-          '确认给 ' + ids.length + ' 名学生每人发放 +' + pts + ' 分？计入日封顶，同批次不可重复。'
+          '确认给 ' + ids.length + ' 名学生每人发放 +' + pts + ' 分' + via + '？计入日封顶，同批次不可重复。'
         ).then(() => {
           this.awardSaving = true
           return practicePointsBatchAward({
@@ -298,4 +447,5 @@ export default {
 .tip { color: #909399; font-size: 12px; }
 .ml8 { margin-left: 8px; }
 .mb8 { margin-bottom: 8px; }
+.mt4 { margin-top: 4px; }
 </style>

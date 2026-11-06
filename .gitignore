@@ -113,3 +113,8 @@ sql/_try_*.py
 sql/_forge_*.py
 sql/_farm_demo_via_api.py
 sql/_write_farm_sql.py
+
+# ---- transient root working artifacts (not source, do not commit) ----
+_export_smoke/
+_patch_class_tabs.py
+66315688_陶龙江.pdf

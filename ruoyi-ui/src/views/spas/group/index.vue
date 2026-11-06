@@ -1,61 +1,103 @@
 <template>
   <div class="app-container spas-group">
-    <el-form :model="queryParams" size="small" :inline="true" label-width="68px" class="filter-form">
-      <el-form-item label="班级">
-        <el-button-group v-if="myDepts.length">
-          <el-button
-            v-for="d in myDepts"
-            :key="d.deptId"
-            size="mini"
-            :type="queryParams.deptId === d.deptId ? 'primary' : 'default'"
-            @click="selectDept(d.deptId)"
-          >{{ d.deptName }}</el-button>
-        </el-button-group>
-        <treeselect
-          v-else
-          v-model="queryParams.deptId"
-          :options="deptOptions"
-          :show-count="true"
-          placeholder="选择班级"
-          style="width: 240px"
-          @input="onDeptChange"
-        />
-      </el-form-item>
-      <el-form-item label="学科">
-        <el-select v-model="queryParams.subjectId" clearable placeholder="不限/通用组" style="width: 160px" @change="refreshAll">
-          <el-option v-for="s in subjectOptions" :key="s.subjectId" :label="s.subjectName" :value="s.subjectId" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="状态">
-        <el-select v-model="queryParams.status" style="width: 110px" @change="getList">
-          <el-option label="启用中" value="0" />
-          <el-option label="已解散" value="1" />
-          <el-option label="全部" value="" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="成绩场次">
-        <el-select v-model="queryParams.examId" clearable filterable placeholder="默认最近考试" style="width: 200px" @change="getList">
-          <el-option
-            v-for="e in examOptions"
-            :key="e.examId"
-            :label="(e.examName || ('考试#' + e.examId)) + (e.examDate ? (' · ' + parseTime(e.examDate, '{y}-{m}-{d}')) : '')"
-            :value="e.examId"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" icon="el-icon-search" size="mini" @click="refreshAll">搜索</el-button>
-        <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd" v-hasPermi="['spas:group:add']">新建组</el-button>
-        <el-button type="success" plain icon="el-icon-magic-stick" size="mini" @click="openSmart" v-hasPermi="['spas:group:add']">智能分组</el-button>
+    <div class="class-filter-panel">
+      <div class="filter-toolbar">
+        <div class="filter-toolbar-left">
+          <el-select v-model="queryParams.status" size="small" class="filter-select" @change="onStatusChange">
+            <el-option label="启用中" value="0" />
+            <el-option label="已解散" value="1" />
+            <el-option label="全部状态" value="" />
+          </el-select>
+          <el-select
+            v-model="queryParams.examId"
+            size="small"
+            class="filter-select exam-select"
+            clearable
+            filterable
+            placeholder="成绩场次·默认最近"
+            :disabled="!queryParams.deptId"
+            @change="onExamChange"
+          >
+            <el-option
+              v-for="e in examOptions"
+              :key="e.examId"
+              :label="(e.examName || ('考试#' + e.examId)) + (e.examDate ? (' · ' + parseTime(e.examDate, '{y}-{m}-{d}')) : '')"
+              :value="e.examId"
+            />
+          </el-select>
+        </div>
+        <div v-if="subjectEntered" class="filter-current-subject">
+          当前科目：<b>{{ currentSubjectLabel }}</b>
+        </div>
+      </div>
+
+      <div class="filter-tag-rows">
+        <div class="filter-tag-row">
+          <span class="filter-tag-label">班级:</span>
+          <div class="filter-tag-list">
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: !queryParams.deptId }"
+              @click="clearDept"
+            >请选择</button>
+            <button
+              v-for="d in classTagOptions"
+              :key="d.deptId"
+              type="button"
+              class="filter-chip"
+              :class="{ active: Number(queryParams.deptId) === Number(d.deptId) }"
+              @click="selectDept(d.deptId)"
+            >{{ d.deptName }}{{ d.primary ? '·主' : '' }}</button>
+            <treeselect
+              v-if="!classTagOptions.length"
+              v-model="queryParams.deptId"
+              :options="deptOptions"
+              :show-count="true"
+              placeholder="请选择班级"
+              class="filter-treeselect"
+              @input="onDeptChange"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-actions">
+        <el-button type="primary" icon="el-icon-search" size="mini" @click="onSearch">查询</el-button>
+        <el-button icon="el-icon-refresh" size="mini" @click="resetFilters">重置</el-button>
+        <el-button
+          v-if="subjectEntered"
+          type="text"
+          size="mini"
+          icon="el-icon-back"
+          @click="backToSubjectList"
+        >返回科目名单</el-button>
+        <el-button
+          type="primary"
+          plain
+          icon="el-icon-plus"
+          size="mini"
+          :disabled="!queryParams.deptId"
+          @click="handleAdd"
+          v-hasPermi="['spas:group:add']"
+        >新建组</el-button>
+        <el-button
+          type="success"
+          plain
+          icon="el-icon-magic-stick"
+          size="mini"
+          :disabled="!queryParams.deptId"
+          @click="openSmart"
+          v-hasPermi="['spas:group:add']"
+        >智能分组</el-button>
         <el-dropdown
           size="mini"
           split-button
           type="warning"
           plain
-          :disabled="!queryParams.deptId || !groupList.length"
+          :disabled="!canExportWeak"
           @click="exportDeptWeak('xlsx')"
           @command="exportDeptWeak"
-          style="margin-left: 8px"
         >
           导出各组薄弱
           <el-dropdown-menu slot="dropdown">
@@ -63,67 +105,106 @@
             <el-dropdown-item command="pdf">导出 PDF</el-dropdown-item>
           </el-dropdown-menu>
         </el-dropdown>
-      </el-form-item>
-    </el-form>
-
-    <div v-if="queryParams.deptId" class="list-summary">
-      <span>共 <b>{{ groupList.length }}</b> 组</span>
-      <span class="dot">·</span>
-      <span>在册 <b>{{ totalMemberCount }}</b> 人</span>
-      <span class="dot">·</span>
-      <span>未入组 <b :class="{ warn: unassignedCount > 0 }">{{ unassignedCount }}</b> 人</span>
-      <span v-if="statsExamLabel" class="dot">·</span>
-      <span v-if="statsExamLabel">成绩：{{ statsExamLabel }}</span>
-      <span class="hint">同班同科每人仅一组 · 建议 4～6 人</span>
-    </div>
-
-    <div class="group-grid">
-      <div
-        v-for="g in groupList"
-        :key="g.groupId"
-        class="group-card"
-        :class="{ disabled: g.status !== '0', 'size-warn': isSizeWarn(g) }"
-        @click="previewMembers(g)"
-      >
-        <div class="card-top">
-          <div class="title-row">
-            <span class="group-name">{{ g.groupName }}</span>
-            <span v-if="g.status !== '0'" class="status-pill muted">已解散</span>
-            <span v-else-if="!queryParams.subjectId" class="status-pill">{{ g.subjectName || '通用' }}</span>
-          </div>
-          <span
-            class="count-badge"
-            :class="{ warn: isSizeWarn(g) }"
-            :title="isSizeWarn(g) ? '建议每组 4～6 人' : ''"
-          >{{ g.memberCount || 0 }}人</span>
-        </div>
-        <div class="leader-row">
-          <i class="el-icon-user-solid" />
-          <span>{{ g.leaderStudentName || '未指定组长' }}</span>
-        </div>
-        <div class="stats-row">
-          <span v-if="g.avgScore != null" class="stat"><em>均分</em>{{ formatStat(g.avgScore) }}</span>
-          <span v-if="g.avgRank != null" class="stat"><em>均次</em>{{ formatStat(g.avgRank) }}</span>
-          <span class="stat"><em>男女</em>{{ (g.maleCount || 0) }}/{{ (g.femaleCount || 0) }}</span>
-          <span v-if="g.avgScore == null && g.avgRank == null" class="stat muted">暂无成绩</span>
-        </div>
-        <div class="members-line" :title="memberNamesText(g)">
-          <template v-if="memberPreview[g.groupId]">
-            {{ memberNamesText(g) || '暂无成员' }}
-          </template>
-          <template v-else-if="(g.memberCount || 0) > 0">加载中…</template>
-          <template v-else>暂无成员</template>
-        </div>
-        <div class="card-actions" @click.stop>
-          <el-button type="text" size="mini" @click="previewMembers(g)">成绩</el-button>
-          <template v-if="g.status === '0'">
-            <el-button type="text" size="mini" @click="handleUpdate(g)" v-hasPermi="['spas:group:edit']">编辑</el-button>
-            <el-button type="text" size="mini" class="danger-text" @click="handleDelete(g)" v-hasPermi="['spas:group:remove']">解散</el-button>
-          </template>
-        </div>
       </div>
     </div>
-    <el-empty v-if="!groupList.length" :description="queryParams.deptId ? '暂无小组，可新建或智能分组' : '请先选择班级'" />
+
+    <!-- 未选班级 -->
+    <el-empty v-if="!queryParams.deptId" description="请先选择班级" :image-size="72" />
+
+    <!-- 科目名单 -->
+    <div v-else-if="!subjectEntered" class="class-roster-panel">
+      <div class="roster-header">
+        <div class="roster-header-main">
+          <div class="roster-title">科目分组</div>
+          <div class="roster-sub">点击卡片进入该科目的学习小组；成绩场次仅影响组卡均分/均次</div>
+        </div>
+        <div class="roster-meta">
+          <span class="roster-count">{{ subjectRoster.length }}</span>
+          <span class="roster-count-label">个科目入口</span>
+        </div>
+      </div>
+      <el-empty v-if="!subjectRoster.length" description="暂无学科，请先在学科管理中维护" :image-size="64" />
+      <div v-else class="roster-grid">
+        <button
+          v-for="s in subjectRoster"
+          :key="s.key"
+          type="button"
+          class="roster-tile"
+          @click="enterSubject(s)"
+        >
+          <span class="roster-avatar" :class="'tone-' + subjectAvatarTone(s)">{{ subjectAvatarText(s) }}</span>
+          <span class="roster-body">
+            <span class="roster-name-row">
+              <span class="roster-name">{{ s.subjectName }}</span>
+              <el-tag v-if="s.key === 'general'" size="mini" type="info" effect="plain">不分科</el-tag>
+            </span>
+            <span class="roster-no">{{ s.groupCount }} 组 · {{ s.memberCount }} 人在册</span>
+          </span>
+          <span class="roster-action">小组<i class="el-icon-arrow-right" /></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 某科目下的小组 -->
+    <template v-else>
+      <div class="list-summary">
+        <span>{{ currentSubjectLabel }} · 共 <b>{{ groupList.length }}</b> 组</span>
+        <span class="dot">·</span>
+        <span>在册 <b>{{ totalMemberCount }}</b> 人</span>
+        <span class="dot">·</span>
+        <span>未入组 <b :class="{ warn: unassignedCount > 0 }">{{ unassignedCount }}</b> 人</span>
+        <span v-if="statsExamLabel" class="dot">·</span>
+        <span v-if="statsExamLabel">成绩：{{ statsExamLabel }}</span>
+        <span class="hint">同班同科每人仅一组 · 建议 4～6 人</span>
+      </div>
+
+      <div class="group-grid">
+        <div
+          v-for="g in groupList"
+          :key="g.groupId"
+          class="group-card"
+          :class="{ disabled: g.status !== '0', 'size-warn': isSizeWarn(g) }"
+          @click="previewMembers(g)"
+        >
+          <div class="card-top">
+            <div class="title-row">
+              <span class="group-name">{{ g.groupName }}</span>
+              <span v-if="g.status !== '0'" class="status-pill muted">已解散</span>
+            </div>
+            <span
+              class="count-badge"
+              :class="{ warn: isSizeWarn(g) }"
+              :title="isSizeWarn(g) ? '建议每组 4～6 人' : ''"
+            >{{ g.memberCount || 0 }}人</span>
+          </div>
+          <div class="leader-row">
+            <i class="el-icon-user-solid" />
+            <span>{{ g.leaderStudentName || '未指定组长' }}</span>
+          </div>
+          <div class="stats-row">
+            <span v-if="g.avgScore != null" class="stat"><em>均分</em>{{ formatStat(g.avgScore) }}</span>
+            <span v-if="g.avgRank != null" class="stat"><em>均次</em>{{ formatStat(g.avgRank) }}</span>
+            <span class="stat"><em>男女</em>{{ (g.maleCount || 0) }}/{{ (g.femaleCount || 0) }}</span>
+            <span v-if="g.avgScore == null && g.avgRank == null" class="stat muted">暂无成绩</span>
+          </div>
+          <div class="members-line" :title="memberNamesText(g)">
+            <template v-if="memberPreview[g.groupId]">
+              {{ memberNamesText(g) || '暂无成员' }}
+            </template>
+            <template v-else-if="(g.memberCount || 0) > 0">加载中…</template>
+            <template v-else>暂无成员</template>
+          </div>
+          <div class="card-actions" @click.stop>
+            <el-button type="text" size="mini" @click="previewMembers(g)">成绩</el-button>
+            <template v-if="g.status === '0'">
+              <el-button type="text" size="mini" @click="handleUpdate(g)" v-hasPermi="['spas:group:edit']">编辑</el-button>
+              <el-button type="text" size="mini" class="danger-text" @click="handleDelete(g)" v-hasPermi="['spas:group:remove']">解散</el-button>
+            </template>
+          </div>
+        </div>
+      </div>
+      <el-empty v-if="!groupList.length" description="该科目暂无小组，可新建或智能分组" :image-size="64" />
+    </template>
 
     <!-- 新建/编辑 -->
     <el-dialog :title="title" :visible.sync="open" width="720px" append-to-body @closed="resetForm">
@@ -398,7 +479,7 @@ import { optionselectSubject } from '@/api/spas/subject'
 import { listExamScore } from '@/api/spas/examScore'
 import { deptTreeSelect } from '@/api/system/user'
 import { listMyTeachingDepts } from '@/api/spas/teacher'
-import { applyTeachingDeptContext } from '@/utils/spasDeptTree'
+import { applyTeachingDeptContext, isLikelyClassDeptName } from '@/utils/spasDeptTree'
 import SpasChart from '@/components/spas/charts/SpasChart'
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
@@ -412,9 +493,12 @@ export default {
       deptOptions: [],
       subjectOptions: [],
       groupList: [],
+      classGroupPool: [],
       classStudents: [],
       unassignedStudents: [],
       memberPreview: {},
+      subjectEntered: false,
+      generalSubjectOnly: false,
       open: false,
       saving: false,
       title: '',
@@ -442,6 +526,106 @@ export default {
     }
   },
   computed: {
+    boundClassMode() {
+      return Array.isArray(this.myDepts) && this.myDepts.length > 0
+    },
+    classTagOptions() {
+      const keepClass = list => (list || []).filter(d =>
+        isLikelyClassDeptName(d.deptName, d.parentLabel)
+      )
+      if (this.boundClassMode) {
+        return keepClass((this.myDepts || []).map(d => ({
+          deptId: d.deptId,
+          deptName: d.deptName,
+          primary: !!d.primary,
+          parentLabel: d.parentName || d.parentLabel || ''
+        })))
+      }
+      const leaves = []
+      const walk = (nodes, parentLabel) => {
+        ;(nodes || []).forEach(n => {
+          const id = n.id != null ? n.id : n.deptId
+          const name = n.label || n.deptName || ''
+          const kids = n.children || []
+          if (!kids.length) {
+            leaves.push({ deptId: id, deptName: name, parentLabel: parentLabel || '' })
+          } else {
+            walk(kids, name)
+          }
+        })
+      }
+      walk(this.deptOptions, '')
+      const classLeaves = keepClass(leaves)
+      if (classLeaves.length) return classLeaves
+      return keepClass((this.myDepts || []).map(d => ({
+        deptId: d.deptId,
+        deptName: d.deptName,
+        primary: !!d.primary,
+        parentLabel: d.parentName || d.parentLabel || ''
+      })))
+    },
+    subjectRoster() {
+      const pool = this.classGroupPool || []
+      const bySid = {}
+      let generalCount = 0
+      let generalMembers = 0
+      pool.forEach(g => {
+        if (g.subjectId == null || g.subjectId === '') {
+          generalCount++
+          generalMembers += Number(g.memberCount || 0)
+        } else {
+          const k = String(g.subjectId)
+          if (!bySid[k]) bySid[k] = { groupCount: 0, memberCount: 0 }
+          bySid[k].groupCount++
+          bySid[k].memberCount += Number(g.memberCount || 0)
+        }
+      })
+      const cards = [{
+        key: 'general',
+        subjectId: null,
+        subjectName: '通用组',
+        groupCount: generalCount,
+        memberCount: generalMembers
+      }]
+      const seen = { general: true }
+      ;(this.subjectOptions || []).forEach(s => {
+        const k = String(s.subjectId)
+        seen[k] = true
+        const hit = bySid[k] || { groupCount: 0, memberCount: 0 }
+        cards.push({
+          key: k,
+          subjectId: s.subjectId,
+          subjectName: s.subjectName,
+          groupCount: hit.groupCount,
+          memberCount: hit.memberCount
+        })
+      })
+      Object.keys(bySid).forEach(k => {
+        if (seen[k]) return
+        const sample = pool.find(g => String(g.subjectId) === k)
+        cards.push({
+          key: k,
+          subjectId: Number(k) || k,
+          subjectName: (sample && sample.subjectName) || ('科目#' + k),
+          groupCount: bySid[k].groupCount,
+          memberCount: bySid[k].memberCount
+        })
+      })
+      return cards
+    },
+    currentSubjectLabel() {
+      if (this.generalSubjectOnly) return '通用组'
+      if (this.queryParams.subjectId == null) return '全部科目'
+      const hit = (this.subjectOptions || []).find(s => Number(s.subjectId) === Number(this.queryParams.subjectId))
+      if (hit) return hit.subjectName
+      const g = (this.groupList || []).find(x => x.subjectName)
+      return (g && g.subjectName) || ('科目#' + this.queryParams.subjectId)
+    },
+    canExportWeak() {
+      if (!this.queryParams.deptId) return false
+      if (this.subjectEntered) return (this.groupList || []).length > 0
+      return (this.classGroupPool || []).length > 0
+    },
     unassignedCount() {
       return (this.unassignedStudents || []).length
     },
@@ -460,8 +644,10 @@ export default {
       return '将把' + who + '编组：' + examTip + '；' + scoreTip + '；每组成绩最强者为组长。'
     },
     currentDeptName() {
-      const hit = (this.myDepts || []).find(d => Number(d.deptId) === Number(this.queryParams.deptId))
-      return hit ? hit.deptName : ''
+      const hit = (this.classTagOptions || []).find(d => Number(d.deptId) === Number(this.queryParams.deptId))
+      if (hit) return hit.deptName
+      const mine = (this.myDepts || []).find(d => Number(d.deptId) === Number(this.queryParams.deptId))
+      return mine ? mine.deptName : ''
     },
     statsExamLabel() {
       const hit = (this.groupList || []).find(g => g.statsExamName)
@@ -507,23 +693,125 @@ export default {
     })
   },
   methods: {
+    clearDept() {
+      this.queryParams.deptId = undefined
+      this.queryParams.examId = undefined
+      this.queryParams.subjectId = undefined
+      this.subjectEntered = false
+      this.generalSubjectOnly = false
+      this.groupList = []
+      this.classGroupPool = []
+      this.examOptions = []
+      this.unassignedStudents = []
+      this.memberPreview = {}
+    },
     selectDept(deptId) {
       this.queryParams.deptId = deptId
       this.queryParams.examId = undefined
+      this.queryParams.subjectId = undefined
+      this.subjectEntered = false
+      this.generalSubjectOnly = false
+      this.groupList = []
+      this.memberPreview = {}
       this.refreshAll()
     },
     onDeptChange() {
       this.queryParams.examId = undefined
+      this.queryParams.subjectId = undefined
+      this.subjectEntered = false
+      this.generalSubjectOnly = false
+      this.groupList = []
+      this.memberPreview = {}
       this.refreshAll()
     },
-    refreshAll() {
-      this.loadExamOptions().then(() => {
+    enterSubject(card) {
+      if (!card || !this.queryParams.deptId) return
+      this.subjectEntered = true
+      this.generalSubjectOnly = card.key === 'general'
+      this.queryParams.subjectId = this.generalSubjectOnly ? undefined : card.subjectId
+      this.getList()
+      this.loadUnassigned()
+    },
+    backToSubjectList() {
+      this.subjectEntered = false
+      this.generalSubjectOnly = false
+      this.queryParams.subjectId = undefined
+      this.groupList = []
+      this.memberPreview = {}
+      this.unassignedStudents = []
+      this.loadClassGroupPool()
+    },
+    onSearch() {
+      this.refreshAll()
+    },
+    resetFilters() {
+      this.queryParams.status = '0'
+      this.queryParams.examId = undefined
+      if (this.subjectEntered) {
         this.getList()
         this.loadUnassigned()
+      } else if (this.queryParams.deptId) {
+        this.loadClassGroupPool()
+        this.loadExamOptions()
+      }
+    },
+    onStatusChange() {
+      if (this.subjectEntered) {
+        this.getList()
+      } else if (this.queryParams.deptId) {
+        this.loadClassGroupPool()
+      }
+    },
+    onExamChange() {
+      if (this.subjectEntered) this.getList()
+    },
+    subjectAvatarText(s) {
+      if (!s) return '?'
+      if (s.key === 'general') return '通'
+      const name = String(s.subjectName || '')
+      return name ? name.charAt(0) : '?'
+    },
+    subjectAvatarTone(s) {
+      const tones = ['teal', 'blue', 'amber', 'rose', 'slate']
+      if (!s || s.key === 'general') return 'slate'
+      const n = Number(s.subjectId) || 0
+      return tones[Math.abs(n) % tones.length]
+    },
+    refreshAll() {
+      if (!this.queryParams.deptId) {
+        this.groupList = []
+        this.classGroupPool = []
+        this.examOptions = []
+        this.unassignedStudents = []
+        this.memberPreview = {}
+        return
+      }
+      this.loadExamOptions().then(() => {
+        if (this.subjectEntered) {
+          this.getList()
+          this.loadUnassigned()
+        } else {
+          this.loadClassGroupPool()
+        }
       })
     },
-    getList() {
+    loadClassGroupPool() {
       if (!this.queryParams.deptId) {
+        this.classGroupPool = []
+        return
+      }
+      const params = {
+        deptId: this.queryParams.deptId,
+        pageNum: 1,
+        pageSize: 500
+      }
+      if (this.queryParams.status !== '') params.status = this.queryParams.status
+      listStudyGroup(params).then(res => {
+        this.classGroupPool = res.rows || []
+      }).catch(() => { this.classGroupPool = [] })
+    },
+    getList() {
+      if (!this.queryParams.deptId || !this.subjectEntered) {
         this.groupList = []
         this.memberPreview = {}
         return
@@ -534,6 +822,12 @@ export default {
         params['params[examId]'] = params.examId
       }
       delete params.examId
+      if (this.generalSubjectOnly) {
+        delete params.subjectId
+        params['params[requireNullSubject]'] = true
+      } else if (params.subjectId == null || params.subjectId === '') {
+        delete params.subjectId
+      }
       listStudyGroup(params).then(res => {
         this.groupList = res.rows || []
         this.memberPreview = {}
@@ -597,9 +891,10 @@ export default {
         this.$modal.msgWarning('请先选择班级')
         return
       }
+      const subjectId = this.generalSubjectOnly ? undefined : this.queryParams.subjectId
       this.form = {
         deptId: this.queryParams.deptId,
-        subjectId: this.queryParams.subjectId,
+        subjectId,
         groupName: undefined,
         studentIds: [],
         leaderStudentId: undefined,
@@ -677,6 +972,11 @@ export default {
           return req.then(() => {
             this.$modal.msgSuccess('保存成功')
             this.open = false
+            if (!this.subjectEntered && payload.deptId) {
+              this.subjectEntered = true
+              this.generalSubjectOnly = !payload.subjectId
+              this.queryParams.subjectId = payload.subjectId || undefined
+            }
             this.refreshAll()
           }).finally(() => { this.saving = false })
         }
@@ -746,10 +1046,10 @@ export default {
             : '，无可用成绩仅性别均衡'
           this.$modal.msgSuccess('已创建 ' + (d.createdCount || 0) + ' 个组，覆盖 ' + (d.studentCount || 0) + ' 名学生' + scoreTip)
           this.smartOpen = false
-          if (this.smartForm.subjectId !== this.queryParams.subjectId) {
-            this.queryParams.subjectId = this.smartForm.subjectId
-          }
           this.queryParams.status = '0'
+          this.subjectEntered = true
+          this.generalSubjectOnly = !this.smartForm.subjectId
+          this.queryParams.subjectId = this.smartForm.subjectId || undefined
           this.refreshAll()
         }).finally(() => { this.smartSaving = false })
       }
@@ -1021,7 +1321,10 @@ export default {
         this.$modal.msgWarning('请先选择班级')
         return
       }
-      if (!(this.groupList || []).length) {
+      const hasGroups = this.subjectEntered
+        ? (this.groupList || []).length > 0
+        : (this.classGroupPool || []).length > 0
+      if (!hasGroups) {
         this.$modal.msgWarning('当前没有可导出的小组')
         return
       }
@@ -1029,7 +1332,9 @@ export default {
         deptId: this.queryParams.deptId,
         format: fmt
       }
-      if (this.queryParams.subjectId) params.subjectId = this.queryParams.subjectId
+      if (this.subjectEntered && this.queryParams.subjectId) {
+        params.subjectId = this.queryParams.subjectId
+      }
       const name = `class_groups_weak_${this.queryParams.deptId}_${Date.now()}.${fmt}`
       this.download('spas/group/weak/export', params, name)
     },
@@ -1088,9 +1393,240 @@ export default {
 </script>
 
 <style scoped>
-.filter-form { margin-bottom: 4px; }
 .mb8 { margin-bottom: 12px; }
 .mt8 { margin-top: 8px; }
+.class-filter-panel {
+  background: #fff;
+  border: 1px solid #E8EDF5;
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+.filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filter-select { width: 148px; }
+.filter-select.exam-select { width: 220px; }
+.filter-current-subject {
+  font-size: 13px;
+  color: #64748B;
+}
+.filter-current-subject b { color: #0F766E; font-weight: 600; }
+.filter-tag-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 2px;
+}
+.filter-tag-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.filter-tag-label {
+  flex: 0 0 42px;
+  line-height: 28px;
+  color: #64748B;
+  font-size: 13px;
+  text-align: right;
+}
+.filter-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 4px;
+  min-width: 0;
+  flex: 1;
+}
+.filter-chip {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  line-height: 28px;
+  padding: 0 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.filter-chip:hover {
+  color: #0F766E;
+  background: rgba(19, 194, 194, 0.08);
+}
+.filter-chip.active {
+  background: #13C2C2;
+  color: #fff;
+  font-weight: 500;
+}
+.filter-treeselect {
+  width: 240px;
+  margin-left: 4px;
+}
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #E8EDF5;
+}
+.class-roster-panel {
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #E8EDF5;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  padding: 16px 16px 18px;
+  min-height: 220px;
+}
+.roster-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #EEF2F7;
+}
+.roster-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0F172A;
+  line-height: 1.3;
+}
+.roster-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94A3B8;
+}
+.roster-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.roster-count {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F766E;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.roster-count-label {
+  font-size: 12px;
+  color: #64748B;
+}
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding-right: 2px;
+}
+.roster-tile {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 12px 12px 12px 10px;
+  border: 1px solid #E8EDF5;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.roster-tile:hover {
+  border-color: #99E6E6;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+.roster-tile:hover .roster-action {
+  color: #0F766E;
+  opacity: 1;
+}
+.roster-avatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.roster-avatar.tone-teal { background: #14B8A6; }
+.roster-avatar.tone-blue { background: #3B82F6; }
+.roster-avatar.tone-amber { background: #F59E0B; }
+.roster-avatar.tone-rose { background: #F43F5E; }
+.roster-avatar.tone-slate { background: #64748B; }
+.roster-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.roster-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.roster-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0F172A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-no {
+  font-size: 12px;
+  color: #94A3B8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-action {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94A3B8;
+  opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+@media (max-width: 768px) {
+  .roster-grid {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+  .roster-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
 .list-summary {
   display: flex;
   flex-wrap: wrap;

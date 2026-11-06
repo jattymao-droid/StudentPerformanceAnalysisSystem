@@ -41,6 +41,8 @@
             v-model="form.deptId"
             :options="deptOptions"
             :show-count="true"
+            :append-to-body="true"
+            :z-index="4000"
             placeholder="筛选学生所属班级"
             style="width: 220px"
             @input="onDeptChange"
@@ -51,6 +53,8 @@
             v-model="form.deptId"
             :options="deptOptions"
             :show-count="true"
+            :append-to-body="true"
+            :z-index="4000"
             placeholder="请选择班级"
             style="width: 220px"
           />
@@ -388,6 +392,15 @@ export default {
 .mb8 { margin-bottom: 12px; }
 .tip { color: #909399; font-size: 13px; min-height: 40px; }
 .spas-report-hub ::v-deep .vue-treeselect { line-height: 28px; }
+/* 筛选卡片需高于下方引导卡片，避免树选菜单被遮挡（append-to-body 兜底） */
+.spas-report-hub > .el-card.mb8 {
+  position: relative;
+  z-index: 20;
+  overflow: visible;
+}
+.spas-report-hub > .el-card.mb8 ::v-deep .el-card__body {
+  overflow: visible;
+}
 .preview-body { padding: 0 16px 24px; }
 .preview-section-title { font-weight: 600; margin: 12px 0 8px; color: #0F172A; }
 </style>
