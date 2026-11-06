@@ -246,6 +246,14 @@ public class SpasPracticeLogServiceImpl implements ISpasPracticeLogService
         {
             data.put("groupProgress", practiceMapper.selectGroupTodayProgress(group.getGroupId(), today));
         }
+        try
+        {
+            data.put("openIntervenes", interveneService.listOpenTodos(self.getStudentId()));
+        }
+        catch (Exception e)
+        {
+            data.put("openIntervenes", new ArrayList<Map<String, Object>>());
+        }
         return data;
     }
 
@@ -648,6 +656,14 @@ public class SpasPracticeLogServiceImpl implements ISpasPracticeLogService
             awarded = pointService.awardForPracticeLog(log, true);
         }
         LAST_AWARDED_POINTS.set(Integer.valueOf(awarded));
+        try
+        {
+            interveneService.onPracticeLogged(log.getStudentId(), log.getSubjectId(), kids);
+        }
+        catch (Exception ignored)
+        {
+            /* intervene progress sync is best-effort */
+        }
         return rows;
     }
 

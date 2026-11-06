@@ -284,4 +284,24 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         select count(1) from spas_score_detail where paper_id = #{paperId}
     </select>
 
+    <select id="selectStudentIdsByPaperId" parameterType="Long" resultType="Long">
+        select distinct student_id from spas_score_detail where paper_id = #{paperId}
+    </select>
+
+    <delete id="deleteScoreDetailByPaperId" parameterType="Long">
+        delete from spas_score_detail where paper_id = #{paperId}
+    </delete>
+
+    <delete id="deleteScoreBatchByPaperId" parameterType="Long">
+        delete from spas_score_batch where paper_id = #{paperId}
+    </delete>
+
+    <delete id="deleteErrorTagByPaperId" parameterType="Long">
+        delete from spas_error_tag where paper_id = #{paperId}
+    </delete>
+
+    <update id="clearExamPaperId" parameterType="Long">
+        update spas_exam set paper_id = null where paper_id = #{paperId}
+    </update>
+
 </mapper>

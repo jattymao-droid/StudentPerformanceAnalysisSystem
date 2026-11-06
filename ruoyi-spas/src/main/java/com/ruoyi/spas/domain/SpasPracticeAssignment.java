@@ -33,6 +33,8 @@ public class SpasPracticeAssignment extends BaseEntity
     private String deptName;
     private String subjectName;
     private String knowledgeName;
+    /** Optional: when saving from intervene deep-link, link assignment back to task (not persisted). */
+    private Long interveneId;
 
     public Long getAssignmentId() { return assignmentId; }
     public void setAssignmentId(Long assignmentId) { this.assignmentId = assignmentId; }
@@ -68,4 +70,6 @@ public class SpasPracticeAssignment extends BaseEntity
     public void setSubjectName(String subjectName) { this.subjectName = subjectName; }
     public String getKnowledgeName() { return knowledgeName; }
     public void setKnowledgeName(String knowledgeName) { this.knowledgeName = knowledgeName; }
+    public Long getInterveneId() { return interveneId; }
+    public void setInterveneId(Long interveneId) { this.interveneId = interveneId; }
 }

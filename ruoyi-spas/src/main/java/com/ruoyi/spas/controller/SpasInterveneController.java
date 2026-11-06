@@ -17,7 +17,10 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.spas.domain.SpasInterveneAction;
 import com.ruoyi.spas.domain.SpasInterveneTask;
+import com.ruoyi.spas.domain.SpasStudent;
+import com.ruoyi.spas.mapper.SpasStudentMapper;
 import com.ruoyi.spas.service.ISpasInterveneService;
 import com.ruoyi.spas.service.ISpasPracticeCheckoutService;
 import com.ruoyi.spas.service.ISpasPracticeLogService;
@@ -38,6 +41,9 @@ public class SpasInterveneController extends BaseController
 
     @Autowired
     private SpasAccessService accessService;
+
+    @Autowired
+    private SpasStudentMapper studentMapper;
 
     @PreAuthorize("@ss.hasPermi('spas:intervene:list')")
     @GetMapping("/list")
@@ -61,7 +67,8 @@ public class SpasInterveneController extends BaseController
     public AjaxResult add(@RequestBody SpasInterveneTask task)
     {
         task.setCreateBy(getUsername());
-        return toAjax(interveneService.insertSpasInterveneTask(task));
+        interveneService.insertSpasInterveneTask(task);
+        return success(interveneService.selectSpasInterveneTaskById(task.getInterveneId()));
     }
 
     @PreAuthorize("@ss.hasPermi('spas:intervene:edit')")
@@ -159,6 +166,19 @@ public class SpasInterveneController extends BaseController
         return success(list);
     }
 
+    /** Student self: open intervene todos */
+    @PreAuthorize("@ss.hasAnyPermi('spas:practice:mine,spas:practice:add,spas:intervene:list,spas:portfolio:mine')")
+    @GetMapping("/mine/open")
+    public AjaxResult myOpenTodos()
+    {
+        SpasStudent student = studentMapper.selectSpasStudentByUserId(getUserId());
+        if (student == null)
+        {
+            return success(java.util.Collections.emptyList());
+        }
+        return success(interveneService.listOpenTodos(student.getStudentId()));
+    }
+
     @PreAuthorize("@ss.hasPermi('spas:intervene:list')")
     @GetMapping("/class/{deptId}/summary")
     public AjaxResult classSummary(@PathVariable Long deptId,
@@ -182,5 +202,55 @@ public class SpasInterveneController extends BaseController
             target = new java.math.BigDecimal(body.get("targetRate").toString());
         }
         return success(interveneService.batchCreateForWeak(deptId, subjectId, knowledgeId, title, target));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:intervene:list')")
+    @GetMapping("/{interveneId}/progress")
+    public AjaxResult progress(@PathVariable Long interveneId)
+    {
+        return success(interveneService.progress(interveneId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:intervene:edit')")
+    @Log(title = "干预动作", businessType = BusinessType.INSERT)
+    @PostMapping("/{interveneId}/actions")
+    public AjaxResult addAction(@PathVariable Long interveneId, @RequestBody SpasInterveneAction action)
+    {
+        return success(interveneService.addAction(interveneId, action));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:intervene:edit')")
+    @Log(title = "干预动作", businessType = BusinessType.UPDATE)
+    @PutMapping("/actions")
+    public AjaxResult updateAction(@RequestBody SpasInterveneAction action)
+    {
+        return success(interveneService.updateAction(action));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:intervene:edit')")
+    @Log(title = "关联练习布置", businessType = BusinessType.UPDATE)
+    @PostMapping("/{interveneId}/link-assignment")
+    public AjaxResult linkAssignment(@PathVariable Long interveneId, @RequestBody Map<String, Object> body)
+    {
+        Long assignmentId = body == null || body.get("assignmentId") == null
+            ? null : Long.valueOf(body.get("assignmentId").toString());
+        if (assignmentId == null)
+        {
+            throw new ServiceException("assignmentId 不能为空");
+        }
+        return success(interveneService.linkAssignment(interveneId, assignmentId));
+    }
+
+    @PreAuthorize("@ss.hasPermi('spas:intervene:edit')")
+    @Log(title = "关联选题补弱", businessType = BusinessType.UPDATE)
+    @PostMapping("/{interveneId}/link-select")
+    public AjaxResult linkSelect(@PathVariable Long interveneId, @RequestBody(required = false) Map<String, Object> body)
+    {
+        Long refId = null;
+        if (body != null && body.get("refId") != null && !"".equals(String.valueOf(body.get("refId"))))
+        {
+            refId = Long.valueOf(String.valueOf(body.get("refId")));
+        }
+        return success(interveneService.linkSelect(interveneId, refId));
     }
 }

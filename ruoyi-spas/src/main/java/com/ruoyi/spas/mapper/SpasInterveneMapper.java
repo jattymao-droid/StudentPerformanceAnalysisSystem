@@ -29,4 +29,9 @@ public interface SpasInterveneMapper
     List<Long> selectInterveneKnowledgeIds(@Param("interveneId") Long interveneId);
 
     Map<String, Object> selectDeptSummary(@Param("deptId") Long deptId, @Param("subjectId") Long subjectId);
+
+    /** Mark open tasks past due_date as overdue; returns affected rows. */
+    int markOverdueOpenTasks();
+
+    int countOpenByOwner(@Param("ownerBy") String ownerBy, @Param("deptId") Long deptId);
 }

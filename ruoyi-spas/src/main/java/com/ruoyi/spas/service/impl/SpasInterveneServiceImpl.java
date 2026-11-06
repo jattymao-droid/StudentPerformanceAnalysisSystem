@@ -4,11 +4,14 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,11 +32,13 @@ import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.spas.analysis.KnowledgeStatQueryService;
 import com.ruoyi.spas.domain.SpasCoachLog;
+import com.ruoyi.spas.domain.SpasInterveneAction;
 import com.ruoyi.spas.domain.SpasInterveneTask;
 import com.ruoyi.spas.domain.SpasStudentKnowledgeStat;
 import com.ruoyi.spas.domain.SpasWarningRecord;
 import com.ruoyi.spas.mapper.SpasAnalysisMapper;
 import com.ruoyi.spas.mapper.SpasCoachLogMapper;
+import com.ruoyi.spas.mapper.SpasInterveneActionMapper;
 import com.ruoyi.spas.mapper.SpasInterveneMapper;
 import com.ruoyi.spas.mapper.SpasWarningRecordMapper;
 import com.ruoyi.spas.service.ISpasErrorTagService;
@@ -65,6 +70,9 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
     private SpasCoachLogMapper coachLogMapper;
 
     @Autowired
+    private SpasInterveneActionMapper interveneActionMapper;
+
+    @Autowired
     private SpasAccessService accessService;
 
     @Autowired
@@ -79,15 +87,34 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
     @Value("${spas.intervene.close-warning-on-pass:true}")
     private boolean closeWarningOnPass;
 
+    @Value("${spas.intervene.default-due-days:14}")
+    private int defaultDueDays;
+
+    /** Dual-gate: require post-create practice sample (or coach/done action) before status=passed. */
+    @Value("${spas.intervene.require-process-for-pass:true}")
+    private boolean requireProcessForPass;
+
     @Override
     public List<SpasInterveneTask> selectSpasInterveneTaskList(SpasInterveneTask task)
     {
+        List<SpasInterveneTask> list;
         if (teacherScopeService.useTeacherDeptFilter())
         {
             teacherScopeService.applyTeacherDeptFilter(task);
-            return interveneMapper.selectSpasInterveneTaskList(task);
+            list = interveneMapper.selectSpasInterveneTaskList(task);
         }
-        return SpringUtils.getAopProxy(this).selectSpasInterveneTaskListScoped(task);
+        else
+        {
+            list = SpringUtils.getAopProxy(this).selectSpasInterveneTaskListScoped(task);
+        }
+        if (list != null)
+        {
+            for (SpasInterveneTask row : list)
+            {
+                applyProcessSummary(row, null, false);
+            }
+        }
+        return list;
     }
 
     @DataScope(deptAlias = "d")
@@ -116,6 +143,9 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         }
         params.put("dataScope", "");
         task.setCoachLogs(coachLogMapper.selectSpasCoachLogList(q));
+        List<SpasInterveneAction> actions = interveneActionMapper.selectByInterveneId(interveneId);
+        task.setActions(actions == null ? new ArrayList<SpasInterveneAction>() : actions);
+        applyProcessSummary(task, actions, true);
         return task;
     }
 
@@ -134,6 +164,13 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         {
             throw new ServiceException("请至少挂接一个知识点（干预必挂知识点）");
         }
+        List<String> actionTypes = normalizeActionTypes(task.getActionTypes());
+        if (actionTypes.isEmpty())
+        {
+            // programmatic create (batch/weak/from-source) defaults to select补弱
+            actionTypes = Collections.singletonList(SpasInterveneAction.TYPE_SELECT);
+            task.setActionTypes(actionTypes);
+        }
         prepareBaseline(task);
         if (StringUtils.isEmpty(task.getKnowledgeIds()))
         {
@@ -141,7 +178,7 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         }
         if (StringUtils.isEmpty(task.getTitle()))
         {
-            task.setTitle("干预任务");
+            task.setTitle("\u5e72\u9884\u4efb\u52a1");
         }
         if (StringUtils.isEmpty(task.getSourceType()))
         {
@@ -155,6 +192,10 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         {
             task.setTargetRate(BigDecimal.valueOf(defaultTargetRate));
         }
+        if (task.getDueDate() == null)
+        {
+            task.setDueDate(defaultDueDate());
+        }
         if (StringUtils.isEmpty(task.getOwnerBy()))
         {
             task.setOwnerBy(SecurityUtils.getUsername());
@@ -166,6 +207,7 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         task.setEffectPassed("0");
         int rows = interveneMapper.insertSpasInterveneTask(task);
         syncInterveneKnowledge(task.getInterveneId(), parseKnowledgeIds(task.getKnowledgeIds()));
+        createActionPack(task, actionTypes);
         return rows;
     }
 
@@ -181,9 +223,18 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         }
         accessService.checkStudentAccess(db.getStudentId());
         task.setUpdateBy(SecurityUtils.getUsername());
-        if ("2".equals(task.getStatus()) && db.getCloseTime() == null)
+        if ("2".equals(task.getStatus()) && !"2".equals(db.getStatus()))
         {
-            task.setCloseTime(new Date());
+            Map<String, Object> prog = buildProgress(db);
+            boolean processOk = Boolean.TRUE.equals(prog.get("processOk"));
+            if (!processOk && StringUtils.isEmpty(task.getCloseReason()))
+            {
+                throw new ServiceException("无辅导/新练习/达标证据时关闭须填写关闭原因");
+            }
+            if (db.getCloseTime() == null)
+            {
+                task.setCloseTime(new Date());
+            }
         }
         int rows = interveneMapper.updateSpasInterveneTask(task);
         if (task.getKnowledgeIds() != null || task.getKnowledgeIdList() != null)
@@ -219,7 +270,9 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         task.setSourceId(warningId);
         if (StringUtils.isEmpty(task.getTitle()))
         {
-            task.setTitle("预警干预：" + (StringUtils.isNotEmpty(warning.getTitle()) ? warning.getTitle() : warning.getRuleName()));
+            // unicode escapes: avoid javac source-encoding turning Chinese into ???
+            task.setTitle("\u9884\u8b66\u5e72\u9884\uff1a"
+                + (StringUtils.isNotEmpty(warning.getTitle()) ? warning.getTitle() : warning.getRuleName()));
         }
         if (warning.getKnowledgeId() != null && (task.getKnowledgeIdList() == null || task.getKnowledgeIdList().isEmpty())
             && StringUtils.isEmpty(task.getKnowledgeIds()))
@@ -428,19 +481,61 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         {
             row = new LinkedHashMap<String, Object>();
         }
-        if (!row.containsKey("openCount"))
+        String[] keys = new String[] {
+            "openCount", "passedCount", "overdueCount", "dueTodayCount",
+            "pastDueOpenCount", "noCoachCount", "noActionCount"
+        };
+        for (String k : keys)
         {
-            row.put("openCount", 0);
+            if (!row.containsKey(k) || row.get(k) == null)
+            {
+                row.put(k, 0);
+            }
         }
-        if (!row.containsKey("passedCount"))
+        try
         {
-            row.put("passedCount", 0);
+            row.put("myOpenCount", interveneMapper.countOpenByOwner(SecurityUtils.getUsername(), deptId));
         }
-        if (!row.containsKey("overdueCount"))
+        catch (Exception e)
         {
-            row.put("overdueCount", 0);
+            row.put("myOpenCount", 0);
         }
+        int open = toInt(row.get("openCount"));
+        int passed = toInt(row.get("passedCount"));
+        int overdue = toInt(row.get("overdueCount"));
+        int noAction = toInt(row.get("noActionCount"));
+        int noCoach = toInt(row.get("noCoachCount"));
+        int tracked = open + passed + overdue;
+        row.put("coverageCount", tracked);
+        row.put("actionHangRate", open <= 0 ? 0.0 : roundRate((double) noAction / open));
+        row.put("noCoachRate", (open + overdue) <= 0 ? 0.0 : roundRate((double) noCoach / (open + overdue)));
+        row.put("passRate", tracked <= 0 ? 0.0 : roundRate((double) passed / tracked));
         return row;
+    }
+
+    private static int toInt(Object v)
+    {
+        if (v == null)
+        {
+            return 0;
+        }
+        if (v instanceof Number)
+        {
+            return ((Number) v).intValue();
+        }
+        try
+        {
+            return Integer.parseInt(String.valueOf(v));
+        }
+        catch (Exception e)
+        {
+            return 0;
+        }
+    }
+
+    private static double roundRate(double v)
+    {
+        return Math.round(v * 10000.0) / 10000.0;
     }
 
     @Override
@@ -478,7 +573,8 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
                 task.setSourceId(knowledgeId);
                 task.setKnowledgeIdList(java.util.Collections.singletonList(knowledgeId));
                 String name = stu.get("studentName") == null ? String.valueOf(studentId) : stu.get("studentName").toString();
-                task.setTitle(StringUtils.isNotEmpty(title) ? title : ("薄弱干预：" + name));
+                task.setTitle(StringUtils.isNotEmpty(title) ? title
+                    : ("\u8584\u5f31\u5e72\u9884\uff1a" + name));
                 if (targetRate != null)
                 {
                     task.setTargetRate(targetRate);
@@ -493,6 +589,286 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         result.put("skipped", skipped);
         result.put("candidates", students == null ? 0 : students.size());
         return result;
+    }
+
+    @Override
+    public Map<String, Object> progress(Long interveneId)
+    {
+        SpasInterveneTask task = interveneMapper.selectSpasInterveneTaskById(interveneId);
+        if (task == null)
+        {
+            throw new ServiceException("干预任务不存在");
+        }
+        accessService.checkStudentAccess(task.getStudentId());
+        return buildProgress(task);
+    }
+
+    @Override
+    @Transactional
+    public SpasInterveneAction addAction(Long interveneId, SpasInterveneAction action)
+    {
+        accessService.assertCanWrite();
+        SpasInterveneTask task = interveneMapper.selectSpasInterveneTaskById(interveneId);
+        if (task == null)
+        {
+            throw new ServiceException("干预任务不存在");
+        }
+        accessService.checkStudentAccess(task.getStudentId());
+        if (action == null || StringUtils.isEmpty(action.getActionType()))
+        {
+            throw new ServiceException("动作类型不能为空");
+        }
+        String type = action.getActionType().trim().toLowerCase();
+        if (!isSupportedActionType(type))
+        {
+            throw new ServiceException("不支持的动作类型: " + type);
+        }
+        action.setActionType(type);
+        action.setInterveneId(interveneId);
+        if (StringUtils.isEmpty(action.getStatus()))
+        {
+            action.setStatus(SpasInterveneAction.STATUS_PENDING);
+        }
+        if (StringUtils.isEmpty(action.getTitle()))
+        {
+            action.setTitle(defaultActionTitle(type));
+        }
+        if (StringUtils.isEmpty(action.getCreateBy()))
+        {
+            action.setCreateBy(SecurityUtils.getUsername());
+        }
+        interveneActionMapper.insertSpasInterveneAction(action);
+        if (SpasInterveneAction.TYPE_COACH.equals(type)
+            && SpasInterveneAction.STATUS_DONE.equals(action.getStatus()))
+        {
+            // optional: no auto coach log here; createActionPack handles create-time coach
+        }
+        return action;
+    }
+
+    @Override
+    @Transactional
+    public SpasInterveneAction updateAction(SpasInterveneAction action)
+    {
+        accessService.assertCanWrite();
+        if (action == null || action.getActionId() == null || action.getInterveneId() == null)
+        {
+            throw new ServiceException("动作ID与interveneId不能为空");
+        }
+        SpasInterveneTask task = interveneMapper.selectSpasInterveneTaskById(action.getInterveneId());
+        if (task == null)
+        {
+            throw new ServiceException("干预任务不存在");
+        }
+        accessService.checkStudentAccess(task.getStudentId());
+        SpasInterveneAction db = null;
+        List<SpasInterveneAction> actions = interveneActionMapper.selectByInterveneId(action.getInterveneId());
+        if (actions != null)
+        {
+            for (SpasInterveneAction a : actions)
+            {
+                if (action.getActionId().equals(a.getActionId()))
+                {
+                    db = a;
+                    break;
+                }
+            }
+        }
+        if (db == null)
+        {
+            throw new ServiceException("干预动作不存在");
+        }
+        action.setUpdateBy(SecurityUtils.getUsername());
+        interveneActionMapper.updateSpasInterveneAction(action);
+        List<SpasInterveneAction> refreshed = interveneActionMapper.selectByInterveneId(action.getInterveneId());
+        if (refreshed != null)
+        {
+            for (SpasInterveneAction a : refreshed)
+            {
+                if (action.getActionId().equals(a.getActionId()))
+                {
+                    return a;
+                }
+            }
+        }
+        return action;
+    }
+
+    @Override
+    @Transactional
+    public int markOverdue()
+    {
+        return interveneMapper.markOverdueOpenTasks();
+    }
+
+    @Override
+    @Transactional
+    public int linkAssignment(Long interveneId, Long assignmentId)
+    {
+        accessService.assertCanWrite();
+        SpasInterveneTask task = interveneMapper.selectSpasInterveneTaskById(interveneId);
+        if (task == null)
+        {
+            throw new ServiceException("干预任务不存在");
+        }
+        accessService.checkStudentAccess(task.getStudentId());
+        String user = SecurityUtils.getUsername();
+        int n = interveneActionMapper.markPendingDoneByType(interveneId, SpasInterveneAction.TYPE_PRACTICE,
+            assignmentId, "已关联练习布置#" + assignmentId, user);
+        if (n == 0)
+        {
+            // ensure an action exists so progress shows linkage
+            SpasInterveneAction action = new SpasInterveneAction();
+            action.setInterveneId(interveneId);
+            action.setActionType(SpasInterveneAction.TYPE_PRACTICE);
+            action.setStatus(SpasInterveneAction.STATUS_DONE);
+            action.setRefId(assignmentId);
+            action.setTitle(defaultActionTitle(SpasInterveneAction.TYPE_PRACTICE));
+            action.setRemark("\u5df2\u5173\u8054\u7ec3\u4e60\u5e03\u7f6e#" + assignmentId);
+            action.setCreateBy(user);
+            interveneActionMapper.insertSpasInterveneAction(action);
+            n = 1;
+        }
+        return n;
+    }
+
+    @Override
+    @Transactional
+    public int linkSelect(Long interveneId, Long refId)
+    {
+        accessService.assertCanWrite();
+        SpasInterveneTask task = interveneMapper.selectSpasInterveneTaskById(interveneId);
+        if (task == null)
+        {
+            throw new ServiceException("干预任务不存在");
+        }
+        accessService.checkStudentAccess(task.getStudentId());
+        String user = SecurityUtils.getUsername();
+        int n = interveneActionMapper.markPendingDoneByType(interveneId, SpasInterveneAction.TYPE_SELECT,
+            refId, "已完成选题补弱", user);
+        if (n == 0)
+        {
+            SpasInterveneAction action = new SpasInterveneAction();
+            action.setInterveneId(interveneId);
+            action.setActionType(SpasInterveneAction.TYPE_SELECT);
+            action.setStatus(SpasInterveneAction.STATUS_DONE);
+            action.setRefId(refId);
+            action.setTitle(defaultActionTitle(SpasInterveneAction.TYPE_SELECT));
+            action.setRemark("\u5df2\u5b8c\u6210\u9009\u9898\u8865\u5f31");
+            action.setCreateBy(user);
+            interveneActionMapper.insertSpasInterveneAction(action);
+            n = 1;
+        }
+        return n;
+    }
+
+    @Override
+    public List<Map<String, Object>> listOpenTodos(Long studentId)
+    {
+        if (studentId == null)
+        {
+            return new ArrayList<Map<String, Object>>();
+        }
+        // Open parent API already asserts bind; skip Spring-Security student/dept check
+        if (com.ruoyi.spas.open.SpasOpenContext.getParentId() == null)
+        {
+            accessService.checkStudentAccess(studentId);
+        }
+        List<SpasInterveneTask> all = interveneMapper.selectByStudentId(studentId);
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        if (all == null)
+        {
+            return out;
+        }
+        for (SpasInterveneTask t : all)
+        {
+            // open + overdue still need student attention
+            if (!"0".equals(t.getStatus()) && !"3".equals(t.getStatus()))
+            {
+                continue;
+            }
+            applyProcessSummary(t, null, false);
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("interveneId", t.getInterveneId());
+            row.put("title", t.getTitle());
+            row.put("subjectId", t.getSubjectId());
+            row.put("subjectName", t.getSubjectName());
+            row.put("knowledgeIds", t.getKnowledgeIds());
+            row.put("status", t.getStatus());
+            row.put("dueDate", t.getDueDate());
+            row.put("targetRate", t.getTargetRate());
+            row.put("baselineRate", t.getBaselineRate());
+            row.put("effectRate", t.getEffectRate());
+            row.put("processLabel", t.getProcessLabel());
+            row.put("actionCount", t.getActionCount());
+            row.put("coachCount", t.getCoachCount());
+            row.put("daysLeft", daysLeft(t.getDueDate()));
+            out.add(row);
+        }
+        return out;
+    }
+
+    @Override
+    @Transactional
+    public int onPracticeLogged(Long studentId, Long subjectId, Collection<Long> knowledgeIds)
+    {
+        if (studentId == null || knowledgeIds == null || knowledgeIds.isEmpty())
+        {
+            return 0;
+        }
+        Set<Long> kids = new HashSet<Long>();
+        for (Long k : knowledgeIds)
+        {
+            if (k != null)
+            {
+                kids.add(k);
+            }
+        }
+        if (kids.isEmpty())
+        {
+            return 0;
+        }
+        List<SpasInterveneTask> open = interveneMapper.selectOpenByStudentIds(Collections.singletonList(studentId));
+        if (open == null || open.isEmpty())
+        {
+            return 0;
+        }
+        int updated = 0;
+        String user = "system";
+        try
+        {
+            user = SecurityUtils.getUsername();
+        }
+        catch (Exception ignored)
+        {
+        }
+        for (SpasInterveneTask task : open)
+        {
+            if (subjectId != null && task.getSubjectId() != null
+                && !subjectId.equals(task.getSubjectId()))
+            {
+                continue;
+            }
+            List<Long> taskKids = parseKnowledgeIds(task.getKnowledgeIds());
+            boolean hit = false;
+            for (Long kid : taskKids)
+            {
+                if (kids.contains(kid))
+                {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit)
+            {
+                continue;
+            }
+            updated += interveneActionMapper.markPendingDoneByType(task.getInterveneId(),
+                SpasInterveneAction.TYPE_PRACTICE, null, "练习打卡命中知识点", user);
+            updated += interveneActionMapper.markPendingDoneByType(task.getInterveneId(),
+                SpasInterveneAction.TYPE_SELECT, null, "练习打卡命中知识点", user);
+        }
+        return updated;
     }
 
     private boolean hasOpenKnowledge(Long studentId, Long knowledgeId)
@@ -682,7 +1058,11 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         BigDecimal baseline = task.getBaselineRate() == null ? BigDecimal.ZERO : task.getBaselineRate();
         BigDecimal delta = effect.subtract(baseline);
         BigDecimal target = task.getTargetRate() == null ? BigDecimal.valueOf(defaultTargetRate) : task.getTargetRate();
-        boolean passed = effect.compareTo(target) >= 0;
+        boolean ratePassed = effect.compareTo(target) >= 0;
+        boolean processOk = isProcessEvidenceOk(task, loaded, kids);
+        boolean fullyPassed = ratePassed && (!requireProcessForPass || processOk);
+        // effectPassed: 1=fully passed, 2=rate ok but watching (缺过程), 0=not passed
+        String effectPassedFlag = fullyPassed ? "1" : (ratePassed ? "2" : "0");
 
         Map<String, Object> effectPayload = new LinkedHashMap<String, Object>();
         effectPayload.put("mode", loaded.mode);
@@ -692,31 +1072,69 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
         effectPayload.put("effectRate", effect);
         effectPayload.put("delta", delta);
         effectPayload.put("targetRate", target);
-        effectPayload.put("passed", passed);
-        effectPayload.put("formula", "各知识点加权得分率按练习次数加权；Δ=当前−基线");
+        effectPayload.put("ratePassed", ratePassed);
+        effectPayload.put("processOk", processOk);
+        effectPayload.put("requireProcessForPass", requireProcessForPass);
+        effectPayload.put("passed", fullyPassed);
+        effectPayload.put("watching", ratePassed && !fullyPassed);
+        effectPayload.put("formula", "各知识点加权得分率按练习次数加权；Δ=当前−基线；通过=达标且（创建后新样本或辅导/已完成动作）");
         effectPayload.put("knowledges", effectRows);
 
         SpasInterveneTask upd = new SpasInterveneTask();
         upd.setInterveneId(task.getInterveneId());
         upd.setEffectRate(effect);
         upd.setEffectDelta(delta);
-        upd.setEffectPassed(passed ? "1" : "0");
+        upd.setEffectPassed(effectPassedFlag);
         upd.setEffectJson(JSON.toJSONString(effectPayload));
-        if (passed && "0".equals(task.getStatus()))
+        if (fullyPassed && ("0".equals(task.getStatus()) || "3".equals(task.getStatus())))
         {
             upd.setStatus("1");
         }
-        if (!passed && "0".equals(task.getStatus()) && task.getDueDate() != null
+        if (!fullyPassed && "0".equals(task.getStatus()) && task.getDueDate() != null
             && task.getDueDate().before(new Date()))
         {
             upd.setStatus("3");
         }
         upd.setUpdateBy("system");
         interveneMapper.updateSpasInterveneTask(upd);
-        if (passed && closeWarningOnPass)
+        if (fullyPassed && closeWarningOnPass)
         {
             closeLinkedWarning(task);
         }
+    }
+
+    private boolean isProcessEvidenceOk(SpasInterveneTask task, EffectStatsLoad loaded, List<Long> kids)
+    {
+        if (loaded != null && "after_create".equals(loaded.mode) && hasMeasuredKnowledge(loaded.stats, kids))
+        {
+            return true;
+        }
+        SpasCoachLog q = new SpasCoachLog();
+        q.setInterveneId(task.getInterveneId());
+        Map<String, Object> params = q.getParams();
+        if (params == null)
+        {
+            params = new HashMap<String, Object>();
+            q.setParams(params);
+        }
+        params.put("dataScope", "");
+        List<SpasCoachLog> coaches = coachLogMapper.selectSpasCoachLogList(q);
+        if (coaches != null && !coaches.isEmpty())
+        {
+            return true;
+        }
+        List<SpasInterveneAction> actions = interveneActionMapper.selectByInterveneId(task.getInterveneId());
+        if (actions != null)
+        {
+            for (SpasInterveneAction a : actions)
+            {
+                if (SpasInterveneAction.STATUS_DONE.equals(a.getStatus()))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Prefer attempts after task creation; fall back to full snapshot when the window is empty. */
@@ -782,6 +1200,285 @@ public class SpasInterveneServiceImpl implements ISpasInterveneService
             }
         }
         return false;
+    }
+
+    private Map<String, Object> buildProgress(SpasInterveneTask task)
+    {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        List<SpasInterveneAction> actions = interveneActionMapper.selectByInterveneId(task.getInterveneId());
+        if (actions == null)
+        {
+            actions = new ArrayList<SpasInterveneAction>();
+        }
+        SpasCoachLog q = new SpasCoachLog();
+        q.setInterveneId(task.getInterveneId());
+        Map<String, Object> params = q.getParams();
+        if (params == null)
+        {
+            params = new HashMap<String, Object>();
+            q.setParams(params);
+        }
+        params.put("dataScope", "");
+        List<SpasCoachLog> coaches = coachLogMapper.selectSpasCoachLogList(q);
+        int coachCount = coaches == null ? 0 : coaches.size();
+        int actionCount = actions.size();
+        int doneActions = 0;
+        for (SpasInterveneAction a : actions)
+        {
+            if (SpasInterveneAction.STATUS_DONE.equals(a.getStatus()))
+            {
+                doneActions++;
+            }
+        }
+        boolean hasPostCreateSample = false;
+        if (effectAfterCreate && task.getCreateTime() != null)
+        {
+            List<Long> kids = parseKnowledgeIds(task.getKnowledgeIds());
+            List<SpasStudentKnowledgeStat> windowed = knowledgeStatQueryService.computeStudentStats(
+                task.getStudentId(), task.getSubjectId(), task.getCreateTime(), null);
+            hasPostCreateSample = hasMeasuredKnowledge(windowed, kids);
+        }
+        boolean passed = "1".equals(task.getEffectPassed()) || "1".equals(task.getStatus());
+        boolean processOk = passed || coachCount > 0 || hasPostCreateSample || doneActions > 0;
+        String label = resolveProcessLabel(task.getStatus(), actionCount, doneActions, coachCount, hasPostCreateSample, passed);
+
+        out.put("interveneId", task.getInterveneId());
+        out.put("status", task.getStatus());
+        out.put("dueDate", task.getDueDate());
+        out.put("ownerBy", task.getOwnerBy());
+        out.put("baselineRate", task.getBaselineRate());
+        out.put("targetRate", task.getTargetRate());
+        out.put("effectRate", task.getEffectRate());
+        out.put("effectDelta", task.getEffectDelta());
+        out.put("actions", actions);
+        out.put("actionCount", actionCount);
+        out.put("doneActionCount", doneActions);
+        out.put("coachCount", coachCount);
+        out.put("hasPostCreateSample", hasPostCreateSample);
+        out.put("processOk", processOk);
+        out.put("processLabel", label);
+        out.put("daysLeft", daysLeft(task.getDueDate()));
+        return out;
+    }
+
+    private void applyProcessSummary(SpasInterveneTask task, List<SpasInterveneAction> actions, boolean deep)
+    {
+        if (task == null)
+        {
+            return;
+        }
+        int actionCount = task.getActionCount() == null ? 0 : task.getActionCount().intValue();
+        int coachCount = task.getCoachCount() == null ? 0 : task.getCoachCount().intValue();
+        int doneActions = 0;
+        boolean hasPostCreateSample = false;
+        if (deep)
+        {
+            if (actions == null)
+            {
+                actions = interveneActionMapper.selectByInterveneId(task.getInterveneId());
+            }
+            if (actions != null)
+            {
+                actionCount = actions.size();
+                for (SpasInterveneAction a : actions)
+                {
+                    if (SpasInterveneAction.STATUS_DONE.equals(a.getStatus()))
+                    {
+                        doneActions++;
+                    }
+                }
+            }
+            if (task.getCoachLogs() != null)
+            {
+                coachCount = task.getCoachLogs().size();
+            }
+            if (effectAfterCreate && task.getCreateTime() != null)
+            {
+                List<Long> kids = parseKnowledgeIds(task.getKnowledgeIds());
+                List<SpasStudentKnowledgeStat> windowed = knowledgeStatQueryService.computeStudentStats(
+                    task.getStudentId(), task.getSubjectId(), task.getCreateTime(), null);
+                hasPostCreateSample = hasMeasuredKnowledge(windowed, kids);
+            }
+        }
+        boolean passed = "1".equals(task.getEffectPassed()) || "1".equals(task.getStatus());
+        boolean processOk = passed || coachCount > 0 || hasPostCreateSample || doneActions > 0
+            || (actionCount > 0 && !deep);
+        // list view: having planned actions counts as "有动作" for label, but close gate still needs evidence
+        if (!deep)
+        {
+            processOk = passed || coachCount > 0 || "2".equals(task.getEffectPassed());
+        }
+        task.setActionCount(actionCount);
+        task.setCoachCount(coachCount);
+        task.setProcessOk(processOk);
+        task.setProcessLabel(resolveProcessLabel(task.getStatus(), actionCount, doneActions, coachCount,
+            hasPostCreateSample, passed, task.getEffectPassed()));
+    }
+
+    private String resolveProcessLabel(String status, int actionCount, int doneActions, int coachCount,
+        boolean hasPostCreateSample, boolean passed)
+    {
+        return resolveProcessLabel(status, actionCount, doneActions, coachCount, hasPostCreateSample, passed, null);
+    }
+
+    private String resolveProcessLabel(String status, int actionCount, int doneActions, int coachCount,
+        boolean hasPostCreateSample, boolean passed, String effectPassed)
+    {
+        if ("1".equals(status) || passed || "1".equals(effectPassed))
+        {
+            return "已达标";
+        }
+        if ("2".equals(effectPassed))
+        {
+            return "观察中(缺过程)";
+        }
+        if ("2".equals(status))
+        {
+            return "已关闭";
+        }
+        if ("3".equals(status))
+        {
+            return "已逾期";
+        }
+        if (coachCount > 0 && (doneActions > 0 || hasPostCreateSample))
+        {
+            return "辅导+练习中";
+        }
+        if (coachCount > 0)
+        {
+            return "已辅导 " + coachCount + " 次";
+        }
+        if (doneActions > 0)
+        {
+            return "动作完成 " + doneActions + "/" + actionCount;
+        }
+        if (actionCount > 0)
+        {
+            return "待执行 " + actionCount + " 项";
+        }
+        return "无动作";
+    }
+
+    private Integer daysLeft(Date dueDate)
+    {
+        if (dueDate == null)
+        {
+            return null;
+        }
+        Calendar due = Calendar.getInstance();
+        due.setTime(dueDate);
+        clearTime(due);
+        Calendar today = Calendar.getInstance();
+        clearTime(today);
+        long diff = (due.getTimeInMillis() - today.getTimeInMillis()) / (24L * 3600L * 1000L);
+        return (int) diff;
+    }
+
+    private void clearTime(Calendar c)
+    {
+        c.set(Calendar.HOUR_OF_DAY, 0);
+        c.set(Calendar.MINUTE, 0);
+        c.set(Calendar.SECOND, 0);
+        c.set(Calendar.MILLISECOND, 0);
+    }
+
+    private Date defaultDueDate()
+    {
+        Calendar c = Calendar.getInstance();
+        c.add(Calendar.DAY_OF_MONTH, Math.max(defaultDueDays, 1));
+        clearTime(c);
+        return c.getTime();
+    }
+
+    private List<String> normalizeActionTypes(List<String> raw)
+    {
+        LinkedHashSet<String> set = new LinkedHashSet<String>();
+        if (raw != null)
+        {
+            for (String t : raw)
+            {
+                if (StringUtils.isEmpty(t))
+                {
+                    continue;
+                }
+                String v = t.trim().toLowerCase();
+                if (isSupportedActionType(v))
+                {
+                    set.add(v);
+                }
+            }
+        }
+        return new ArrayList<String>(set);
+    }
+
+    private boolean isSupportedActionType(String type)
+    {
+        return SpasInterveneAction.TYPE_PRACTICE.equals(type)
+            || SpasInterveneAction.TYPE_SELECT.equals(type)
+            || SpasInterveneAction.TYPE_COACH.equals(type)
+            || SpasInterveneAction.TYPE_CUSTOM.equals(type);
+    }
+
+    private String defaultActionTitle(String type)
+    {
+        if (SpasInterveneAction.TYPE_PRACTICE.equals(type))
+        {
+            return "\u5e03\u7f6e\u7ec3\u4e60\u4e3b\u9898";
+        }
+        if (SpasInterveneAction.TYPE_SELECT.equals(type))
+        {
+            return "\u9009\u9898\u8865\u5f31";
+        }
+        if (SpasInterveneAction.TYPE_COACH.equals(type))
+        {
+            return "\u8f85\u5bfc\u8ba1\u5212";
+        }
+        return "\u5176\u5b83\u52a8\u4f5c";
+    }
+
+    private void createActionPack(SpasInterveneTask task, List<String> actionTypes)
+    {
+        if (task.getInterveneId() == null || actionTypes == null || actionTypes.isEmpty())
+        {
+            return;
+        }
+        String username = StringUtils.isNotEmpty(task.getCreateBy()) ? task.getCreateBy() : SecurityUtils.getUsername();
+        for (String type : actionTypes)
+        {
+            SpasInterveneAction action = new SpasInterveneAction();
+            action.setInterveneId(task.getInterveneId());
+            action.setActionType(type);
+            action.setTitle(defaultActionTitle(type));
+            action.setCreateBy(username);
+            if (SpasInterveneAction.TYPE_COACH.equals(type))
+            {
+                action.setStatus(SpasInterveneAction.STATUS_DONE);
+                String content = StringUtils.isNotEmpty(task.getCoachContent())
+                    ? task.getCoachContent()
+                    : ("创建干预：" + (StringUtils.isNotEmpty(task.getTitle()) ? task.getTitle() : "跟进薄弱点"));
+                String plan = StringUtils.isNotEmpty(task.getCoachPlan())
+                    ? task.getCoachPlan()
+                    : "安排一对一辅导，并督促完成相关练习";
+                SpasCoachLog coach = new SpasCoachLog();
+                coach.setStudentId(task.getStudentId());
+                coach.setInterveneId(task.getInterveneId());
+                List<Long> kids = parseKnowledgeIds(task.getKnowledgeIds());
+                if (!kids.isEmpty())
+                {
+                    coach.setKnowledgeId(kids.get(0));
+                }
+                coach.setContent(content);
+                coach.setNextPlan(plan);
+                coach.setCreateBy(username);
+                coachLogMapper.insertSpasCoachLog(coach);
+                action.setRemark("\u5df2\u5199\u5165\u8f85\u5bfc\u8ba1\u5212");
+            }
+            else
+            {
+                action.setStatus(SpasInterveneAction.STATUS_PENDING);
+            }
+            interveneActionMapper.insertSpasInterveneAction(action);
+        }
     }
 
     private void closeLinkedWarning(SpasInterveneTask task)

@@ -29,6 +29,14 @@ create table if not exists spas_study_group_member (
   constraint uk_spas_sgm_group_student unique (group_id, student_id)
 );
 create index if not exists idx_spas_sgm_student on spas_study_group_member(student_id);
+-- older DBs may only have partial uk_spas_sgm_active; ON CONFLICT (group_id, student_id) needs a full unique
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'uk_spas_sgm_group_student') then
+    alter table spas_study_group_member
+      add constraint uk_spas_sgm_group_student unique (group_id, student_id);
+  end if;
+end $$;
 
 create table if not exists spas_practice_log (
   log_id                  bigserial primary key,

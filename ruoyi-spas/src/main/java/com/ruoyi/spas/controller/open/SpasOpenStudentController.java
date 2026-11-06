@@ -58,6 +58,12 @@ public class SpasOpenStudentController extends BaseController
         return success(list);
     }
 
+    @GetMapping("/students/{studentId}/intervenes")
+    public AjaxResult intervenes(@PathVariable Long studentId)
+    {
+        return success(openService.listIntervenes(requireParentId(), studentId));
+    }
+
     @GetMapping("/students/{studentId}/radar")
     public AjaxResult radar(@PathVariable Long studentId,
         @RequestParam(required = false) Long subjectId)

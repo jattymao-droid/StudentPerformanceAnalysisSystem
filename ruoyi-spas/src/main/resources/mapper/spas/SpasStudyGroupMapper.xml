@@ -30,6 +30,7 @@
         <result property="leaveTime" column="leave_time"/>
         <result property="studentNo" column="student_no"/>
         <result property="studentName" column="student_name"/>
+        <result property="gender" column="gender"/>
     </resultMap>
 
     <sql id="selectVo">
@@ -88,6 +89,7 @@
             <if test="leaderStudentId != null">leader_student_id = #{leaderStudentId},</if>
             <if test="leaderStudentId == null and params != null and params.clearLeader != null">leader_student_id = null,</if>
             <if test="subjectId != null">subject_id = #{subjectId},</if>
+            <if test="subjectId == null and params != null and params.clearSubject != null">subject_id = null,</if>
             <if test="status != null and status != ''">status = #{status},</if>
             <if test="sortOrder != null">sort_order = #{sortOrder},</if>
             <if test="remark != null">remark = #{remark},</if>
@@ -105,11 +107,22 @@
 
     <select id="selectActiveMembers" resultMap="SpasStudyGroupMemberResult">
         select m.id, m.group_id, m.student_id, m.role_in_group, m.join_time, m.leave_time,
-               s.student_no, s.student_name
+               s.student_no, s.student_name, s.gender
         from spas_study_group_member m
         left join spas_student s on s.student_id = m.student_id
         where m.group_id = #{groupId} and m.leave_time is null
         order by m.role_in_group desc, s.student_no asc
+    </select>
+
+    <select id="selectActiveMembersByGroupIds" resultMap="SpasStudyGroupMemberResult">
+        select m.id, m.group_id, m.student_id, m.role_in_group, m.join_time, m.leave_time,
+               s.student_no, s.student_name, s.gender
+        from spas_study_group_member m
+        left join spas_student s on s.student_id = m.student_id
+        where m.leave_time is null
+          and m.group_id in
+        <foreach collection="groupIds" item="gid" open="(" separator="," close=")">#{gid}</foreach>
+        order by m.group_id asc, m.role_in_group desc, s.student_no asc
     </select>
 
     <select id="selectActiveMembersByStudent" resultMap="SpasStudyGroupMemberResult">
@@ -159,7 +172,7 @@
 
     <select id="selectUnassignedStudents" resultType="SpasStudent">
         select s.student_id as studentId, s.student_no as studentNo, s.student_name as studentName,
-               s.dept_id as deptId, s.status
+               s.dept_id as deptId, s.gender, s.status
         from spas_student s
         where s.del_flag = '0' and s.status = '0' and s.dept_id = #{deptId}
           and not exists (
@@ -200,5 +213,35 @@
             <otherwise>and g.subject_id is null</otherwise>
           </choose>
           <if test="excludeGroupId != null">and g.group_id &lt;&gt; #{excludeGroupId}</if>
+    </select>
+
+    <select id="selectActiveGroupIdsByDeptSubject" resultType="java.lang.Long">
+        select g.group_id
+        from spas_study_group g
+        where g.status = '0' and g.dept_id = #{deptId}
+        <choose>
+            <when test="subjectId != null">and g.subject_id = #{subjectId}</when>
+            <when test="nullSubjectOnly">and g.subject_id is null</when>
+        </choose>
+    </select>
+
+    <update id="softDisableByDeptSubject">
+        update spas_study_group
+           set status = '1', update_time = now()
+         where status = '0' and dept_id = #{deptId}
+        <choose>
+            <when test="subjectId != null">and subject_id = #{subjectId}</when>
+            <when test="nullSubjectOnly">and subject_id is null</when>
+        </choose>
+    </update>
+
+    <select id="maxSortOrder" resultType="int">
+        select coalesce(max(sort_order), 0)
+        from spas_study_group
+        where dept_id = #{deptId}
+        <choose>
+            <when test="subjectId != null">and subject_id = #{subjectId}</when>
+            <when test="nullSubjectOnly">and subject_id is null</when>
+        </choose>
     </select>
 </mapper>

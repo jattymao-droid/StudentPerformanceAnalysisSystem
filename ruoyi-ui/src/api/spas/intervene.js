@@ -77,3 +77,42 @@ export function batchWeakIntervene(data) {
     data
   })
 }
+
+export function interveneProgress(interveneId) {
+  return request({
+    url: '/spas/intervene/' + interveneId + '/progress',
+    method: 'get'
+  })
+}
+
+export function addInterveneAction(interveneId, data) {
+  return request({
+    url: '/spas/intervene/' + interveneId + '/actions',
+    method: 'post',
+    data
+  })
+}
+
+export function updateInterveneAction(data) {
+  return request({
+    url: '/spas/intervene/actions',
+    method: 'put',
+    data
+  })
+}
+
+export function linkInterveneAssignment(interveneId, assignmentId) {
+  return request({
+    url: '/spas/intervene/' + interveneId + '/link-assignment',
+    method: 'post',
+    data: { assignmentId }
+  })
+}
+
+export function linkInterveneSelect(interveneId, refId) {
+  return request({
+    url: '/spas/intervene/' + interveneId + '/link-select',
+    method: 'post',
+    data: { refId }
+  })
+}

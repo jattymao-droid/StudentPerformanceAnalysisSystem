@@ -27,3 +27,13 @@ export function saveStudyGroupMembers(groupId, data) {
 export function listUnassignedStudents(query) {
   return request({ url: '/spas/group/unassigned', method: 'get', params: query })
 }
+
+/** 智能分组：mode=unassigned|rebuild，groupSize=3..8 */
+export function smartAssignGroups(data) {
+  return request({ url: '/spas/group/smart', method: 'post', data })
+}
+
+/** 小组成员成绩 + 历次考试均分/均次趋势 */
+export function getGroupPerformance(groupId, query) {
+  return request({ url: '/spas/group/' + groupId + '/performance', method: 'get', params: query })
+}

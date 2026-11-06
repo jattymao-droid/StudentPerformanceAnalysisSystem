@@ -1,96 +1,206 @@
 <template>
   <div class="app-container spas-analysis">
-    <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" label-width="68px">
-      <el-form-item label="班级" prop="deptId" class="class-row">
-        <template v-if="boundClassMode">
-          <div class="bound-class-wrap">
-            <span class="bound-class-name">{{ currentDeptName || '未绑定班级' }}</span>
-            <el-tag v-if="boundClassRoleLabel" size="mini" type="info" class="bound-class-role">{{ boundClassRoleLabel }}</el-tag>
-            <el-button-group v-if="myDepts.length > 1" class="bound-class-switch">
-              <el-button
-                v-for="d in myDepts"
-                :key="d.deptId"
-                size="mini"
-                :type="queryParams.deptId === d.deptId ? 'primary' : 'default'"
-                @click="selectMyDept(d.deptId)"
-              >{{ d.deptName }}{{ d.primary ? '·主' : '' }}</el-button>
-            </el-button-group>
-          </div>
-        </template>
-        <treeselect
-          v-else
-          v-model="queryParams.deptId"
-          :options="deptOptions"
-          :show-count="true"
-          placeholder="请选择班级/部门"
-          style="width: 240px"
-        />
-      </el-form-item>
-      <el-form-item label="学科" prop="subjectId">
-        <el-select
-          v-model="queryParams.subjectId"
-          placeholder="请选择学科"
-          clearable
-          filterable
-          style="width: 180px"
-          @change="onSubjectChange"
-        >
-          <el-option
-            v-for="item in subjectOptions"
-            :key="item.subjectId"
-            :label="item.subjectName"
-            :value="item.subjectId"
+    <div class="class-filter-panel">
+      <div class="filter-toolbar">
+        <div class="filter-toolbar-left">
+          <el-select v-model="filterQueryBy" size="small" class="filter-select" @change="onFilterQueryByChange">
+            <el-option label="按时间窗查" value="window" />
+            <el-option label="按考试选卷" value="papers" />
+          </el-select>
+          <el-select
+            v-if="analysisMode === 'window'"
+            v-model="academicYearKey"
+            size="small"
+            class="filter-select"
+            @change="onAcademicYearChange"
+          >
+            <el-option
+              v-for="y in academicYearOptions"
+              :key="y.value"
+              :label="y.label"
+              :value="y.value"
+            />
+          </el-select>
+          <el-select
+            v-if="analysisMode === 'window'"
+            v-model="queryParams.window"
+            size="small"
+            class="filter-select"
+            @change="onWindowTagSelect"
+          >
+            <el-option label="本学期" value="semester" />
+            <el-option label="上学期" value="prev_semester" />
+            <el-option label="近30天" value="last30d" />
+            <el-option label="近90天" value="last90d" />
+            <el-option label="全部(快照)" value="all" />
+          </el-select>
+          <el-select v-model="gradeFilter" size="small" class="filter-select" clearable placeholder="全部年级">
+            <el-option label="全部年级" value="" />
+            <el-option v-for="g in gradeOptions" :key="g" :label="g" :value="g" />
+          </el-select>
+        </div>
+        <div class="exam-search">
+          <el-input
+            v-model="examNameKeyword"
+            size="small"
+            clearable
+            placeholder="请输入考试名称"
+            @keyup.enter.native="handleExamSearch"
           />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" icon="el-icon-search" size="mini" @click="handleQuery" v-hasPermi="['spas:analysis:class']">查询</el-button>
-        <el-button icon="el-icon-refresh" size="mini" @click="resetQuery">重置</el-button>
-        <el-button type="text" size="mini" icon="el-icon-setting" @click="showAdvancedScope = !showAdvancedScope">
-          {{ showAdvancedScope ? '收起口径' : '高级口径' }}
-        </el-button>
-      </el-form-item>
-      <template v-if="showAdvancedScope">
-            <el-form-item label="模式" prop="analysisMode">
-        <el-radio-group v-model="analysisMode" size="mini" @change="onModeChange">
-          <el-radio-button label="window">时间窗</el-radio-button>
-          <el-radio-button label="papers">选卷诊断</el-radio-button>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item v-if="analysisMode === 'window'" label="时间窗" prop="window">
-        <el-select v-model="queryParams.window" style="width: 140px">
-          <el-option label="本学期(默认)" value="semester" />
-          <el-option label="上学期" value="prev_semester" />
-          <el-option label="近30天" value="last30d" />
-          <el-option label="近90天" value="last90d" />
-          <el-option label="全部(快照)" value="all" />
-        </el-select>
-        <div v-if="prevSemesterLabel" class="stat-hint" style="margin-top:4px;line-height:1.3">上学期窗：{{ prevSemesterLabel }}</div>
-      </el-form-item>
-      <el-form-item v-else label="考试集合" prop="paperIds">
+          <el-button
+            type="primary"
+            size="small"
+            icon="el-icon-search"
+            class="exam-search-btn"
+            @click="handleExamSearch"
+            v-hasPermi="['spas:analysis:class']"
+          />
+        </div>
+      </div>
+
+      <div class="filter-tag-rows">
+        <div class="filter-tag-row">
+          <span class="filter-tag-label">班级:</span>
+          <div class="filter-tag-list">
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: !queryParams.deptId }"
+              @click="clearClassFilter"
+            >全部</button>
+            <button
+              v-for="d in visibleClassTags"
+              :key="d.deptId"
+              type="button"
+              class="filter-chip"
+              :class="{ active: Number(queryParams.deptId) === Number(d.deptId) }"
+              @click="selectClassTag(d.deptId)"
+            >{{ d.deptName }}{{ d.primary ? '·主' : '' }}</button>
+            <button
+              v-if="classTagsOverflow"
+              type="button"
+              class="filter-more"
+              @click="classTagsExpanded = !classTagsExpanded"
+            >
+              {{ classTagsExpanded ? '收起' : '更多' }}
+              <i :class="classTagsExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'" />
+            </button>
+            <treeselect
+              v-if="!boundClassMode && !classTagOptions.length"
+              v-model="queryParams.deptId"
+              :options="deptOptions"
+              :show-count="true"
+              placeholder="请选择班级/部门"
+              class="filter-treeselect"
+            />
+            <el-tag v-if="boundClassMode && boundClassRoleLabel" size="mini" type="info">{{ boundClassRoleLabel }}</el-tag>
+          </div>
+        </div>
+
+        <div class="filter-tag-row">
+          <span class="filter-tag-label">学科:</span>
+          <div class="filter-tag-list">
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: !queryParams.subjectId }"
+              @click="selectSubjectTag(undefined)"
+            >全部</button>
+            <button
+              v-for="s in subjectOptions"
+              :key="s.subjectId"
+              type="button"
+              class="filter-chip"
+              :class="{ active: Number(queryParams.subjectId) === Number(s.subjectId) }"
+              @click="selectSubjectTag(s.subjectId)"
+            >{{ s.subjectName }}</button>
+          </div>
+        </div>
+
+        <div class="filter-tag-row">
+          <span class="filter-tag-label">报告:</span>
+          <div class="filter-tag-list">
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: analysisMode === 'window' && queryParams.window === 'semester' }"
+              @click="selectReportTag('semester')"
+            >本学期</button>
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: analysisMode === 'window' && queryParams.window === 'prev_semester' }"
+              @click="selectReportTag('prev_semester')"
+            >上学期</button>
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: analysisMode === 'window' && queryParams.window === 'last30d' }"
+              @click="selectReportTag('last30d')"
+            >近30天</button>
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: analysisMode === 'window' && queryParams.window === 'last90d' }"
+              @click="selectReportTag('last90d')"
+            >近90天</button>
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: analysisMode === 'window' && queryParams.window === 'all' }"
+              @click="selectReportTag('all')"
+            >全部快照</button>
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: analysisMode === 'papers' }"
+              @click="selectReportTag('papers')"
+            >选卷诊断</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="analysisMode === 'papers'" class="filter-paper-row">
+        <span class="filter-tag-label">试卷:</span>
         <el-select
           v-model="queryParams.paperIds"
           multiple
           filterable
           collapse-tags
           clearable
+          size="small"
           placeholder="勾选多场已发布试卷"
-          style="width: 320px"
+          class="filter-paper-select"
           :disabled="!queryParams.subjectId"
         >
           <el-option
-            v-for="item in paperOptions"
+            v-for="item in filteredPaperOptions"
             :key="item.paperId"
             :label="paperLabel(item)"
             :value="item.paperId"
           />
         </el-select>
-      </el-form-item>
-      <el-form-item label="近因">
+        <el-switch v-model="useRecency" active-text="近因衰减" inactive-text="关闭" class="filter-recency" />
+      </div>
+      <div v-else-if="showAdvancedScope" class="filter-paper-row">
+        <span class="filter-tag-label">近因:</span>
         <el-switch v-model="useRecency" active-text="衰减" inactive-text="关闭" />
-      </el-form-item>
-      </template>
-      <el-form-item>
+        <span v-if="prevSemesterLabel" class="stat-hint" style="margin-left:12px">上学期窗：{{ prevSemesterLabel }}</span>
+      </div>
+
+      <div class="filter-actions">
+        <el-button type="primary" icon="el-icon-search" size="mini" @click="handleQuery" v-hasPermi="['spas:analysis:class']">查询</el-button>
+        <el-button icon="el-icon-refresh" size="mini" @click="resetQuery">重置</el-button>
+        <el-button type="text" size="mini" icon="el-icon-setting" @click="showAdvancedScope = !showAdvancedScope">
+          {{ showAdvancedScope ? '收起口径' : '高级口径' }}
+        </el-button>
+        <el-button
+          v-if="queryParams.deptId"
+          type="text"
+          size="mini"
+          icon="el-icon-back"
+          @click="backToClassList"
+        >返回班级名单</el-button>
         <el-button
           type="warning"
           plain
@@ -101,65 +211,67 @@
           @click="handleRecalcDept"
           v-hasPermi="['spas:analysis:class']"
         >按新算法重算</el-button>
-        <el-button
-          type="success"
-          plain
-          icon="el-icon-download"
-          size="mini"
-          :disabled="!queryParams.deptId"
-          :loading="exportLoading"
-          @click="handleExportReport('pdf')"
-          v-hasPermi="['spas:report:export']"
-        >导出班级报告</el-button>
-        <el-button
-          type="warning"
-          plain
-          icon="el-icon-folder-opened"
-          size="mini"
-          :disabled="!queryParams.deptId"
-          :loading="batchStudentExportLoading"
-          @click="handleExportAllStudentReports('pdf')"
-          v-hasPermi="['spas:report:export']"
-        >一键导出全班学情</el-button>
-        <el-button
-          type="primary"
-          plain
-          icon="el-icon-view"
-          size="mini"
-          :disabled="!queryParams.deptId"
-          :loading="previewLoading"
-          @click="openReportPreview"
-          v-hasPermi="['spas:report:export']"
-        >预览报告</el-button>
-        <el-button
-          type="info"
-          plain
-          icon="el-icon-document"
-          size="mini"
-          :disabled="!queryParams.deptId"
-          :loading="exportLoading"
-          @click="handleExportReport('xlsx')"
-          v-hasPermi="['spas:report:export']"
-        >导出明细</el-button>
-        <el-button
-          type="danger"
-          plain
-          icon="el-icon-bell"
-          size="mini"
-          @click="goWarningRun"
-          v-hasPermi="['spas:warning:rule:run']"
-        >立即预警</el-button>
-      </el-form-item>
-    </el-form>
-
-    <el-empty v-if="!queryParams.deptId" description="请选择班级后查看班级学情">
-      <div class="empty-actions">
-        <el-button type="primary" size="mini" v-if="myDepts.length" @click="selectMyDept(preferredDeptId)">选择我的班级</el-button>
-        <el-button size="mini" v-if="!boundClassMode" @click="$router.push('/system/dept')">去部门管理</el-button>
+        <el-dropdown trigger="click" @command="onMoreActionCommand">
+          <el-button size="mini" plain>
+            更多操作<i class="el-icon-arrow-down el-icon--right" />
+          </el-button>
+          <el-dropdown-menu slot="dropdown">
+            <el-dropdown-item command="exportPdf" :disabled="!queryParams.deptId" v-hasPermi="['spas:report:export']">导出班级报告</el-dropdown-item>
+            <el-dropdown-item command="exportZip" :disabled="!queryParams.deptId" v-hasPermi="['spas:report:export']">一键导出全班学情</el-dropdown-item>
+            <el-dropdown-item command="preview" :disabled="!queryParams.deptId" v-hasPermi="['spas:report:export']">预览报告</el-dropdown-item>
+            <el-dropdown-item command="exportXlsx" :disabled="!queryParams.deptId" v-hasPermi="['spas:report:export']">导出明细</el-dropdown-item>
+            <el-dropdown-item command="warning" divided v-hasPermi="['spas:warning:rule:run']">立即预警</el-dropdown-item>
+          </el-dropdown-menu>
+        </el-dropdown>
       </div>
-    </el-empty>
+    </div>
+
+    <div v-if="!queryParams.deptId" class="class-roster-panel">
+      <div class="roster-header">
+        <div class="roster-header-main">
+          <div class="roster-title">班级名单</div>
+          <div class="roster-sub">点击卡片进入班级学情；可用上方年级筛选缩小范围</div>
+        </div>
+        <div class="roster-meta">
+          <span class="roster-count">{{ filteredClassTags.length }}</span>
+          <span class="roster-count-label">个班级{{ gradeFilter ? '（已筛选）' : '' }}</span>
+        </div>
+      </div>
+
+      <el-empty
+        v-if="!filteredClassTags.length"
+        :description="gradeFilter ? '当前年级下暂无班级，请切换年级' : '暂无可用班级，请先在部门管理中维护班级'"
+        :image-size="72"
+      >
+        <el-button size="mini" v-if="!boundClassMode" @click="$router.push('/system/dept')">去部门管理</el-button>
+      </el-empty>
+
+      <div v-else class="roster-grid">
+        <button
+          v-for="d in filteredClassTags"
+          :key="d.deptId"
+          type="button"
+          class="roster-tile"
+          @click="enterClassAnalysis(d)"
+        >
+          <span class="roster-avatar" :class="'tone-' + classAvatarTone(d)">{{ classAvatarText(d) }}</span>
+          <span class="roster-body">
+            <span class="roster-name-row">
+              <span class="roster-name">{{ d.deptName || '-' }}</span>
+              <el-tag v-if="d.primary" size="mini" type="success" effect="plain">主带</el-tag>
+              <span v-if="extractGradeLabel(d.deptName, d.parentLabel)" class="roster-sex">{{ extractGradeLabel(d.deptName, d.parentLabel) }}</span>
+            </span>
+            <span class="roster-no">{{ d.parentLabel || boundClassRoleLabel || '教学班级' }}</span>
+          </span>
+          <span class="roster-action">
+            学情<i class="el-icon-arrow-right" />
+          </span>
+        </button>
+      </div>
+    </div>
 
     <template v-else>
+      <div class="decision-zone">
       <spas-analysis-verdict
         v-loading="loading"
         :level="insightVerdict.level"
@@ -263,18 +375,228 @@
           <el-alert v-if="remediateGuideTip" type="warning" :closable="false" show-icon class="mb8" :title="remediateGuideTip" />
         </div>
       </div>
+      </div>
 
-      <el-row :gutter="16" class="overview-row" v-loading="loading">
-        <el-col :xs="12" :sm="8" :md="4" v-for="card in detailOverviewCards" :key="card.key">
-          <div class="stat-card" :class="['tone-' + card.tone, { 'is-emphasis': card.emphasis }]">
-            <div class="stat-label">{{ card.label }}</div>
-            <div class="stat-value">{{ card.value }}</div>
-            <div class="stat-hint" v-if="card.hint">{{ card.hint }}</div>
+      <div class="analysis-workbench" v-loading="loading">
+        <div
+          class="kpi-strip"
+          :style="{ gridTemplateColumns: 'repeat(' + Math.max(detailOverviewCards.length, 1) + ', minmax(0, 1fr))' }"
+        >
+          <div
+            v-for="card in detailOverviewCards"
+            :key="card.key"
+            class="kpi-tile"
+            :class="['tone-' + card.tone, { 'is-emphasis': card.emphasis }]"
+          >
+            <div class="kpi-tile-main">
+              <div class="kpi-tile-label">{{ card.label }}</div>
+              <div class="kpi-tile-value">{{ card.value }}</div>
+            </div>
+            <div class="kpi-tile-hint" v-if="card.hint" :title="card.hint">{{ card.hint }}</div>
           </div>
-        </el-col>
-      </el-row>
+        </div>
 
-            <el-row :gutter="16" style="margin-top: 8px" v-loading="loading">
+        <el-tabs
+          v-model="activeAnalysisTab"
+          class="class-analysis-tabs"
+          @tab-click="onAnalysisTabClick"
+        >
+        <el-tab-pane label="补弱行动" name="remediate">
+<el-card shadow="never" class="chart-card">
+            <div slot="header" class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+              <span>班级薄弱知识点 Top</span>
+              <span>
+                <el-button
+                  type="text"
+                  size="mini"
+                  @click="weakShowTable = !weakShowTable"
+                >{{ weakShowTable ? '只看图表' : '看数据表' }}</el-button>
+                <el-button
+                  type="text"
+                  size="mini"
+                  icon="el-icon-notebook-2"
+                  :disabled="!canBatchRemediate"
+                  v-hasPermi="['spas:qb:question:list']"
+                  @click="goBatchRemediate"
+                >一键补弱 Top{{ batchRemediateLimit }}</el-button>
+                <el-button
+                  type="text"
+                  size="mini"
+                  icon="el-icon-s-flag"
+                  :disabled="!canBatchIntervene"
+                  :loading="batchInterveneLoading"
+                  v-hasPermi="['spas:intervene:add']"
+                  @click="goBatchIntervene"
+                >批量干预 Top{{ batchRemediateLimit }}</el-button>
+              </span>
+            </div>
+            <el-alert
+              v-if="remediateGuideTip"
+              class="mb8"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="remediateGuideTip"
+            />
+            <spas-chart :option="weakBarOption" height="360px" @chart-click="onWeakBarClick" />
+            <el-table v-if="weakShowTable" :data="weakTopRows" size="mini" empty-text="暂无薄弱知识点" max-height="280" style="margin-top: 12px">
+              <el-table-column label="知识点" min-width="140" :show-overflow-tooltip="true">
+                <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="班均" width="90" align="center">
+                <template slot-scope="scope">{{ formatRate(scope.row.avgRate != null ? scope.row.avgRate : scope.row.rate) }}</template>
+              </el-table-column>
+              <el-table-column label="薄弱人数" width="90" align="center">
+                <template slot-scope="scope">{{ scope.row.weakStudentCount != null ? scope.row.weakStudentCount : (scope.row.studentCount || '-') }}</template>
+              </el-table-column>
+              <el-table-column label="根因提示" min-width="160" :show-overflow-tooltip="true">
+                <template slot-scope="scope">
+                  <span v-if="scope.row.rootHint">{{ scope.row.rootHint }}</span>
+                  <span v-else-if="scope.row.dependencyHints && scope.row.dependencyHints.length">{{ formatDependencyHints(scope.row.dependencyHints) }}</span>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="90" align="center">
+                <template slot-scope="scope">
+                  <el-button size="mini" type="text" @click="goRemediate(scope.row)" v-hasPermi="['spas:qb:question:list']">补弱</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+<el-card ref="chapterDeltaCard" shadow="never" style="margin-top: 16px" class="chart-card" id="spas-chapter-delta" v-loading="loading">
+        <div slot="header" class="card-header">章节进退</div>
+        <el-alert v-if="chapterDelta.baselineHint" class="mb8" :type="chapterDelta.baselineEmpty ? 'warning' : 'info'" :closable="false" show-icon :title="chapterDelta.baselineHint" />
+        <el-alert
+          v-if="chapterDelta.chapterEmptyHint"
+          class="mb8"
+          :type="chapterDelta.chapterEmptyReason === 'insufficient_sample' ? 'info' : 'warning'"
+          :closable="false"
+          show-icon
+          :title="chapterDelta.chapterEmptyHint"
+        />
+        <el-alert v-else-if="chapterDelta.headline && !chapterDelta.baselineHint" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
+        <div v-if="chapterDeltaEmpty && (chapterDelta.chapterEmptyReason === 'no_chapter_nodes' || chapterDelta.chapterEmptyReason === 'no_chapter_data')" class="mb8">
+          <el-button size="mini" type="primary" plain @click="goKnowledgeManage">去知识点管理</el-button>
+          <el-button size="mini" plain @click="goQualityBoard">质量看板</el-button>
+        </div>
+        <el-row :gutter="12">
+          <el-col :xs="24" :md="12">
+            <div class="card-header mb8">进步 Top</div>
+            <el-table :data="chapterDelta.improved || []" size="mini" empty-text="暂无进步章节">
+              <el-table-column label="章节" min-width="120" :show-overflow-tooltip="true">
+                <template slot-scope="scope">{{ scope.row.chapterName || scope.row.name || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="近窗" width="90" align="center">
+                <template slot-scope="scope">{{ formatRate(scope.row.recentRate) }}</template>
+              </el-table-column>
+              <el-table-column label="基线" width="90" align="center">
+                <template slot-scope="scope">{{ formatRate(scope.row.baselineRate) }}</template>
+              </el-table-column>
+              <el-table-column label="变化" width="90" align="center">
+                <template slot-scope="scope">
+                  <span style="color:#16a34a">{{ formatGap(scope.row.deltaRate) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <div class="card-header mb8">退步 Top</div>
+            <el-table :data="chapterDelta.declined || []" size="mini" empty-text="暂无退步章节">
+              <el-table-column label="章节" min-width="120" :show-overflow-tooltip="true">
+                <template slot-scope="scope">{{ scope.row.chapterName || scope.row.name || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="近窗" width="90" align="center">
+                <template slot-scope="scope">{{ formatRate(scope.row.recentRate) }}</template>
+              </el-table-column>
+              <el-table-column label="基线" width="90" align="center">
+                <template slot-scope="scope">{{ formatRate(scope.row.baselineRate) }}</template>
+              </el-table-column>
+              <el-table-column label="变化" width="90" align="center">
+                <template slot-scope="scope">
+                  <span style="color:#dc2626">{{ formatGap(scope.row.deltaRate) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-col>
+        </el-row>
+        <div v-if="chapterDeltaEmpty && leafDeltaFallbackRows.length" style="margin-top: 12px">
+          <div class="card-header mb8">知识点级薄弱对照（章节暂不可用时的替代）</div>
+          <el-alert class="mb8" type="info" :closable="false" show-icon title="以下取自班级薄弱 Top（正式薄弱优先），非正式章节进退。" />
+          <el-table :data="leafDeltaFallbackRows" size="mini" max-height="220">
+            <el-table-column label="知识点" min-width="140" :show-overflow-tooltip="true">
+              <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="标记" width="100" align="center">
+              <template slot-scope="scope">
+                <el-tag size="mini" :type="scope.row.tagType || 'warning'">{{ scope.row.tag || '-' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="班均/薄弱人数" width="130" align="center">
+              <template slot-scope="scope">
+                {{ formatRate(scope.row.avgRate != null ? scope.row.avgRate : scope.row.rate) }}
+                <span v-if="scope.row.weakCount != null"> / {{ scope.row.weakCount }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </el-card>
+        </el-tab-pane>
+
+        <el-tab-pane label="学生名单" name="students" lazy>
+<el-card shadow="never" style="margin-top: 16px" v-loading="loading" class="ranking-card">
+        <div slot="header" class="card-header">学生综合排名（弱→强，点击可查看学情）</div>
+        <div class="rank-note">{{ rankingNote }}</div>
+        <el-table :data="studentRanking" empty-text="暂无数据" max-height="360" style="width: 100%" @row-click="onRankingClick">
+          <el-table-column type="index" label="#" width="55" align="center" />
+          <el-table-column label="学号" prop="studentNo" min-width="120" show-overflow-tooltip />
+          <el-table-column label="姓名" prop="studentName" min-width="110" show-overflow-tooltip>
+              <template slot-scope="scope">
+                <span class="student-name-strong">{{ scope.row.studentName || '-' }}</span>
+              </template>
+            </el-table-column>
+          <el-table-column label="综合得分率" min-width="120" align="center">
+            <template slot-scope="scope">{{ formatRate(scope.row.overallRate) }}</template>
+          </el-table-column>
+          <el-table-column label="低分点数" min-width="150" align="center">
+            <template slot-scope="scope">
+              <span :title="'得分率低于' + weakLinePct + '的知识点数'">{{ num(scope.row.lowRateCount) }}</span>
+              <el-tag v-if="showThinSample(scope.row)" size="mini" type="info" style="margin-left: 6px">样本不足</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="'低于' + severeLinePct" min-width="100" align="center">
+            <template slot-scope="scope">{{ num(scope.row.lowSevereCount) }}</template>
+          </el-table-column>
+          <el-table-column label="正式薄弱" min-width="100" align="center">
+            <template slot-scope="scope">
+              <span :title="'低于' + weakLinePct + '且该知识点作答不少于' + effectiveMinAttempts + '题'">{{ num(scope.row.weakKnowledgeCount) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="正式严重" min-width="100" align="center">
+            <template slot-scope="scope">
+              <span :title="'低于' + severeLinePct + '且该知识点作答不少于' + effectiveSevereMinAttempts + '题'">{{ num(scope.row.severeKnowledgeCount) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="作答题数" min-width="110" align="center">
+            <template slot-scope="scope">
+              <span :title="'按去重题目计（一题多知识点不重复累计）'">{{ scope.row.totalAttempts != null ? scope.row.totalAttempts : '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="90" align="center" fixed="right">
+            <template slot-scope="scope">
+              <el-button type="text" size="mini" @click.stop="goStudent(scope.row)" v-hasPermi="['spas:analysis:student']">学情</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+<el-card shadow="never" class="chart-card heatmap-card">
+            <div slot="header" class="card-header" style="display:flex;justify-content:space-between;align-items:center"><span>学生 × 知识点热力图</span><el-button type="text" size="mini" @click="toggleHeatmapExpand">{{ heatmapExpanded ? '收起热力图' : '展开热力图' }}</el-button></div>
+            <template v-if="heatmapExpanded"><spas-chart :option="heatmapOption" :height="heatmapHeight" @chart-click="onHeatmapClick" />
+            <div v-if="heatmapLimitHint" class="rank-note heatmap-hint">{{ heatmapLimitHint }}</div></template><div v-else class="heatmap-collapsed-hint">热力图较重，按需展开；完整名单见上方学生排名。</div>
+          </el-card>
+        </el-tab-pane>
+
+        <el-tab-pane label="维度诊断" name="dims" lazy>
+<el-row :gutter="16" style="margin-top: 8px" v-loading="loading">
         <el-col :xs="24" :lg="12">
           <el-card shadow="never" class="chart-card class-trend-card">
             <div slot="header" class="card-header">班级趋势</div>
@@ -312,8 +634,7 @@
           </el-card>
         </el-col>
       </el-row>
-
-      <el-row :gutter="16" style="margin-top: 8px" v-loading="loading">
+<el-row :gutter="16" style="margin-top: 8px" v-loading="loading">
         <el-col :xs="24" :lg="12">
           <el-card shadow="never" class="chart-card">
             <div slot="header" class="card-header">
@@ -392,8 +713,7 @@
           </el-card>
         </el-col>
       </el-row>
-
-      <el-card shadow="never" class="chart-card" style="margin-top: 16px" v-loading="errorCauseLoading">
+<el-card shadow="never" class="chart-card" style="margin-top: 16px" v-loading="errorCauseLoading">
         <div slot="header" class="card-header">班级错因热度</div>
         <el-alert
           class="mb8"
@@ -413,199 +733,10 @@
           <el-table-column label="涉及学生" width="100" align="center" prop="studentCount" />
         </el-table>
       </el-card>
+        </el-tab-pane>
 
-      <el-card ref="chapterDeltaCard" shadow="never" style="margin-top: 16px" class="chart-card" id="spas-chapter-delta" v-loading="loading">
-        <div slot="header" class="card-header">章节进退</div>
-        <el-alert v-if="chapterDelta.baselineHint" class="mb8" :type="chapterDelta.baselineEmpty ? 'warning' : 'info'" :closable="false" show-icon :title="chapterDelta.baselineHint" />
-        <el-alert
-          v-if="chapterDelta.chapterEmptyHint"
-          class="mb8"
-          :type="chapterDelta.chapterEmptyReason === 'insufficient_sample' ? 'info' : 'warning'"
-          :closable="false"
-          show-icon
-          :title="chapterDelta.chapterEmptyHint"
-        />
-        <el-alert v-else-if="chapterDelta.headline && !chapterDelta.baselineHint" class="mb8" type="info" :closable="false" show-icon :title="chapterDelta.headline" />
-        <div v-if="chapterDeltaEmpty && (chapterDelta.chapterEmptyReason === 'no_chapter_nodes' || chapterDelta.chapterEmptyReason === 'no_chapter_data')" class="mb8">
-          <el-button size="mini" type="primary" plain @click="goKnowledgeManage">去知识点管理</el-button>
-          <el-button size="mini" plain @click="goQualityBoard">质量看板</el-button>
-        </div>
-        <el-row :gutter="12">
-          <el-col :xs="24" :md="12">
-            <div class="card-header mb8">进步 Top</div>
-            <el-table :data="chapterDelta.improved || []" size="mini" empty-text="暂无进步章节">
-              <el-table-column label="章节" min-width="120" :show-overflow-tooltip="true">
-                <template slot-scope="scope">{{ scope.row.chapterName || scope.row.name || '-' }}</template>
-              </el-table-column>
-              <el-table-column label="近窗" width="90" align="center">
-                <template slot-scope="scope">{{ formatRate(scope.row.recentRate) }}</template>
-              </el-table-column>
-              <el-table-column label="基线" width="90" align="center">
-                <template slot-scope="scope">{{ formatRate(scope.row.baselineRate) }}</template>
-              </el-table-column>
-              <el-table-column label="变化" width="90" align="center">
-                <template slot-scope="scope">
-                  <span style="color:#16a34a">{{ formatGap(scope.row.deltaRate) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <div class="card-header mb8">退步 Top</div>
-            <el-table :data="chapterDelta.declined || []" size="mini" empty-text="暂无退步章节">
-              <el-table-column label="章节" min-width="120" :show-overflow-tooltip="true">
-                <template slot-scope="scope">{{ scope.row.chapterName || scope.row.name || '-' }}</template>
-              </el-table-column>
-              <el-table-column label="近窗" width="90" align="center">
-                <template slot-scope="scope">{{ formatRate(scope.row.recentRate) }}</template>
-              </el-table-column>
-              <el-table-column label="基线" width="90" align="center">
-                <template slot-scope="scope">{{ formatRate(scope.row.baselineRate) }}</template>
-              </el-table-column>
-              <el-table-column label="变化" width="90" align="center">
-                <template slot-scope="scope">
-                  <span style="color:#dc2626">{{ formatGap(scope.row.deltaRate) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-col>
-        </el-row>
-        <div v-if="chapterDeltaEmpty && leafDeltaFallbackRows.length" style="margin-top: 12px">
-          <div class="card-header mb8">知识点级薄弱对照（章节暂不可用时的替代）</div>
-          <el-alert class="mb8" type="info" :closable="false" show-icon title="以下取自班级薄弱 Top（正式薄弱优先），非正式章节进退。" />
-          <el-table :data="leafDeltaFallbackRows" size="mini" max-height="220">
-            <el-table-column label="知识点" min-width="140" :show-overflow-tooltip="true">
-              <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="标记" width="100" align="center">
-              <template slot-scope="scope">
-                <el-tag size="mini" :type="scope.row.tagType || 'warning'">{{ scope.row.tag || '-' }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="班均/薄弱人数" width="130" align="center">
-              <template slot-scope="scope">
-                {{ formatRate(scope.row.avgRate != null ? scope.row.avgRate : scope.row.rate) }}
-                <span v-if="scope.row.weakCount != null"> / {{ scope.row.weakCount }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </el-card>
-
-<el-row :gutter="16" style="margin-top: 8px" v-loading="loading">
-        <el-col :span="24">
-          <el-card shadow="never" class="chart-card">
-            <div slot="header" class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-              <span>班级薄弱知识点 Top</span>
-              <span>
-                <el-button
-                  type="text"
-                  size="mini"
-                  icon="el-icon-notebook-2"
-                  :disabled="!canBatchRemediate"
-                  v-hasPermi="['spas:qb:question:list']"
-                  @click="goBatchRemediate"
-                >一键补弱 Top{{ batchRemediateLimit }}</el-button>
-                <el-button
-                  type="text"
-                  size="mini"
-                  icon="el-icon-s-flag"
-                  :disabled="!canBatchIntervene"
-                  :loading="batchInterveneLoading"
-                  v-hasPermi="['spas:intervene:add']"
-                  @click="goBatchIntervene"
-                >批量干预 Top{{ batchRemediateLimit }}</el-button>
-              </span>
-            </div>
-            <el-alert
-              v-if="remediateGuideTip"
-              class="mb8"
-              type="warning"
-              :closable="false"
-              show-icon
-              :title="remediateGuideTip"
-            />
-            <spas-chart :option="weakBarOption" height="360px" @chart-click="onWeakBarClick" />
-            <el-table :data="weakTopRows" size="mini" empty-text="暂无薄弱知识点" max-height="280" style="margin-top: 12px">
-              <el-table-column label="知识点" min-width="140" :show-overflow-tooltip="true">
-                <template slot-scope="scope">{{ scope.row.name || scope.row.knowledgeName || '-' }}</template>
-              </el-table-column>
-              <el-table-column label="班均" width="90" align="center">
-                <template slot-scope="scope">{{ formatRate(scope.row.avgRate != null ? scope.row.avgRate : scope.row.rate) }}</template>
-              </el-table-column>
-              <el-table-column label="薄弱人数" width="90" align="center">
-                <template slot-scope="scope">{{ scope.row.weakStudentCount != null ? scope.row.weakStudentCount : (scope.row.studentCount || '-') }}</template>
-              </el-table-column>
-              <el-table-column label="根因提示" min-width="160" :show-overflow-tooltip="true">
-                <template slot-scope="scope">
-                  <span v-if="scope.row.rootHint">{{ scope.row.rootHint }}</span>
-                  <span v-else-if="scope.row.dependencyHints && scope.row.dependencyHints.length">{{ formatDependencyHints(scope.row.dependencyHints) }}</span>
-                  <span v-else>-</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="90" align="center">
-                <template slot-scope="scope">
-                  <el-button size="mini" type="text" @click="goRemediate(scope.row)" v-hasPermi="['spas:qb:question:list']">补弱</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <el-row :gutter="16" style="margin-top: 8px" v-loading="loading">
-        <el-col :span="24">
-          <el-card shadow="never" class="chart-card heatmap-card">
-            <div slot="header" class="card-header">学生 × 知识点热力图（点击可下钻）</div>
-            <spas-chart :option="heatmapOption" :height="heatmapHeight" @chart-click="onHeatmapClick" />
-            <div v-if="heatmapLimitHint" class="rank-note heatmap-hint">{{ heatmapLimitHint }}</div>
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <el-card shadow="never" style="margin-top: 16px" v-loading="loading" class="ranking-card">
-        <div slot="header" class="card-header">学生综合排名（弱→强，点击可查看学情）</div>
-        <div class="rank-note">{{ rankingNote }}</div>
-        <el-table :data="studentRanking" empty-text="暂无数据" max-height="360" style="width: 100%" @row-click="onRankingClick">
-          <el-table-column type="index" label="#" width="55" align="center" />
-          <el-table-column label="学号" prop="studentNo" min-width="120" show-overflow-tooltip />
-          <el-table-column label="姓名" prop="studentName" min-width="100" show-overflow-tooltip />
-          <el-table-column label="综合得分率" min-width="120" align="center">
-            <template slot-scope="scope">{{ formatRate(scope.row.overallRate) }}</template>
-          </el-table-column>
-          <el-table-column label="低分点数" min-width="150" align="center">
-            <template slot-scope="scope">
-              <span :title="'得分率低于' + weakLinePct + '的知识点数'">{{ num(scope.row.lowRateCount) }}</span>
-              <el-tag v-if="showThinSample(scope.row)" size="mini" type="info" style="margin-left: 6px">样本不足</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column :label="'低于' + severeLinePct" min-width="100" align="center">
-            <template slot-scope="scope">{{ num(scope.row.lowSevereCount) }}</template>
-          </el-table-column>
-          <el-table-column label="正式薄弱" min-width="100" align="center">
-            <template slot-scope="scope">
-              <span :title="'低于' + weakLinePct + '且该知识点作答不少于' + effectiveMinAttempts + '题'">{{ num(scope.row.weakKnowledgeCount) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="正式严重" min-width="100" align="center">
-            <template slot-scope="scope">
-              <span :title="'低于' + severeLinePct + '且该知识点作答不少于' + effectiveSevereMinAttempts + '题'">{{ num(scope.row.severeKnowledgeCount) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="作答题数" min-width="110" align="center">
-            <template slot-scope="scope">
-              <span :title="'按去重题目计（一题多知识点不重复累计）'">{{ scope.row.totalAttempts != null ? scope.row.totalAttempts : '-' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="90" align="center" fixed="right">
-            <template slot-scope="scope">
-              <el-button type="text" size="mini" @click.stop="goStudent(scope.row)" v-hasPermi="['spas:analysis:student']">学情</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
-
-      <el-card shadow="never" style="margin-top: 16px" v-loading="loading">
+<el-tab-pane label="明细下钻" name="detail" lazy>
+<el-card shadow="never" style="margin-top: 16px" v-loading="loading">
         <div slot="header" class="card-header">知识点掌握明细</div>
         <el-table :data="knowledgeRows" empty-text="暂无数据" max-height="420">
           <el-table-column label="知识点" min-width="160" :show-overflow-tooltip="true">
@@ -633,6 +764,9 @@
           </el-table-column>
         </el-table>
       </el-card>
+        </el-tab-pane>
+      </el-tabs>
+      </div>
     </template>
 
     <el-drawer title="班级报告预览" :visible.sync="previewOpen" size="560px" append-to-body>
@@ -756,7 +890,7 @@ import { optionselectSubject } from '@/api/spas/subject'
 import { listPaper } from '@/api/spas/paper'
 import { listMyTeachingDepts } from '@/api/spas/teacher'
 import { deptTreeSelect } from '@/api/system/user'
-import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDeptTree'
+import { applyTeachingDeptContext, canLoadSystemDeptTree, isLikelyClassDeptName } from '@/utils/spasDeptTree'
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 import SpasChart from '@/components/spas/charts/SpasChart'
@@ -770,6 +904,11 @@ export default {
   data() {
     return {
       tipsExpanded: false,
+      activeAnalysisTab: 'remediate',
+      weakShowTable: false,
+      heatmapExpanded: false,
+      tabLoaded: { remediate: false, students: false, dims: false, detail: true },
+      heatmapLoaded: false,
       loading: false,
       recalcLoading: false,
       exportLoading: false,
@@ -820,6 +959,10 @@ export default {
       defaultWindow: 'semester',
       analysisMode: 'window',
       paperOptions: [],
+      examNameKeyword: '',
+      gradeFilter: '',
+      classTagsExpanded: false,
+      academicYearKey: '',
       annotationHint: '',
       annotationBlocked: false,
       unboundRatioThreshold: 0.20,
@@ -850,9 +993,108 @@ export default {
       if (val !== oldVal) {
         this.subjectPickedByUser = false
       }
+    },
+    classTagOptions(list) {
+      const id = this.queryParams.deptId
+      if (id == null || !(list || []).length) return
+      const hit = list.some(d => Number(d.deptId) === Number(id))
+      if (!hit) {
+        // 当前选中的是非班级部门（如「技术组」），自动切到第一个班级
+        const next = list[0]
+        if (next && next.deptId != null) {
+          this.queryParams.deptId = next.deptId
+          this.loadAnalysis()
+        } else {
+          this.clearClassFilter()
+        }
+      }
     }
   },
   computed: {
+    filterQueryBy: {
+      get() {
+        return this.analysisMode === 'papers' ? 'papers' : 'window'
+      },
+      set(val) {
+        this.analysisMode = val === 'papers' ? 'papers' : 'window'
+      }
+    },
+    academicYearOptions() {
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = now.getMonth() + 1
+      const start = m >= 8 ? y : y - 1
+      return [
+        { value: String(start), label: start + '-' + (start + 1) + '学年' },
+        { value: String(start - 1), label: (start - 1) + '-' + start + '学年' }
+      ]
+    },
+    classTagOptions() {
+      const keepClass = list => (list || []).filter(d =>
+        isLikelyClassDeptName(d.deptName, d.parentLabel)
+      )
+      if (this.boundClassMode) {
+        return keepClass((this.myDepts || []).map(d => ({
+          deptId: d.deptId,
+          deptName: d.deptName,
+          primary: !!d.primary,
+          parentLabel: d.parentName || d.parentLabel || ''
+        })))
+      }
+      const leaves = []
+      const walk = (nodes, parentLabel) => {
+        ;(nodes || []).forEach(n => {
+          const id = n.id != null ? n.id : n.deptId
+          const name = n.label || n.deptName || ''
+          const kids = n.children || []
+          if (!kids.length) {
+            leaves.push({ deptId: id, deptName: name, parentLabel: parentLabel || '' })
+          } else {
+            walk(kids, name)
+          }
+        })
+      }
+      walk(this.deptOptions, '')
+      const classLeaves = keepClass(leaves)
+      if (classLeaves.length) return classLeaves
+      return keepClass((this.myDepts || []).map(d => ({
+        deptId: d.deptId,
+        deptName: d.deptName,
+        primary: !!d.primary,
+        parentLabel: d.parentName || d.parentLabel || ''
+      })))
+    },
+    gradeOptions() {
+      const set = {}
+      ;(this.classTagOptions || []).forEach(d => {
+        const g = this.extractGradeLabel(d.deptName, d.parentLabel)
+        if (g) set[g] = true
+      })
+      return Object.keys(set)
+    },
+    filteredClassTags() {
+      const all = this.classTagOptions || []
+      if (!this.gradeFilter) return all
+      return all.filter(d => this.extractGradeLabel(d.deptName, d.parentLabel) === this.gradeFilter)
+    },
+    classTagsOverflow() {
+      return this.filteredClassTags.length > 12
+    },
+    visibleClassTags() {
+      const list = this.filteredClassTags
+      if (this.classTagsExpanded || list.length <= 12) return list
+      return list.slice(0, 12)
+    },
+    filteredPaperOptions() {
+      const kw = (this.examNameKeyword || '').trim().toLowerCase()
+      const list = this.paperOptions || []
+      if (!kw) return list
+      return list.filter(p => {
+        const name = String(p.paperName || '').toLowerCase()
+        const date = String(p.examDate || '').toLowerCase()
+        return name.indexOf(kw) >= 0 || date.indexOf(kw) >= 0
+      })
+    },
     suggestedSubjects() {
       const list = (this.overview && this.overview.subjectsWithData) || []
       return Array.isArray(list) ? list : []
@@ -1297,6 +1539,12 @@ export default {
     }
   },
   created() {
+    try {
+      const savedTab = sessionStorage.getItem('spas.classAnalysisTab')
+      if (savedTab && ['remediate', 'students', 'dims', 'detail'].indexOf(savedTab) >= 0) {
+        this.activeAnalysisTab = savedTab
+      }
+    } catch (e) { /* ignore */ }
     const q = this.$route.query || {}
     if (q.deptId) {
       this.queryParams.deptId = Number(q.deptId) || q.deptId
@@ -1307,11 +1555,13 @@ export default {
     if (q.window) {
       this.queryParams.window = q.window
     }
+    const years = this.academicYearOptions || []
+    if (years.length && !this.academicYearKey) {
+      this.academicYearKey = years[0].value
+    }
     this.loadAnalysisConfig()
     Promise.all([this.loadSubjects(), this.loadMyDepts(), this.loadPapers()]).then(() => {
-      if (!this.queryParams.deptId && this.preferredDeptId) {
-        this.queryParams.deptId = this.preferredDeptId
-      }
+      // Enter page shows class roster; only auto-open analysis when URL carries deptId
       if (this.queryParams.deptId) {
         this.loadAnalysis()
       }
@@ -1321,6 +1571,55 @@ export default {
     this.clearBatchExportPoll()
   },
   methods: {
+    onMoreActionCommand(cmd) {
+      if (cmd === 'exportPdf') this.handleExportReport('pdf')
+      else if (cmd === 'exportZip') this.handleExportAllStudentReports('pdf')
+      else if (cmd === 'preview') this.openReportPreview()
+      else if (cmd === 'exportXlsx') this.handleExportReport('xlsx')
+      else if (cmd === 'warning') this.goWarningRun()
+    },
+    onAnalysisTabClick(tab) {
+      const name = (tab && (tab.name || tab.paneName)) || this.activeAnalysisTab
+      this.activeAnalysisTab = name
+      try {
+        sessionStorage.setItem('spas.classAnalysisTab', name)
+      } catch (e) { /* ignore */ }
+      this.ensureTabData(name)
+    },
+    toggleHeatmapExpand() {
+      this.heatmapExpanded = !this.heatmapExpanded
+      if (this.heatmapExpanded) {
+        this.ensureHeatmapData()
+      }
+    },
+    resetTabLoadFlags() {
+      this.tabLoaded = { remediate: false, students: false, dims: false, detail: true }
+      this.heatmapLoaded = false
+      this.heatmapExpanded = false
+    },
+    ensureTabData(tab) {
+      const name = tab || this.activeAnalysisTab
+      if (!this.queryParams.deptId) return
+      if (name === 'remediate' && !this.tabLoaded.remediate) {
+        this.tabLoaded.remediate = true
+        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
+      } else if (name === 'students' && !this.tabLoaded.students) {
+        this.tabLoaded.students = true
+        // ranking already from dashboard; heatmap waits for expand
+      } else if (name === 'dims' && !this.tabLoaded.dims) {
+        this.tabLoaded.dims = true
+        this.loadClassTrend()
+        this.loadChapterOverview()
+        this.loadQuestionType()
+        this.loadBloom()
+        this.loadErrorCauseHeat()
+      }
+    },
+    ensureHeatmapData() {
+      if (!this.queryParams.deptId || this.heatmapLoaded) return
+      this.heatmapLoaded = true
+      this.loadHeatmap()
+    },
     goQuality() {
       const query = { metric: 'Q_NO_KNOWLEDGE' }
       if (this.queryParams.subjectId) query.subjectId = this.queryParams.subjectId
@@ -1417,8 +1716,120 @@ export default {
       return 'warning'
     },
     selectMyDept(deptId) {
+      this.enterClassAnalysis({ deptId })
+    },
+    extractGradeLabel(name, parentLabel) {
+      const text = String(name || '') + ' ' + String(parentLabel || '')
+      const patterns = ['高三', '高二', '高一', '初三', '初二', '初一', '九年级', '八年级', '七年级', '六年级', '五年级', '四年级', '三年级', '二年级', '一年级']
+      for (let i = 0; i < patterns.length; i++) {
+        if (text.indexOf(patterns[i]) >= 0) return patterns[i]
+      }
+      return ''
+    },
+    classAvatarText(row) {
+      const name = String((row && row.deptName) || '').trim()
+      if (!name) return '班'
+      const m = name.match(/(\d+)\s*班/)
+      if (m) return m[1]
+      return name.slice(0, 1)
+    },
+    classAvatarTone(row) {
+      const seed = String((row && (row.deptId || row.deptName)) || '')
+      let h = 0
+      for (let i = 0; i < seed.length; i++) h = (h + seed.charCodeAt(i) * (i + 1)) % 5
+      return ['teal', 'blue', 'amber', 'rose', 'slate'][h]
+    },
+    clearClassAnalysis() {
+      this.overview = {}
+      this.knowledgeRows = []
+      this.studentRanking = []
+      this.weakTopRows = []
+      this.weakBarOption = {}
+      this.heatmapOption = {}
+      this.heatmapLimitHint = ''
+      this.heatStudents = []
+      this.heatKnowledges = []
+      this.practiceSubmitRate = null
+      this.semesterWeakStudentCount = null
+      this.interveneSummary = null
+      this.clearAdvancedAnalysis()
+    },
+    syncClassRoute() {
+      const q = {}
+      if (this.queryParams.deptId) q.deptId = this.queryParams.deptId
+      if (this.queryParams.subjectId != null && this.queryParams.subjectId !== '') q.subjectId = this.queryParams.subjectId
+      if (this.queryParams.window) q.window = this.queryParams.window
+      this.$router.replace({ path: this.$route.path, query: q }).catch(() => {})
+    },
+    enterClassAnalysis(row) {
+      const deptId = row && (row.deptId != null ? row.deptId : row)
+      if (deptId == null || deptId === '') {
+        this.$modal.msgWarning('无法定位班级')
+        return
+      }
       this.queryParams.deptId = deptId
+      this.syncClassRoute()
       this.loadAnalysis()
+    },
+    backToClassList() {
+      this.queryParams.deptId = undefined
+      this.clearClassAnalysis()
+      this.syncClassRoute()
+    },
+    clearClassFilter() {
+      this.backToClassList()
+    },
+    selectClassTag(deptId) {
+      this.enterClassAnalysis({ deptId })
+    },
+    selectSubjectTag(subjectId) {
+      this.queryParams.subjectId = subjectId
+      this.onSubjectChange()
+    },
+    selectReportTag(key) {
+      if (key === 'papers') {
+        this.analysisMode = 'papers'
+        this.onModeChange()
+        return
+      }
+      this.analysisMode = 'window'
+      this.queryParams.window = key
+      this.queryParams.paperIds = []
+      if (this.queryParams.deptId) {
+        this.handleQuery()
+      }
+    },
+    onWindowTagSelect() {
+      if (this.analysisMode === 'window' && this.queryParams.deptId) {
+        this.handleQuery()
+      }
+    },
+    onFilterQueryByChange(val) {
+      this.analysisMode = val === 'papers' ? 'papers' : 'window'
+      this.onModeChange()
+    },
+    onAcademicYearChange() {
+      // 学年仅作展示筛选锚点；实际口径仍由时间窗驱动
+      if (this.queryParams.deptId && this.analysisMode === 'window') {
+        this.handleQuery()
+      }
+    },
+    handleExamSearch() {
+      const kw = (this.examNameKeyword || '').trim()
+      if (kw) {
+        this.analysisMode = 'papers'
+        this.loadPapers().then(() => {
+          const matched = this.filteredPaperOptions.map(p => p.paperId)
+          if (!matched.length) {
+            this.$modal.msgWarning('未找到名称包含「' + kw + '」的已发布试卷')
+            return
+          }
+          this.queryParams.paperIds = matched.slice(0, 20)
+          this.handleQuery()
+        })
+        return
+      }
+      this.handleQuery()
     },
     toPercent(rate) {
       if (rate == null || rate === '') {
@@ -1734,14 +2145,13 @@ export default {
       }).catch(() => {})
     },
     resetQuery() {
-      this.queryParams.deptId = undefined
-      this.overview = {}
-      this.knowledgeRows = []
-      this.heatStudents = []
-      this.heatKnowledges = []
-      this.weakBarOption = {}
-      this.heatmapOption = {}
-      this.clearAdvancedAnalysis()
+      this.queryParams.paperIds = []
+      this.queryParams.window = this.defaultWindow || 'semester'
+      this.analysisMode = 'window'
+      this.examNameKeyword = ''
+      this.gradeFilter = ''
+      this.classTagsExpanded = false
+      this.backToClassList()
       this.loadSubjects()
     },
     clearAdvancedAnalysis() {
@@ -1823,6 +2233,8 @@ export default {
       if ((this.$route.query || {}).focus !== 'chapterDelta') {
         return
       }
+      this.activeAnalysisTab = 'remediate'
+      try { sessionStorage.setItem('spas.classAnalysisTab', 'remediate') } catch (e) { /* ignore */ }
       const scroll = () => {
         const el = document.getElementById('spas-chapter-delta')
         if (el && typeof el.scrollIntoView === 'function') {
@@ -1966,20 +2378,18 @@ export default {
       })
     },
     loadSecondaryAnalysis() {
+      this.resetTabLoadFlags()
       const run = (fn, delay) => setTimeout(() => { try { fn.call(this) } catch (e) { /* ignore */ } }, delay)
-      run(function() { this.loadHeatmap() }, 0)
+      // Wave A - tips / KPI overlays (always)
       run(function() { this.loadAnnotationCoverage() }, 40)
       run(function() { this.loadInterveneSummary() }, 80)
       run(function() { this.loadPracticeBehavior() }, 80)
       run(function() { this.loadWindowCompare() }, 120)
-      run(function() { this.loadClassTrend() }, 160)
-      run(function() { this.loadChapterOverview() }, 200)
-      run(function() { this.loadQuestionType() }, 260)
-      run(function() { this.loadBloom() }, 320)
-      run(function() { this.loadErrorCauseHeat() }, 360)
-      run(function() {
-        this.loadChapterDelta().then(() => this.focusChapterDeltaIfNeeded())
-      }, 420)
+      // Wave B - active tab panels only
+      run(function() { this.ensureTabData(this.activeAnalysisTab) }, 160)
+      if (this.activeAnalysisTab === 'students' && this.heatmapExpanded) {
+        run(function() { this.ensureHeatmapData() }, 200)
+      }
     },
     loadHeatmap() {
       if (!this.queryParams.deptId) {
@@ -2405,6 +2815,287 @@ export default {
 </script>
 
 <style scoped>
+.class-filter-panel {
+  background: #fff;
+  border: 1px solid #E8EDF5;
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+.filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filter-select {
+  width: 148px;
+}
+.exam-search {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 240px;
+  max-width: 320px;
+  flex: 1;
+}
+.exam-search >>> .el-input__inner {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.exam-search-btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding: 0 14px;
+  background: #13C2C2;
+  border-color: #13C2C2;
+}
+.exam-search-btn:hover,
+.exam-search-btn:focus {
+  background: #36CFC9;
+  border-color: #36CFC9;
+}
+.filter-tag-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 2px;
+}
+.filter-tag-row,
+.filter-paper-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.filter-tag-label {
+  flex: 0 0 42px;
+  line-height: 28px;
+  color: #64748B;
+  font-size: 13px;
+  text-align: right;
+}
+.filter-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 4px;
+  min-width: 0;
+  flex: 1;
+}
+.filter-chip {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  line-height: 28px;
+  padding: 0 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.filter-chip:hover {
+  color: #0F766E;
+  background: rgba(19, 194, 194, 0.08);
+}
+.filter-chip.active {
+  background: #13C2C2;
+  color: #fff;
+  font-weight: 500;
+}
+.filter-more {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #13C2C2;
+  font-size: 13px;
+  line-height: 28px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+.filter-more:hover {
+  color: #0F766E;
+}
+.filter-treeselect {
+  width: 240px;
+  margin-left: 4px;
+}
+.filter-paper-select {
+  width: min(420px, 100%);
+}
+.filter-recency {
+  margin-left: 8px;
+  margin-top: 4px;
+}
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #E8EDF5;
+}
+.class-roster-panel {
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #E8EDF5;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  padding: 16px 16px 18px;
+  min-height: 220px;
+}
+.roster-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #EEF2F7;
+}
+.roster-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0F172A;
+  line-height: 1.3;
+}
+.roster-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94A3B8;
+}
+.roster-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.roster-count {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F766E;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.roster-count-label {
+  font-size: 12px;
+  color: #64748B;
+}
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding-right: 2px;
+}
+.roster-tile {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 12px 12px 12px 10px;
+  border: 1px solid #E8EDF5;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.roster-tile:hover {
+  border-color: #99E6E6;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+.roster-tile:hover .roster-action {
+  color: #0F766E;
+  opacity: 1;
+}
+.roster-avatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.roster-avatar.tone-teal { background: #14B8A6; }
+.roster-avatar.tone-blue { background: #3B82F6; }
+.roster-avatar.tone-amber { background: #F59E0B; }
+.roster-avatar.tone-rose { background: #F43F5E; }
+.roster-avatar.tone-slate { background: #64748B; }
+.roster-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.roster-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.roster-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0F172A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-sex {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #64748B;
+  background: #F1F5F9;
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 18px;
+}
+.roster-no {
+  font-size: 12px;
+  color: #94A3B8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-action {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94A3B8;
+  opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+@media (max-width: 768px) {
+  .roster-grid {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+  .roster-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
 .batch-export-meta {
   margin: 14px 0 6px;
   color: #606266;
@@ -2467,39 +3158,6 @@ export default {
 .bound-class-switch {
   margin-left: 4px;
 }
-.overview-row {
-  margin-bottom: 8px;
-}
-.stat-card {
-  background: #fff;
-  border: 1px solid #E8E4F5;
-  border-radius: 14px;
-  padding: 16px 18px;
-  margin-bottom: 12px;
-  border-left: 3px solid #7B6CF6;
-  box-shadow: 0 8px 24px rgba(91, 75, 219, 0.06);
-}
-.stat-card.tone-blue { border-left-color: #2442ED; }
-.stat-card.tone-orange { border-left-color: #D97706; }
-.stat-card.tone-green { border-left-color: #10B981; }
-.stat-card.tone-red { border-left-color: #FF5A5F; }
-.stat-card.tone-purple { border-left-color: #0E7490; }
-.stat-card.is-emphasis {
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.12), 0 8px 18px rgba(15, 23, 42, 0.06);
-}
-.stat-label {
-  color: #64748B;
-  font-size: 12px;
-  font-weight: 600;
-}
-.stat-value {
-  margin-top: 8px;
-  font-size: 24px;
-  font-weight: 700;
-  color: #0F172A;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-}
 .stat-hint {
   margin-top: 4px;
   font-size: 11px;
@@ -2516,4 +3174,188 @@ export default {
   border: 1px dashed #E2E8F0;
 }
 .mb8 { margin-bottom: 8px; }
+
+.decision-zone {
+  position: relative;
+  z-index: 2;
+}
+.analysis-workbench {
+  margin-top: 8px;
+  background: #fff;
+  border: 1px solid #E8EDF5;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+.kpi-strip {
+  display: grid;
+  gap: 0;
+  border-bottom: 1px solid #EEF2F7;
+  background: linear-gradient(180deg, #F8FAFC 0%, #FFFFFF 100%);
+}
+.kpi-tile {
+  position: relative;
+  min-width: 0;
+  padding: 16px 20px 14px 22px;
+  border-right: 1px solid #EEF2F7;
+}
+.kpi-tile:last-child {
+  border-right: none;
+}
+.kpi-tile::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 16px;
+  bottom: 16px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: #94A3B8;
+}
+.kpi-tile.tone-blue::before { background: #2442ED; }
+.kpi-tile.tone-orange::before { background: #D97706; }
+.kpi-tile.tone-green::before { background: #10B981; }
+.kpi-tile.tone-red::before { background: #FF5A5F; }
+.kpi-tile.tone-purple::before { background: #0E7490; }
+.kpi-tile.is-emphasis {
+  background: rgba(217, 119, 6, 0.06);
+}
+.kpi-tile-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.kpi-tile-label {
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.kpi-tile-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F172A;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+.kpi-tile.tone-orange .kpi-tile-value,
+.kpi-tile.is-emphasis .kpi-tile-value {
+  color: #B45309;
+}
+.kpi-tile.tone-red .kpi-tile-value {
+  color: #DC2626;
+}
+.kpi-tile-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #94A3B8;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.class-analysis-tabs {
+  margin-top: 0;
+}
+.class-analysis-tabs >>> .el-tabs__header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0;
+  padding: 10px 14px 0;
+  background: #F3F6FA;
+  border-bottom: 1px solid #E8EDF5;
+}
+.class-analysis-tabs >>> .el-tabs__nav-wrap::after {
+  display: none;
+}
+.class-analysis-tabs >>> .el-tabs__nav-scroll {
+  padding: 0;
+}
+.class-analysis-tabs >>> .el-tabs__nav {
+  display: inline-flex;
+  float: none;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px 10px 0 0;
+  border-bottom: none;
+  padding: 0 4px;
+}
+.class-analysis-tabs >>> .el-tabs__item {
+  height: 38px;
+  line-height: 38px;
+  margin: 0 2px !important;
+  padding: 0 16px !important;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748B;
+  border-radius: 8px 8px 0 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.class-analysis-tabs >>> .el-tabs__item:hover {
+  color: #0F766E;
+  background: rgba(19, 194, 194, 0.08);
+}
+.class-analysis-tabs >>> .el-tabs__item.is-active {
+  color: #0F766E;
+  font-weight: 600;
+  background: rgba(19, 194, 194, 0.12);
+}
+.class-analysis-tabs >>> .el-tabs__active-bar {
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background-color: #13C2C2;
+}
+.class-analysis-tabs >>> .el-tabs__content {
+  padding: 12px 12px 14px;
+  background: #fff;
+}
+.analysis-workbench >>> .chart-card.el-card {
+  border: 1px solid #EEF2F7 !important;
+  box-shadow: none !important;
+  border-radius: 10px !important;
+}
+.analysis-workbench >>> .chart-card.el-card + .el-card,
+.analysis-workbench >>> .el-row + .el-card,
+.analysis-workbench >>> .el-card + .el-card {
+  margin-top: 12px;
+}
+@media (max-width: 992px) {
+  .kpi-strip {
+    grid-template-columns: 1fr !important;
+  }
+  .kpi-tile {
+    border-right: none;
+    border-bottom: 1px solid #EEF2F7;
+  }
+  .kpi-tile:last-child {
+    border-bottom: none;
+  }
+  .class-analysis-tabs >>> .el-tabs__nav {
+    display: flex;
+    width: 100%;
+    border-radius: 8px 8px 0 0;
+  }
+  .class-analysis-tabs >>> .el-tabs__item {
+    flex: 1;
+    text-align: center;
+    padding: 0 8px !important;
+  }
+}
+.student-name-strong {
+  font-weight: 700;
+  color: #0F172A;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.heatmap-collapsed-hint {
+  padding: 18px 12px;
+  color: #64748B;
+  font-size: 13px;
+  background: #F8FAFC;
+  border-radius: 8px;
+  border: 1px dashed #E2E8F0;
+  text-align: center;
+}
 </style>

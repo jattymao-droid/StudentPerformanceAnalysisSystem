@@ -36,6 +36,8 @@ public class SpasInterveneTask extends BaseEntity
     private String effectPassed;
     /** Retest detail JSON: per-knowledge baseline/effect/delta */
     private String effectJson;
+    /** Manual close reason when process gate not met */
+    private String closeReason;
 
     /** display */
     private String studentName;
@@ -48,6 +50,18 @@ public class SpasInterveneTask extends BaseEntity
     private Long warningId;
     private List<Long> knowledgeIdList;
     private List<SpasCoachLog> coachLogs;
+    /** Required action types on create: practice | select | coach | custom */
+    private List<String> actionTypes;
+    /** Optional coach plan text when actionTypes contains coach */
+    private String coachPlan;
+    /** Optional coach content when creating coach action */
+    private String coachContent;
+    private List<SpasInterveneAction> actions;
+    /** list/detail progress helpers */
+    private Integer actionCount;
+    private Integer coachCount;
+    private String processLabel;
+    private Boolean processOk;
 
     public Long getInterveneId() { return interveneId; }
     public void setInterveneId(Long interveneId) { this.interveneId = interveneId; }
@@ -101,4 +115,22 @@ public class SpasInterveneTask extends BaseEntity
     public void setKnowledgeIdList(List<Long> knowledgeIdList) { this.knowledgeIdList = knowledgeIdList; }
     public List<SpasCoachLog> getCoachLogs() { return coachLogs; }
     public void setCoachLogs(List<SpasCoachLog> coachLogs) { this.coachLogs = coachLogs; }
+    public String getCloseReason() { return closeReason; }
+    public void setCloseReason(String closeReason) { this.closeReason = closeReason; }
+    public List<String> getActionTypes() { return actionTypes; }
+    public void setActionTypes(List<String> actionTypes) { this.actionTypes = actionTypes; }
+    public String getCoachPlan() { return coachPlan; }
+    public void setCoachPlan(String coachPlan) { this.coachPlan = coachPlan; }
+    public String getCoachContent() { return coachContent; }
+    public void setCoachContent(String coachContent) { this.coachContent = coachContent; }
+    public List<SpasInterveneAction> getActions() { return actions; }
+    public void setActions(List<SpasInterveneAction> actions) { this.actions = actions; }
+    public Integer getActionCount() { return actionCount; }
+    public void setActionCount(Integer actionCount) { this.actionCount = actionCount; }
+    public Integer getCoachCount() { return coachCount; }
+    public void setCoachCount(Integer coachCount) { this.coachCount = coachCount; }
+    public String getProcessLabel() { return processLabel; }
+    public void setProcessLabel(String processLabel) { this.processLabel = processLabel; }
+    public Boolean getProcessOk() { return processOk; }
+    public void setProcessOk(Boolean processOk) { this.processOk = processOk; }
 }

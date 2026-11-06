@@ -43,4 +43,14 @@ public interface SpasPaperMapper
     public List<SpasQuestionKnowledge> selectKnowledgeByPaperId(Long paperId);
 
     public int countScoreDetailByPaperId(Long paperId);
+
+    public List<Long> selectStudentIdsByPaperId(Long paperId);
+
+    public int deleteScoreDetailByPaperId(Long paperId);
+
+    public int deleteScoreBatchByPaperId(Long paperId);
+
+    public int deleteErrorTagByPaperId(Long paperId);
+
+    public int clearExamPaperId(Long paperId);
 }

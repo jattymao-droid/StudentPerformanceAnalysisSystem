@@ -134,6 +134,13 @@
         </div>
         <div class="qb-basket-footer">
           <el-button size="mini" @click="clearBasket" :disabled="!basketCount">清空</el-button>
+          <el-button
+            v-if="pendingInterveneId"
+            type="warning"
+            size="mini"
+            :disabled="!basketCount"
+            @click="markInterveneSelectDone"
+          >回写干预选题</el-button>
           <el-button type="primary" size="mini" :disabled="!basketCount" @click="goCompose">去组卷</el-button>
         </div>
       </div>
@@ -206,6 +213,7 @@ import { mapGetters } from 'vuex'
 import { listQbQuestion, getQbQuestion, smartPickQbQuestion } from '@/api/spas/qb/question'
 import { optionselectSubject } from '@/api/spas/subject'
 import { treeKnowledge } from '@/api/spas/knowledge'
+import { linkInterveneSelect } from '@/api/spas/intervene'
 import QbRichContent from '@/components/spas/QbRichContent'
 import { qbTypeLabel, qbTypeOptions } from '@/utils/qbTypeLabel'
 
@@ -232,6 +240,7 @@ export default {
       smartLoading: false,
       smartForm: { choice: 5, blank: 3, short: 2, calc: 0, experiment: 0, totalCount: 10, boundOnly: true },
       typeFilterOptions: qbTypeOptions(),
+      pendingInterveneId: undefined,
       queryParams: {
         pageNum: 1,
         pageSize: 10,
@@ -306,6 +315,9 @@ export default {
       }
       if (q.openBasket === '1') {
         this.basketOpen = true
+      }
+      if (q.interveneId != null && q.interveneId !== '') {
+        this.pendingInterveneId = Number(q.interveneId) || q.interveneId
       }
       if (!changed && !forceLoad) return
       if (this.queryParams.subjectId) {
@@ -510,6 +522,23 @@ export default {
         }
       }).catch(() => {})
       this.$modal.msgSuccess('已携带试题篮到组卷中心')
+    },
+    markInterveneSelectDone() {
+      if (!this.pendingInterveneId) {
+        this.$modal.msgWarning('未关联干预任务')
+        return
+      }
+      if (!this.basketCount) {
+        this.$modal.msgWarning('请先选题加入试题篮')
+        return
+      }
+      linkInterveneSelect(this.pendingInterveneId, null).then(() => {
+        this.$modal.msgSuccess('已回写干预选题动作')
+        this.$router.push({
+          path: '/spas/intervene',
+          query: { status: '0' }
+        }).catch(() => {})
+      })
     },
     openDetail(q) {
       getQbQuestion(q.questionId).then(res => {

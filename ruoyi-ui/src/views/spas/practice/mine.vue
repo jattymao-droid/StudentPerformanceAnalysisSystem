@@ -7,6 +7,37 @@
       <el-tag v-else type="info" size="mini">未设置 PIN</el-tag>
     </div>
 
+    <el-card v-if="openIntervenes.length" shadow="never" class="mb8 intervene-todo">
+      <div slot="header" class="board-head">
+        <span>补弱待办（{{ openIntervenes.length }}）</span>
+        <el-tag size="mini" type="warning" effect="plain">过程+达标才算通过</el-tag>
+      </div>
+      <el-table :data="openIntervenes" size="mini" max-height="220">
+        <el-table-column label="任务" min-width="160" :show-overflow-tooltip="true">
+          <template slot-scope="scope">
+            {{ scope.row.title || '补弱任务' }}
+            <el-tag v-if="String(scope.row.status) === '3'" size="mini" type="danger" style="margin-left:4px">逾期</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="学科" width="80" prop="subjectName" :show-overflow-tooltip="true" />
+        <el-table-column label="进度" width="120" :show-overflow-tooltip="true">
+          <template slot-scope="scope">{{ scope.row.processLabel || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="剩余" width="72" align="center">
+          <template slot-scope="scope">
+            <span v-if="scope.row.daysLeft == null">—</span>
+            <span v-else-if="scope.row.daysLeft < 0" style="color:#f56c6c">逾 {{ -scope.row.daysLeft }} 天</span>
+            <span v-else>{{ scope.row.daysLeft }} 天</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" align="center">
+          <template slot-scope="scope">
+            <el-button type="text" size="mini" @click="goIntervenePractice(scope.row)">去加练</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-card v-if="form.subjectId" shadow="never" class="mb8 prescription-mine" v-loading="prescriptionLoading">
       <div slot="header" class="board-head">
         <span>{{ minePrescription.title }}</span>
@@ -282,6 +313,7 @@ export default {
       myStudentId: null,
       weekRank: null,
       checkoutBundle: {},
+      openIntervenes: [],
       form: {
         subjectId: undefined,
         knowledgeIds: [],
@@ -414,6 +446,7 @@ export default {
         this.todayLogs = d.logs || []
         this.leader = !!d.leader
         this.studentName = (d.student && d.student.studentName) || ''
+        this.openIntervenes = d.openIntervenes || []
         this.checkoutBundle = (coRes && coRes.data) || {}
         const members = this.checkoutBundle.members || []
         if (members.length) {
@@ -430,6 +463,20 @@ export default {
         }
       }).catch(() => {
         this.checkoutBundle = {}
+        this.openIntervenes = []
+      })
+    },
+    goIntervenePractice(row) {
+      if (!row) return
+      const ids = String(row.knowledgeIds || '')
+        .split(/[,，\s]+/)
+        .map(s => Number(s))
+        .filter(Boolean)
+      if (row.subjectId) this.form.subjectId = row.subjectId
+      this.onSubjectChange()
+      this.$nextTick(() => {
+        if (ids.length) this.form.knowledgeIds = ids
+        this.$modal.msgSuccess('已带入补弱主题，请填写书名题号后提交加练')
       })
     },
     finishLabel(v) {

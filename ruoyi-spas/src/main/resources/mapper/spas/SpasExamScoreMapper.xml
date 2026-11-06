@@ -205,4 +205,17 @@
         where s.school_rank is not null
         order by st.student_id, e.exam_date asc nulls last, e.exam_id asc, s.score_id asc
     </select>
+
+    <select id="selectLatestDoneExamByDept" resultMap="SpasExamResult">
+        <include refid="selectExamVo"/>
+        where e.dept_id = #{deptId} and e.status = '1'
+        order by coalesce(e.exam_date, e.create_time) desc, e.exam_id desc
+        limit 1
+    </select>
+
+    <select id="selectDoneExamsByDept" resultMap="SpasExamResult">
+        <include refid="selectExamVo"/>
+        where e.dept_id = #{deptId} and e.status = '1'
+        order by coalesce(e.exam_date, e.create_time) asc, e.exam_id asc
+    </select>
 </mapper>

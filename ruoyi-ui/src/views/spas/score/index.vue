@@ -135,7 +135,7 @@
           :disabled="multiple"
           @click="handleDeleteDetail"
           v-hasPermi="['spas:score:remove']"
-        >删除明细</el-button>
+        >删除所选学生</el-button>
       </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getBatchList"></right-toolbar>
     </el-row>
@@ -196,41 +196,59 @@
       @pagination="getBatchList"
     />
 
-    <el-divider content-position="left">成绩明细</el-divider>
-    <el-table v-loading="detailLoading" :data="detailList" class="score-detail-anchor" @selection-change="handleDetailSelectionChange">
-      <el-table-column type="selection" width="50" align="center" />
-      <el-table-column label="学号" align="center" prop="studentNo" min-width="120" />
-      <el-table-column label="姓名" align="center" prop="studentName" min-width="100" />
-      <el-table-column label="题号" align="center" prop="questionNo" width="90" />
-      <el-table-column label="得分" align="center" prop="score" width="90" />
-      <el-table-column label="满分" align="center" prop="fullScore" width="90" />
-      <el-table-column label="得分率" align="center" prop="rate" width="100">
+    <el-divider content-position="left">成绩明细（每生一行 · 题号横排）</el-divider>
+    <el-table
+      v-loading="detailLoading"
+      :data="pagedStudentRows"
+      class="score-detail-anchor score-matrix-table"
+      border
+      @selection-change="handleStudentSelectionChange"
+    >
+      <el-table-column type="selection" width="50" align="center" fixed />
+      <el-table-column label="学号" align="center" prop="studentNo" min-width="120" fixed />
+      <el-table-column label="姓名" align="center" prop="studentName" min-width="90" fixed />
+      <el-table-column
+        v-for="q in questionColumns"
+        :key="'q-' + q.questionNo"
+        :label="questionColumnLabel(q)"
+        align="center"
+        min-width="64"
+      >
         <template slot-scope="scope">
-          <span>{{ formatRate(scope.row.rate) }}</span>
+          <button
+            v-if="scope.row.scores[q.questionNo]"
+            type="button"
+            class="score-cell"
+            :class="scoreCellClass(scope.row.scores[q.questionNo])"
+            :title="scoreCellTip(scope.row.scores[q.questionNo])"
+            @click="handleUpdateDetail(scope.row.scores[q.questionNo])"
+          >{{ formatScoreCell(scope.row.scores[q.questionNo].score) }}</button>
+          <span v-else class="score-cell-empty">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="来源" align="center" prop="scoreSource" width="90">
+      <el-table-column label="合计" align="center" width="88" fixed="right">
         <template slot-scope="scope">
-          <el-tag v-if="scope.row.scoreSource === '1'" size="mini">手工</el-tag>
-          <el-tag v-else-if="scope.row.scoreSource === '2'" type="success" size="mini">导入</el-tag>
-          <el-tag v-else-if="scope.row.scoreSource === '3'" type="info" size="mini">空作0</el-tag>
-          <span v-else>{{ scope.row.scoreSource || '-' }}</span>
+          <span class="score-sum">{{ formatScoreCell(scope.row.totalScore) }}</span>
+          <span v-if="scope.row.totalFull != null" class="score-sum-full">/{{ formatScoreCell(scope.row.totalFull) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="批次" align="center" prop="batchId" width="90" />
-      <el-table-column label="操作" align="center" width="140" class-name="small-padding fixed-width">
+      <el-table-column label="得分率" align="center" width="80" fixed="right">
         <template slot-scope="scope">
-          <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdateDetail(scope.row)" v-hasPermi="['spas:score:edit']">修改</el-button>
-          <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDeleteDetail(scope.row)" v-hasPermi="['spas:score:remove']">删除</el-button>
+          <span>{{ formatRate(scope.row.totalRate) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" align="center" width="100" fixed="right" class-name="small-padding fixed-width">
+        <template slot-scope="scope">
+          <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDeleteStudentRow(scope.row)" v-hasPermi="['spas:score:remove']">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
     <pagination
-      v-show="detailTotal > 0"
-      :total="detailTotal"
-      :page.sync="detailQuery.pageNum"
-      :limit.sync="detailQuery.pageSize"
-      @pagination="getDetailList"
+      v-show="studentRowTotal > 0"
+      :total="studentRowTotal"
+      :page.sync="studentPageNum"
+      :limit.sync="studentPageSize"
+      @pagination="noopPagination"
     />
     </template>
 
@@ -307,7 +325,7 @@
 
 <script>
 import { listScoreBatch, listScoreDetail, addScoreDetail, updateScoreDetail, delScoreDetail, revokeScoreBatch } from '@/api/spas/score'
-import { listPaper } from '@/api/spas/paper'
+import { listPaper, getPaper } from '@/api/spas/paper'
 import { recalcPaper } from '@/api/spas/analysis'
 import { qualityOverview } from '@/api/spas/quality'
 import { getToken } from '@/utils/auth'
@@ -321,8 +339,14 @@ export default {
       detailLoading: false,
       batchList: [],
       detailList: [],
+      studentRows: [],
+      questionColumns: [],
+      paperQuestions: [],
       batchTotal: 0,
       detailTotal: 0,
+      studentRowTotal: 0,
+      studentPageNum: 1,
+      studentPageSize: 20,
       paperOptions: [],
       postImportQualityTip: '',
       ids: [],
@@ -335,7 +359,7 @@ export default {
       },
       detailQuery: {
         pageNum: 1,
-        pageSize: 10,
+        pageSize: 5000,
         paperId: undefined,
         batchId: undefined,
         studentNo: undefined,
@@ -368,6 +392,10 @@ export default {
   computed: {
     uploadData() {
       return { blankAsZero: this.upload.blankAsZero ? 'true' : 'false' }
+    },
+    pagedStudentRows() {
+      const start = (this.studentPageNum - 1) * this.studentPageSize
+      return (this.studentRows || []).slice(start, start + this.studentPageSize)
     }
   },
   created() {
@@ -418,11 +446,62 @@ export default {
       if (isNaN(n)) return rate
       return (n * 100).toFixed(1) + '%'
     },
+    formatScoreCell(score) {
+      if (score == null || score === '') return '-'
+      const n = Number(score)
+      if (isNaN(n)) return score
+      return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '')
+    },
+    questionColumnLabel(q) {
+      if (!q) return '-'
+      if (q.fullScore != null && q.fullScore !== '') {
+        return String(q.questionNo) + '(' + this.formatScoreCell(q.fullScore) + ')'
+      }
+      return String(q.questionNo)
+    },
+    scoreCellClass(cell) {
+      if (!cell || cell.score == null || cell.fullScore == null) return ''
+      const full = Number(cell.fullScore)
+      const score = Number(cell.score)
+      if (!(full > 0) || isNaN(score)) return ''
+      const rate = score / full
+      if (rate <= 0) return 'is-zero'
+      if (rate < 0.6) return 'is-low'
+      if (rate >= 1) return 'is-full'
+      return ''
+    },
+    scoreCellTip(cell) {
+      if (!cell) return ''
+      const parts = [
+        '题号 ' + (cell.questionNo || '-'),
+        '得分 ' + this.formatScoreCell(cell.score),
+        '满分 ' + this.formatScoreCell(cell.fullScore),
+        '得分率 ' + this.formatRate(cell.rate)
+      ]
+      if (cell.scoreSource === '1') parts.push('来源 手工')
+      else if (cell.scoreSource === '2') parts.push('来源 导入')
+      else if (cell.scoreSource === '3') parts.push('来源 空作0')
+      if (cell.batchId != null) parts.push('批次 ' + cell.batchId)
+      parts.push('点击可修改')
+      return parts.join(' · ')
+    },
+    noopPagination() {},
+    clearDetailView() {
+      this.detailList = []
+      this.studentRows = []
+      this.questionColumns = []
+      this.detailTotal = 0
+      this.studentRowTotal = 0
+      this.studentPageNum = 1
+      this.ids = []
+      this.single = true
+      this.multiple = true
+    },
     handlePaperChange() {
       this.detailQuery.batchId = undefined
       this.detailQuery.questionId = undefined
-      this.detailList = []
-      this.detailTotal = 0
+      this.paperQuestions = []
+      this.clearDetailView()
       this.handleQuery()
     },
     handleQuery() {
@@ -430,11 +509,13 @@ export default {
       this.getBatchList()
       this.detailQuery.paperId = this.queryParams.paperId
       this.detailQuery.pageNum = 1
+      this.studentPageNum = 1
       if (this.queryParams.paperId) {
+        this.loadPaperQuestions(this.queryParams.paperId)
         this.getDetailList()
       } else {
-        this.detailList = []
-        this.detailTotal = 0
+        this.paperQuestions = []
+        this.clearDetailView()
       }
     },
     resetQuery() {
@@ -449,12 +530,118 @@ export default {
     },
     handleDetailQuery() {
       this.detailQuery.pageNum = 1
+      this.studentPageNum = 1
       this.getDetailList()
     },
-    handleDetailSelectionChange(selection) {
-      this.ids = selection.map(item => item.detailId)
+    handleStudentSelectionChange(selection) {
+      const ids = []
+      ;(selection || []).forEach(row => {
+        ;(row.detailIds || []).forEach(id => {
+          if (id != null) ids.push(id)
+        })
+      })
+      this.ids = ids
       this.single = selection.length !== 1
       this.multiple = !selection.length
+    },
+    loadPaperQuestions(paperId) {
+      if (!paperId) {
+        this.paperQuestions = []
+        return Promise.resolve([])
+      }
+      return getPaper(paperId).then(res => {
+        const paper = (res && res.data) || {}
+        const list = Array.isArray(paper.questions) ? paper.questions.slice() : []
+        list.sort((a, b) => {
+          const ao = a.questionOrder != null ? Number(a.questionOrder) : 0
+          const bo = b.questionOrder != null ? Number(b.questionOrder) : 0
+          if (ao !== bo) return ao - bo
+          return String(a.questionNo || '').localeCompare(String(b.questionNo || ''), 'zh')
+        })
+        this.paperQuestions = list
+        return list
+      }).catch(() => {
+        this.paperQuestions = []
+        return []
+      })
+    },
+    buildStudentMatrix(rows) {
+      const list = rows || []
+      const qMap = {}
+      ;(this.paperQuestions || []).forEach(q => {
+        if (!q || q.questionNo == null || q.questionNo === '') return
+        qMap[String(q.questionNo)] = {
+          questionNo: String(q.questionNo),
+          questionOrder: q.questionOrder,
+          fullScore: q.fullScore
+        }
+      })
+      list.forEach(d => {
+        const qno = d.questionNo != null ? String(d.questionNo) : ''
+        if (!qno) return
+        if (!qMap[qno]) {
+          qMap[qno] = {
+            questionNo: qno,
+            questionOrder: 9999,
+            fullScore: d.fullScore
+          }
+        } else if (qMap[qno].fullScore == null && d.fullScore != null) {
+          qMap[qno].fullScore = d.fullScore
+        }
+      })
+      const questionColumns = Object.keys(qMap).map(k => qMap[k]).sort((a, b) => {
+        const ao = a.questionOrder != null ? Number(a.questionOrder) : 9999
+        const bo = b.questionOrder != null ? Number(b.questionOrder) : 9999
+        if (ao !== bo) return ao - bo
+        return String(a.questionNo).localeCompare(String(b.questionNo), 'zh')
+      })
+
+      const byStudent = {}
+      const order = []
+      list.forEach(d => {
+        const sid = d.studentId != null ? String(d.studentId) : ('no:' + (d.studentNo || ''))
+        if (!byStudent[sid]) {
+          byStudent[sid] = {
+            studentId: d.studentId,
+            studentNo: d.studentNo,
+            studentName: d.studentName,
+            scores: {},
+            detailIds: [],
+            totalScore: 0,
+            totalFull: 0,
+            scoredCount: 0
+          }
+          order.push(sid)
+        }
+        const row = byStudent[sid]
+        const qno = d.questionNo != null ? String(d.questionNo) : ''
+        if (qno) {
+          row.scores[qno] = d
+        }
+        if (d.detailId != null) row.detailIds.push(d.detailId)
+        const score = d.score != null ? Number(d.score) : NaN
+        const full = d.fullScore != null ? Number(d.fullScore) : NaN
+        if (!isNaN(score)) {
+          row.totalScore += score
+          row.scoredCount += 1
+        }
+        if (!isNaN(full)) {
+          row.totalFull += full
+        }
+      })
+
+      const studentRows = order.map(sid => {
+        const row = byStudent[sid]
+        row.totalRate = row.totalFull > 0 ? (row.totalScore / row.totalFull) : null
+        return row
+      })
+
+      this.questionColumns = questionColumns
+      this.studentRows = studentRows
+      this.studentRowTotal = studentRows.length
+      if ((this.studentPageNum - 1) * this.studentPageSize >= studentRows.length && this.studentPageNum > 1) {
+        this.studentPageNum = 1
+      }
     },
     resetDetailForm() {
       this.detailForm = {
@@ -523,6 +710,20 @@ export default {
         this.getDetailList()
       }).catch(() => {})
     },
+    handleDeleteStudentRow(row) {
+      const detailIds = (row && row.detailIds) || []
+      if (!detailIds.length) {
+        this.$modal.msgWarning('该学生暂无可删明细')
+        return
+      }
+      const name = (row.studentName || row.studentNo || '该生')
+      this.$modal.confirm('确认删除「' + name + '」全部小题得分（' + detailIds.length + ' 条）？删除后将重算知识点。').then(() => {
+        return delScoreDetail(detailIds)
+      }).then(() => {
+        this.$modal.msgSuccess('删除成功')
+        this.getDetailList()
+      }).catch(() => {})
+    },
     getBatchList() {
       if (!this.queryParams.paperId) {
         this.batchList = []
@@ -552,15 +753,25 @@ export default {
     },
     getDetailList() {
       if (!this.detailQuery.paperId) {
-        this.detailList = []
-        this.detailTotal = 0
+        this.clearDetailView()
         return
       }
       this.detailLoading = true
-      listScoreDetail(this.detailQuery).then(response => {
+      const query = Object.assign({}, this.detailQuery, {
+        pageNum: 1,
+        pageSize: 5000
+      })
+      const ensureQuestions = this.paperQuestions && this.paperQuestions.length
+        ? Promise.resolve(this.paperQuestions)
+        : this.loadPaperQuestions(this.detailQuery.paperId)
+      ensureQuestions.then(() => listScoreDetail(query)).then(response => {
         this.detailList = response.rows || []
         this.detailTotal = response.total || 0
+        this.buildStudentMatrix(this.detailList)
         this.detailLoading = false
+        if (this.detailTotal > 5000) {
+          this.$modal.msgWarning('明细超过 5000 条，当前仅展示前 5000 条透视结果，请缩小筛选范围')
+        }
       }).catch(() => {
         this.detailLoading = false
       })
@@ -572,6 +783,7 @@ export default {
       this.detailQuery.paperId = this.queryParams.paperId
       this.detailQuery.batchId = row.batchId
       this.detailQuery.pageNum = 1
+      this.studentPageNum = 1
       this.getDetailList()
     },
     handleDownloadTemplate() {
@@ -788,5 +1000,50 @@ export default {
   margin-top: 6px;
   color: #64748B;
   font-size: 12px;
+}
+.score-matrix-table >>> .el-table__body .cell {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.score-cell {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #0F172A;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1.4;
+  min-width: 28px;
+}
+.score-cell:hover {
+  background: #ECFEFF;
+  color: #0F766E;
+}
+.score-cell.is-full {
+  color: #059669;
+}
+.score-cell.is-low {
+  color: #D97706;
+}
+.score-cell.is-zero {
+  color: #DC2626;
+}
+.score-cell-empty {
+  color: #CBD5E1;
+}
+.score-sum {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0F172A;
+}
+.score-sum-full {
+  margin-left: 1px;
+  color: #94A3B8;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 </style>

@@ -716,6 +716,14 @@
         label: '去登记'
       })
     }
+    if (opts.openIntervenes > 0) {
+      items.push({
+        cls: 'warn',
+        text: '有 ' + opts.openIntervenes + ' 项补弱干预待办，请按主题加练或完成辅导',
+        action: 'intervene',
+        label: '查看待办'
+      })
+    }
     // 已有当日布置时，主路径是座位检查，不提示「去打卡」
     if (!opts.done && !opts.hasAssign && !(opts.tpl && opts.tpl.bookName)) {
       items.push({
@@ -844,6 +852,38 @@
       '<button type="button" class="chip weak tap" data-kid="' + k.knowledgeId + '">' +
       escapeHtml(k.knowledgeName || '') + '</button>'
     ).join('')
+  }
+
+  function renderHomeIntervenes(list) {
+    const mod = $('homeInterveneMod')
+    const box = $('homeInterveneList')
+    const pill = $('homeIntervenePill')
+    if (!mod || !box) return
+    const rows = Array.isArray(list) ? list : []
+    if (pill) pill.textContent = String(rows.length)
+    if (!rows.length) {
+      mod.hidden = true
+      box.innerHTML = ''
+      return
+    }
+    mod.hidden = false
+    box.innerHTML = rows.slice(0, 6).map((t) => {
+      const days = t.daysLeft
+      const due = days == null
+        ? ''
+        : (days < 0
+          ? ('<span class="danger">逾 ' + (-days) + ' 天</span>')
+          : ('剩 ' + days + ' 天'))
+      const kids = String(t.knowledgeIds || '')
+        .split(/[,，\s]+/)
+        .map(Number)
+        .filter(Boolean)
+      return '<button type="button" class="intervene-todo-item tap" data-sid="' +
+        (t.subjectId || '') + '" data-kids="' + kids.join(',') + '">' +
+        '<b>' + escapeHtml(t.title || '补弱任务') + '</b>' +
+        '<span class="muted">' + escapeHtml(t.processLabel || t.subjectName || '') +
+        (due ? (' · ' + due) : '') + '</span></button>'
+    }).join('')
   }
 
   function loadRecentUsers() {
@@ -1549,6 +1589,7 @@
     renderHomeTodayPreview(logs)
     renderHomeGroup(progress, isLeader, state.today.group)
     renderPendingConfirm(pending)
+    renderHomeIntervenes(state.today.openIntervenes || [])
     loadTemplate()
     updateReuseButtons()
     if ($('quickHero')) $('quickHero').classList.toggle('is-done', done)
@@ -1594,10 +1635,12 @@
       renderHomeWeak([])
       if ($('weakList')) $('weakList').innerHTML = emptyHtml('薄弱建议暂不可用', { action: 'extra', label: '去加练' })
     }
+    const openIv = state.today.openIntervenes || []
     renderHomeAlerts({
       pendingAck: pendingAck.length,
       confirmable, qn, groupMiss, isLeader, done,
       hasAssign: !!asg,
+      openIntervenes: openIv.length,
       tpl: state.lastTemplate || loadTemplate()
     })
     updateQueueBadge()
@@ -5617,13 +5660,24 @@
         if (act === 'practice') openTodayFlow()
         else if (act === 'checkout' || act === 'proxy') openTodayFlow({ leaderOnly: true })
         else if (act === 'ack') openAckView()
-        else if (act === 'confirm' && $('homeConfirmMod')) {
+        else if (act === 'intervene' && $('homeInterveneMod')) {
+          $('homeInterveneMod').scrollIntoView({ behavior: 'smooth', block: 'center' })
+        } else if (act === 'confirm' && $('homeConfirmMod')) {
           $('homeConfirmMod').scrollIntoView({ behavior: 'smooth', block: 'center' })
         } else if (act === 'flush') {
           setLoading(true, '同步中…')
           try { await flushQueue(); await loadHome() }
           finally { setLoading(false) }
         }
+      }
+    }
+    if ($('homeInterveneList')) {
+      $('homeInterveneList').onclick = (e) => {
+        const item = e.target.closest('[data-kids]')
+        if (!item) return
+        const kids = String(item.dataset.kids || '').split(',').map(Number).filter(Boolean)
+        const sid = item.dataset.sid ? Number(item.dataset.sid) : undefined
+        openPractice(false, { subjectId: sid, knowledgeIds: kids })
       }
     }
     if ($('homeWeakList')) {

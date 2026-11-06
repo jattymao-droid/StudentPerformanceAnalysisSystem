@@ -1,5 +1,6 @@
 package com.ruoyi.spas.domain;
 
+import java.math.BigDecimal;
 import java.util.List;
 import com.ruoyi.common.core.domain.BaseEntity;
 
@@ -23,6 +24,16 @@ public class SpasStudyGroup extends BaseEntity
     private String subjectName;
     private String leaderStudentName;
     private Integer memberCount;
+
+    /** list card stats (from latest / selected exam) */
+    private BigDecimal avgScore;
+    private BigDecimal avgRank;
+    private Integer scoredCount;
+    private Integer maleCount;
+    private Integer femaleCount;
+    private Long statsExamId;
+    private String statsExamName;
+    private String statsMetric;
 
     /** members for detail / save */
     private List<SpasStudyGroupMember> members;
@@ -51,6 +62,22 @@ public class SpasStudyGroup extends BaseEntity
     public void setLeaderStudentName(String leaderStudentName) { this.leaderStudentName = leaderStudentName; }
     public Integer getMemberCount() { return memberCount; }
     public void setMemberCount(Integer memberCount) { this.memberCount = memberCount; }
+    public BigDecimal getAvgScore() { return avgScore; }
+    public void setAvgScore(BigDecimal avgScore) { this.avgScore = avgScore; }
+    public BigDecimal getAvgRank() { return avgRank; }
+    public void setAvgRank(BigDecimal avgRank) { this.avgRank = avgRank; }
+    public Integer getScoredCount() { return scoredCount; }
+    public void setScoredCount(Integer scoredCount) { this.scoredCount = scoredCount; }
+    public Integer getMaleCount() { return maleCount; }
+    public void setMaleCount(Integer maleCount) { this.maleCount = maleCount; }
+    public Integer getFemaleCount() { return femaleCount; }
+    public void setFemaleCount(Integer femaleCount) { this.femaleCount = femaleCount; }
+    public Long getStatsExamId() { return statsExamId; }
+    public void setStatsExamId(Long statsExamId) { this.statsExamId = statsExamId; }
+    public String getStatsExamName() { return statsExamName; }
+    public void setStatsExamName(String statsExamName) { this.statsExamName = statsExamName; }
+    public String getStatsMetric() { return statsMetric; }
+    public void setStatsMetric(String statsMetric) { this.statsMetric = statsMetric; }
     public List<SpasStudyGroupMember> getMembers() { return members; }
     public void setMembers(List<SpasStudyGroupMember> members) { this.members = members; }
     public Long[] getStudentIds() { return studentIds; }

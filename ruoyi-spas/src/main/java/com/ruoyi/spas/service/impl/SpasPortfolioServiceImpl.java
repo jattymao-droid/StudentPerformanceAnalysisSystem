@@ -107,6 +107,14 @@ public class SpasPortfolioServiceImpl implements ISpasPortfolioService
         data.put("weakTop", analysisService.studentWeakTop(studentId, subjectId, 10));
         data.put("openWarnings", warningRecordMapper.selectOpenByStudent(studentId));
         data.put("openWarningCount", warningRecordMapper.countOpenByStudent(studentId));
+        try
+        {
+            data.put("openIntervenes", interveneService.listOpenTodos(studentId));
+        }
+        catch (Exception e)
+        {
+            data.put("openIntervenes", new java.util.ArrayList<Map<String, Object>>());
+        }
         return data;
     }
 

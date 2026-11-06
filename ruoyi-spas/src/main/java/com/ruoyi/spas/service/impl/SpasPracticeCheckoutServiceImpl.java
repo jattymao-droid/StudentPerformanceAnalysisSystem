@@ -154,15 +154,32 @@ public class SpasPracticeCheckoutServiceImpl implements ISpasPracticeCheckoutSer
         }
         normalizeAssignmentKnowledge(row);
         row.setUpdateBy(SecurityUtils.getUsername());
+        Long linkInterveneId = row.getInterveneId();
         SpasPracticeAssignment exist = checkoutMapper.selectAssignmentByDay(row.getDeptId(), row.getSubjectId(),
             row.getAssignDate());
+        int rows;
         if (exist != null)
         {
             row.setAssignmentId(exist.getAssignmentId());
-            return checkoutMapper.updateAssignment(row);
+            rows = checkoutMapper.updateAssignment(row);
         }
-        row.setCreateBy(SecurityUtils.getUsername());
-        return checkoutMapper.insertAssignment(row);
+        else
+        {
+            row.setCreateBy(SecurityUtils.getUsername());
+            rows = checkoutMapper.insertAssignment(row);
+        }
+        if (linkInterveneId != null && row.getAssignmentId() != null)
+        {
+            try
+            {
+                interveneService.linkAssignment(linkInterveneId, row.getAssignmentId());
+            }
+            catch (Exception e)
+            {
+                // best-effort: assignment itself already saved
+            }
+        }
+        return rows;
     }
 
     private void normalizeAssignmentKnowledge(SpasPracticeAssignment row)
@@ -1234,6 +1251,14 @@ public class SpasPracticeCheckoutServiceImpl implements ISpasPracticeCheckoutSer
         catch (Exception ignored)
         {
             /* book stat is best-effort */
+        }
+        try
+        {
+            interveneService.onPracticeLogged(log.getStudentId(), log.getSubjectId(), kids);
+        }
+        catch (Exception ignored)
+        {
+            /* intervene progress sync is best-effort */
         }
     }
 

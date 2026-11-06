@@ -20,6 +20,7 @@ import com.ruoyi.spas.mapper.SpasWarningRecordMapper;
 import com.ruoyi.spas.open.SpasOpenToken;
 import com.ruoyi.spas.open.config.SpasOpenProperties;
 import com.ruoyi.spas.service.ISpasAnalysisService;
+import com.ruoyi.spas.service.ISpasInterveneService;
 import com.ruoyi.spas.service.ISpasOpenService;
 import com.ruoyi.spas.service.ISpasPortfolioService;
 
@@ -45,6 +46,9 @@ public class SpasOpenServiceImpl implements ISpasOpenService
 
     @Autowired
     private ISpasPortfolioService portfolioService;
+
+    @Autowired
+    private ISpasInterveneService interveneService;
 
     @Autowired
     private RedisCache redisCache;
@@ -171,5 +175,12 @@ public class SpasOpenServiceImpl implements ISpasOpenService
     {
         assertBound(parentId, studentId);
         return analysisService.studentWeakTop(studentId, subjectId, limit == null ? 10 : limit);
+    }
+
+    @Override
+    public List<Map<String, Object>> listIntervenes(Long parentId, Long studentId)
+    {
+        assertBound(parentId, studentId);
+        return interveneService.listOpenTodos(studentId);
     }
 }

@@ -1281,7 +1281,15 @@ export default {
     },
     handleDelete(row) {
       const paperIds = row.paperId || this.ids
-      this.$modal.confirm('是否确认删除试卷编号为"' + paperIds + '"的数据项？').then(function() {
+      const scoreCount = row && row.paperId
+        ? Number(row.scoreCount || 0)
+        : (this.paperList || []).filter(p => (this.ids || []).some(id => Number(id) === Number(p.paperId)))
+          .reduce((sum, p) => sum + Number(p.scoreCount || 0), 0)
+      let msg = '是否确认删除试卷编号为"' + paperIds + '"的数据项？'
+      if (scoreCount > 0) {
+        msg += '\n该试卷已有成绩明细（约 ' + scoreCount + ' 条），删除时将一并清除成绩、导入批次及相关错因标签，并重算受影响学生的学情统计。'
+      }
+      this.$modal.confirm(msg).then(function() {
         return delPaper(paperIds)
       }).then(() => {
         this.getList()

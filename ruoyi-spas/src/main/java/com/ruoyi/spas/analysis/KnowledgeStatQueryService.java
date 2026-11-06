@@ -599,7 +599,8 @@ public class KnowledgeStatQueryService
         {
             try
             {
-                attempts = Integer.parseInt(att.toString());
+                // avg attempt may be BigDecimal like 2.50 — do not use Integer.parseInt
+                attempts = (int) Math.round(Double.parseDouble(att.toString()));
             }
             catch (Exception ignored)
             {
@@ -898,6 +899,262 @@ public class KnowledgeStatQueryService
             return new ArrayList<Map<String, Object>>(list.subList(0, limit));
         }
         return list;
+    }
+
+    /**
+     * Group weak top: same live aggregation as classWeakTop, restricted to member studentIds.
+     * Also reports weakStudentCount (members below weak threshold with enough attempts).
+     */
+    public List<Map<String, Object>> groupWeakTop(Long deptId, Collection<Long> studentIds, Long subjectId,
+        int limit, Date examDateFrom, List<Long> paperIds)
+    {
+        if (studentIds == null || studentIds.isEmpty())
+        {
+            return Collections.emptyList();
+        }
+        Set<Long> idSet = new HashSet<Long>();
+        for (Long sid : studentIds)
+        {
+            if (sid != null)
+            {
+                idSet.add(sid);
+            }
+        }
+        if (idSet.isEmpty())
+        {
+            return Collections.emptyList();
+        }
+        int top = limit <= 0 ? 10 : limit;
+        List<SpasAnalysisScoreRow> rows = loadScoreRows(null, subjectId, examDateFrom, paperIds, deptId, null);
+        Map<Long, List<SpasAnalysisScoreRow>> byStudent = new HashMap<Long, List<SpasAnalysisScoreRow>>();
+        for (SpasAnalysisScoreRow row : rows)
+        {
+            if (row.getStudentId() == null || !idSet.contains(row.getStudentId()))
+            {
+                continue;
+            }
+            List<SpasAnalysisScoreRow> g = byStudent.get(row.getStudentId());
+            if (g == null)
+            {
+                g = new ArrayList<SpasAnalysisScoreRow>();
+                byStudent.put(row.getStudentId(), g);
+            }
+            g.add(row);
+        }
+        Map<Long, BigDecimal> classAvg = classKnowledgeAvgRates(deptId, subjectId, examDateFrom, paperIds);
+
+        Map<Long, List<Double>> rateBucket = new HashMap<Long, List<Double>>();
+        Map<Long, List<Integer>> attemptBucket = new HashMap<Long, List<Integer>>();
+        Map<Long, Integer> lowRateCountBucket = new HashMap<Long, Integer>();
+        Map<Long, Integer> formalCountBucket = new HashMap<Long, Integer>();
+        Map<Long, String> nameMap = new HashMap<Long, String>();
+        Map<Long, List<String>> lowRateNamesBucket = new HashMap<Long, List<String>>();
+        Map<Long, String> studentNameCache = new HashMap<Long, String>();
+        int minAttempts = calculator.resolveMinAttempts(subjectId);
+
+        for (Map.Entry<Long, List<SpasAnalysisScoreRow>> se : byStudent.entrySet())
+        {
+            Long studentId = se.getKey();
+            Map<Long, KnowledgeStatCalculator.AggView> map = calculator.aggregateViews(se.getValue());
+            for (KnowledgeStatCalculator.AggView agg : map.values())
+            {
+                SpasStudentKnowledgeStat stat = calculator.toStatView(agg);
+                Long kid = stat.getKnowledgeId();
+                if (kid == null || stat.getWeightedRate() == null)
+                {
+                    continue;
+                }
+                List<Double> rates = rateBucket.get(kid);
+                if (rates == null)
+                {
+                    rates = new ArrayList<Double>();
+                    rateBucket.put(kid, rates);
+                }
+                rates.add(stat.getWeightedRate().doubleValue());
+                List<Integer> atts = attemptBucket.get(kid);
+                if (atts == null)
+                {
+                    atts = new ArrayList<Integer>();
+                    attemptBucket.put(kid, atts);
+                }
+                int attempts = stat.getAttemptCount() == null ? 0 : stat.getAttemptCount().intValue();
+                atts.add(Integer.valueOf(attempts));
+                if (!nameMap.containsKey(kid) && agg.knowledgeName != null)
+                {
+                    nameMap.put(kid, agg.knowledgeName);
+                }
+                String wl = stat.getWeakLevel() == null ? "0" : String.valueOf(stat.getWeakLevel());
+                boolean formal = "1".equals(wl) || "2".equals(wl) || "3".equals(wl);
+                // 组内「薄弱人数」：得分率低于薄弱线即计（与班级章节「偏低人数」一致，不强制作答次数）
+                boolean lowRate = attempts > 0 && calculator.belowWeakRate(stat.getWeightedRate(), subjectId);
+                if (formal)
+                {
+                    Integer fc = formalCountBucket.get(kid);
+                    formalCountBucket.put(kid, Integer.valueOf(fc == null ? 1 : fc.intValue() + 1));
+                }
+                if (lowRate)
+                {
+                    Integer lc = lowRateCountBucket.get(kid);
+                    lowRateCountBucket.put(kid, Integer.valueOf(lc == null ? 1 : lc.intValue() + 1));
+                    List<String> names = lowRateNamesBucket.get(kid);
+                    if (names == null)
+                    {
+                        names = new ArrayList<String>();
+                        lowRateNamesBucket.put(kid, names);
+                    }
+                    if (names.size() < 8)
+                    {
+                        String sn = studentNameCache.get(studentId);
+                        if (sn == null)
+                        {
+                            SpasStudent st = loadStudent(studentId);
+                            sn = st == null || st.getStudentName() == null ? ("#" + studentId) : st.getStudentName();
+                            studentNameCache.put(studentId, sn);
+                        }
+                        names.add(sn);
+                    }
+                }
+            }
+        }
+
+        List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
+        for (Map.Entry<Long, List<Double>> e : rateBucket.entrySet())
+        {
+            List<Double> rates = e.getValue();
+            double sum = 0;
+            for (Double d : rates)
+            {
+                sum += d.doubleValue();
+            }
+            double avgRate = sum / rates.size();
+            List<Integer> atts = attemptBucket.get(e.getKey());
+            double attSum = 0;
+            int maxAtt = 0;
+            int enoughN = 0;
+            if (atts != null)
+            {
+                for (Integer n : atts)
+                {
+                    int a = n == null ? 0 : n.intValue();
+                    attSum += a;
+                    if (a > maxAtt)
+                    {
+                        maxAtt = a;
+                    }
+                    if (a >= minAttempts)
+                    {
+                        enoughN++;
+                    }
+                }
+            }
+            BigDecimal rateBd = BigDecimal.valueOf(avgRate).setScale(6, RoundingMode.HALF_UP);
+            int lowN = lowRateCountBucket.get(e.getKey()) == null ? 0 : lowRateCountBucket.get(e.getKey()).intValue();
+            int formalN = formalCountBucket.get(e.getKey()) == null ? 0 : formalCountBucket.get(e.getKey()).intValue();
+            int avgAttRound = atts == null || atts.isEmpty() ? 0 : (int) Math.round(attSum / atts.size());
+            Map<String, Object> row = new HashMap<String, Object>();
+            row.put("knowledgeId", e.getKey());
+            row.put("name", nameMap.get(e.getKey()));
+            row.put("knowledgeName", nameMap.get(e.getKey()));
+            row.put("rate", rateBd);
+            row.put("weightedRate", rateBd);
+            row.put("attemptCount", Integer.valueOf(avgAttRound));
+            row.put("attemptAvg", atts == null || atts.isEmpty() ? BigDecimal.ZERO
+                : BigDecimal.valueOf(attSum / atts.size()).setScale(2, RoundingMode.HALF_UP));
+            row.put("maxAttemptCount", Integer.valueOf(maxAtt));
+            row.put("studentCount", Integer.valueOf(rates.size()));
+            // primary display: members below weak rate
+            row.put("weakStudentCount", Integer.valueOf(lowN));
+            row.put("formalWeakStudentCount", Integer.valueOf(formalN));
+            row.put("evidenceStudentCount", Integer.valueOf(enoughN));
+            List<String> weakNames = lowRateNamesBucket.get(e.getKey());
+            if (weakNames != null && !weakNames.isEmpty())
+            {
+                row.put("weakStudentNames", weakNames);
+            }
+            BigDecimal classRate = classAvg == null ? null : classAvg.get(e.getKey());
+            if (classRate != null)
+            {
+                row.put("classAvgRate", classRate);
+                row.put("gap", rateBd.subtract(classRate));
+            }
+            String groupWl = "0";
+            if (calculator.belowSevereRate(rateBd, subjectId))
+            {
+                groupWl = "3";
+            }
+            else if (calculator.belowWeakRate(rateBd, subjectId))
+            {
+                groupWl = "2";
+            }
+            row.put("weakLevel", groupWl);
+            // evidence: any member reached min-attempts, or group avg attempts enough
+            boolean evidenceOk = enoughN > 0 || avgAttRound >= minAttempts;
+            row.put("evidenceOk", Boolean.valueOf(evidenceOk));
+            boolean formalWeak = formalN > 0;
+            row.put("formalWeak", Boolean.valueOf(formalWeak));
+            if (!evidenceOk)
+            {
+                row.put("confidenceLabel", TAG_INSUFFICIENT);
+            }
+            list.add(row);
+        }
+        list.sort((a, b) -> {
+            int wa = toIntSafe(a.get("weakStudentCount"));
+            int wb = toIntSafe(b.get("weakStudentCount"));
+            if (wa != wb)
+            {
+                return Integer.compare(wb, wa);
+            }
+            boolean fa = Boolean.TRUE.equals(a.get("formalWeak"));
+            boolean fb = Boolean.TRUE.equals(b.get("formalWeak"));
+            if (fa != fb)
+            {
+                return fa ? -1 : 1;
+            }
+            return Double.compare(toDouble(a.get("rate")), toDouble(b.get("rate")));
+        });
+        List<Map<String, Object>> preferred = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> rest = new ArrayList<Map<String, Object>>();
+        for (Map<String, Object> row : list)
+        {
+            int wn = toIntSafe(row.get("weakStudentCount"));
+            if (wn > 0 || calculator.belowWeakRate(toDecimalOrNull(row.get("rate")), subjectId))
+            {
+                preferred.add(row);
+            }
+            else
+            {
+                rest.add(row);
+            }
+        }
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        out.addAll(preferred);
+        out.addAll(rest);
+        if (out.size() > top)
+        {
+            return new ArrayList<Map<String, Object>>(out.subList(0, top));
+        }
+        return out;
+    }
+
+    private static int toIntSafe(Object v)
+    {
+        if (v == null)
+        {
+            return 0;
+        }
+        if (v instanceof Number)
+        {
+            return ((Number) v).intValue();
+        }
+        try
+        {
+            return Integer.parseInt(String.valueOf(v));
+        }
+        catch (Exception e)
+        {
+            return 0;
+        }
     }
 
     /**

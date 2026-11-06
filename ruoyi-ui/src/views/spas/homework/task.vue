@@ -188,7 +188,8 @@ export default {
         subjectId: undefined,
         assignDate: parseTime(new Date(), '{y}-{m}-{d}')
       },
-      pendingKnowledgeIds: []
+      pendingKnowledgeIds: [],
+      pendingInterveneId: undefined
     }
   },
   computed: {
@@ -215,12 +216,13 @@ export default {
     }
     if (q.subjectId) this.query.subjectId = Number(q.subjectId)
     if (q.assignDate) this.query.assignDate = String(q.assignDate)
-    // From student prescription: ?knowledgeIds=1,2,3
+    // From student prescription / intervene: ?knowledgeIds=1,2,3&interveneId=
     this.pendingKnowledgeIds = String(q.knowledgeIds || '')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
       .map(s => Number(s) || s)
+    if (q.interveneId) this.pendingInterveneId = Number(q.interveneId) || q.interveneId
     optionselectSubject().then(r => { this.subjectOptions = r.data || [] })
     applyTeachingDeptContext(this, listMyTeachingDepts, deptTreeSelect).then(() => {
       if (this.query.deptId) this.queryParams.deptId = this.query.deptId
@@ -279,7 +281,10 @@ export default {
       this.form.knowledgeIdList = merged
       this.pendingKnowledgeIds = []
       if (numIds.length) {
-        this.$modal.msgSuccess('已从学情处方带入 ' + numIds.length + ' 个主题')
+        const tip = this.pendingInterveneId
+          ? ('已从干预任务带入 ' + numIds.length + ' 个主题')
+          : ('已从学情处方带入 ' + numIds.length + ' 个主题')
+        this.$modal.msgSuccess(tip)
       }
     },
     fillWeakTop() {
@@ -393,7 +398,7 @@ export default {
       const kids = this.form.knowledgeIdList || []
       const doSave = () => {
         this.saving = true
-        savePracticeAssignment({
+        const payload = {
           deptId: this.query.deptId,
           subjectId: this.query.subjectId,
           assignDate: this.query.assignDate,
@@ -404,8 +409,10 @@ export default {
           questionText,
           completeDefinition,
           dueCountWeek: this.form.dueCountWeek || 3
-        }).then(() => {
-          this.$modal.msgSuccess('布置已保存')
+        }
+        if (this.pendingInterveneId) payload.interveneId = this.pendingInterveneId
+        savePracticeAssignment(payload).then(() => {
+          this.$modal.msgSuccess(this.pendingInterveneId ? '布置已保存，并回写干预动作' : '布置已保存')
           this.loadCurrent()
           this.loadHistory()
         }).finally(() => { this.saving = false })

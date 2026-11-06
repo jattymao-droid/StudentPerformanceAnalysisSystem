@@ -20,6 +20,8 @@ public interface SpasStudyGroupMapper
 
     List<SpasStudyGroupMember> selectActiveMembers(Long groupId);
 
+    List<SpasStudyGroupMember> selectActiveMembersByGroupIds(@Param("groupIds") List<Long> groupIds);
+
     List<SpasStudyGroupMember> selectActiveMembersByStudent(@Param("studentId") Long studentId,
         @Param("deptId") Long deptId, @Param("subjectId") Long subjectId);
 
@@ -39,4 +41,14 @@ public interface SpasStudyGroupMapper
 
     int countActiveMembershipElsewhere(@Param("studentId") Long studentId, @Param("deptId") Long deptId,
         @Param("subjectId") Long subjectId, @Param("excludeGroupId") Long excludeGroupId);
+
+    /** Soft-disable active groups under dept (+ optional subject / null-subject). */
+    int softDisableByDeptSubject(@Param("deptId") Long deptId, @Param("subjectId") Long subjectId,
+        @Param("nullSubjectOnly") boolean nullSubjectOnly);
+
+    List<Long> selectActiveGroupIdsByDeptSubject(@Param("deptId") Long deptId, @Param("subjectId") Long subjectId,
+        @Param("nullSubjectOnly") boolean nullSubjectOnly);
+
+    int maxSortOrder(@Param("deptId") Long deptId, @Param("subjectId") Long subjectId,
+        @Param("nullSubjectOnly") boolean nullSubjectOnly);
 }

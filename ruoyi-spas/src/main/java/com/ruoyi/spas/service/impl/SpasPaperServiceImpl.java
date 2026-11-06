@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -263,6 +264,7 @@ public class SpasPaperServiceImpl implements ISpasPaperService
     @Transactional
     public int deleteSpasPaperByIds(Long[] paperIds)
     {
+        Set<Long> affectedStudents = new HashSet<Long>();
         for (Long paperId : paperIds)
         {
             SpasPaper db = paperMapper.selectSpasPaperById(paperId);
@@ -270,14 +272,31 @@ public class SpasPaperServiceImpl implements ISpasPaperService
             {
                 accessService.checkDeptAccess(db.getDeptId());
             }
-            if (paperMapper.countScoreDetailByPaperId(paperId) > 0)
+            List<Long> studentIds = paperMapper.selectStudentIdsByPaperId(paperId);
+            if (studentIds != null)
             {
-                throw new ServiceException("\u8bd5\u5377\u5df2\u6709\u6210\u7ee9\u660e\u7ec6\uff0c\u65e0\u6cd5\u5220\u9664");
+                for (Long sid : studentIds)
+                {
+                    if (sid != null)
+                    {
+                        affectedStudents.add(sid);
+                    }
+                }
             }
+            // Cascade: scores / import batches / error tags before questions & paper
+            paperMapper.deleteErrorTagByPaperId(paperId);
+            paperMapper.deleteScoreDetailByPaperId(paperId);
+            paperMapper.deleteScoreBatchByPaperId(paperId);
+            paperMapper.clearExamPaperId(paperId);
             paperMapper.deleteQuestionKnowledgeByPaperId(paperId);
             paperMapper.deleteQuestionsByPaperId(paperId);
         }
-        return paperMapper.deleteSpasPaperByIds(paperIds);
+        int rows = paperMapper.deleteSpasPaperByIds(paperIds);
+        if (!affectedStudents.isEmpty())
+        {
+            knowledgeStatCalculator.recalculateByStudents(affectedStudents, null);
+        }
+        return rows;
     }
 
     @Override

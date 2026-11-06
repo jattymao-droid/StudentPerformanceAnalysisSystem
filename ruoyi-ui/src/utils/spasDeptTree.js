@@ -31,6 +31,23 @@ export function preferredTeachingDeptId(myDepts) {
 }
 
 /**
+ * Heuristic: leaf org nodes like「技术组/教研组/教务处」are not classroom depts.
+ * Prefer names containing「班」, or numeric leaves under a grade parent.
+ */
+export function isLikelyClassDeptName(name, parentLabel) {
+  const n = String(name || '').trim()
+  if (!n) return false
+  if (/班/.test(n)) return true
+  if (/(组|处|室|部|中心|办|科|委员会)$/.test(n)) return false
+  if (/(教研|备课|技术|信息|行政|教务|政教|总务|后勤|财务|人事|年级组)/.test(n)) return false
+  const parent = String(parentLabel || '')
+  if (/(高[一二三]|初[一二三]|[一二三四五六七八九]年级)/.test(parent) && /^\d{1,2}$/.test(n)) {
+    return true
+  }
+  return false
+}
+
+/**
  * @param {Function} listMyTeachingDepts
  * @param {Function} deptTreeSelect
  * @param {Function} [mapSystemTree] (nodes) => nodes

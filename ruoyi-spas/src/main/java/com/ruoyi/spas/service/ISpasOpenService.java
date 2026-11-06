@@ -22,4 +22,6 @@ public interface ISpasOpenService
     List<Map<String, Object>> trend(Long parentId, Long studentId, Long subjectId);
 
     List<Map<String, Object>> weakTop(Long parentId, Long studentId, Long subjectId, Integer limit);
+
+    List<Map<String, Object>> listIntervenes(Long parentId, Long studentId);
 }

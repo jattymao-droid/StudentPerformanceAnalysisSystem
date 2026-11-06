@@ -1,63 +1,103 @@
 <template>
   <div class="app-container spas-portfolio">
-    <el-form :model="queryParams" size="small" :inline="true" label-width="68px">
-      <el-form-item label="班级" class="class-row">
-        <template v-if="boundClassMode">
-          <div class="bound-class-wrap">
-            <span class="bound-class-name">{{ currentDeptName || '未绑定班级' }}</span>
-            <el-tag v-if="boundClassRoleLabel" size="mini" type="info">{{ boundClassRoleLabel }}</el-tag>
-            <el-button-group v-if="myDepts.length > 1" class="bound-class-switch">
-              <el-button
-                v-for="d in myDepts"
-                :key="d.deptId"
-                size="mini"
-                :type="queryParams.deptId === d.deptId ? 'primary' : 'default'"
-                @click="selectMyDept(d.deptId)"
-              >{{ d.deptName }}{{ d.primary ? '·主' : '' }}</el-button>
-            </el-button-group>
+    <div class="class-filter-panel">
+      <div class="filter-toolbar">
+        <div class="filter-toolbar-left">
+          <el-select v-model="gradeFilter" size="small" class="filter-select" clearable placeholder="全部年级">
+            <el-option label="全部年级" value="" />
+            <el-option v-for="g in gradeOptions" :key="g" :label="g" :value="g" />
+          </el-select>
+        </div>
+        <div class="exam-search">
+          <el-input
+            v-model="studentNameKeyword"
+            size="small"
+            clearable
+            placeholder="学号 / 姓名搜索"
+            @keyup.enter.native="handleStudentSearch"
+          />
+          <el-button
+            type="primary"
+            size="small"
+            icon="el-icon-search"
+            class="exam-search-btn"
+            @click="handleStudentSearch"
+            v-hasPermi="['spas:portfolio:list']"
+          />
+        </div>
+      </div>
+
+      <div class="filter-tag-rows">
+        <div class="filter-tag-row">
+          <span class="filter-tag-label">班级:</span>
+          <div class="filter-tag-list">
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: !queryParams.deptId }"
+              @click="clearClassFilter"
+            >全部</button>
+            <button
+              v-for="d in visibleClassTags"
+              :key="d.deptId"
+              type="button"
+              class="filter-chip"
+              :class="{ active: Number(queryParams.deptId) === Number(d.deptId) }"
+              @click="selectClassTag(d.deptId)"
+            >{{ d.deptName }}{{ d.primary ? '·主' : '' }}</button>
+            <button
+              v-if="classTagsOverflow"
+              type="button"
+              class="filter-more"
+              @click="classTagsExpanded = !classTagsExpanded"
+            >
+              {{ classTagsExpanded ? '收起' : '更多' }}
+              <i :class="classTagsExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'" />
+            </button>
+            <treeselect
+              v-if="!boundClassMode && !classTagOptions.length"
+              v-model="queryParams.deptId"
+              :options="deptOptions"
+              :show-count="true"
+              placeholder="请选择班级/部门"
+              class="filter-treeselect"
+              @input="handleDeptChange"
+            />
+            <el-tag v-if="boundClassMode && boundClassRoleLabel" size="mini" type="info">{{ boundClassRoleLabel }}</el-tag>
           </div>
-        </template>
-        <treeselect
-          v-else
-          v-model="queryParams.deptId"
-          :options="deptOptions"
-          :show-count="true"
-          placeholder="筛选班级"
-          style="width: 220px"
-          @input="handleDeptChange"
-        />
-      </el-form-item>
-      <el-form-item label="学生">
-        <el-select
-          v-model="queryParams.studentId"
-          placeholder="输入学号/姓名搜索"
-          filterable
-          remote
-          clearable
-          :remote-method="remoteStudent"
-          :loading="studentLoading"
-          style="width: 240px"
-        >
-          <el-option
-            v-for="item in studentOptions"
-            :key="item.studentId"
-            :label="formatStudentLabel(item)"
-            :value="item.studentId"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="学科">
-        <el-select v-model="queryParams.subjectId" placeholder="请选择学科" clearable filterable style="width: 180px">
-          <el-option
-            v-for="item in subjectOptions"
-            :key="item.subjectId"
-            :label="item.subjectName"
-            :value="item.subjectId"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" icon="el-icon-search" size="mini" @click="loadPortfolio" v-hasPermi="['spas:portfolio:list']">查询</el-button>
+        </div>
+
+        <div class="filter-tag-row">
+          <span class="filter-tag-label">学科:</span>
+          <div class="filter-tag-list">
+            <button
+              type="button"
+              class="filter-chip"
+              :class="{ active: !queryParams.subjectId }"
+              @click="selectSubjectTag(undefined)"
+            >全部</button>
+            <button
+              v-for="s in subjectOptions"
+              :key="s.subjectId"
+              type="button"
+              class="filter-chip"
+              :class="{ active: Number(queryParams.subjectId) === Number(s.subjectId) }"
+              @click="selectSubjectTag(s.subjectId)"
+            >{{ s.subjectName }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-actions">
+        <el-button type="primary" icon="el-icon-search" size="mini" @click="handleQuery" v-hasPermi="['spas:portfolio:list']">查询</el-button>
+        <el-button icon="el-icon-refresh" size="mini" @click="resetQuery">重置</el-button>
+        <el-button
+          v-if="queryParams.studentId"
+          type="text"
+          size="mini"
+          icon="el-icon-back"
+          @click="backToStudentList"
+        >返回学生名单</el-button>
         <el-button
           type="success"
           plain
@@ -85,15 +125,64 @@
           @click="handleExportReport('xlsx')"
           v-hasPermi="['spas:report:export']"
         >导出明细</el-button>
-      </el-form-item>
-    </el-form>
+      </div>
+    </div>
 
-    <el-empty v-if="!queryParams.studentId" description="请选择学生后查看一生一册" :image-size="72">
+    <el-empty v-if="!queryParams.deptId" description="请选择班级后查看学生名单">
       <div class="empty-actions">
-        <el-button type="primary" size="mini" @click="focusStudentSelect">搜索学生</el-button>
-        <el-button size="mini" @click="$router.push('/spas/student')" v-hasPermi="['spas:student:list']">去学生档案</el-button>
+        <el-button type="primary" size="mini" v-if="myDepts.length" @click="selectClassTag(preferredDeptId)">选择我的班级</el-button>
+        <el-button size="mini" v-if="!boundClassMode" @click="$router.push('/system/dept')">去部门管理</el-button>
       </div>
     </el-empty>
+
+    <div
+      v-else-if="!queryParams.studentId"
+      class="student-roster-panel"
+      v-loading="studentLoading"
+    >
+      <div class="roster-header">
+        <div class="roster-header-main">
+          <div class="roster-title">{{ currentDeptName || '班级' }} · 学生名单</div>
+          <div class="roster-sub">点击卡片进入一生一册；可用顶部搜索框按学号/姓名筛选</div>
+        </div>
+        <div class="roster-meta">
+          <span class="roster-count">{{ filteredStudentOptions.length }}</span>
+          <span class="roster-count-label">人{{ studentNameKeyword ? '（已筛选）' : '' }}</span>
+        </div>
+      </div>
+
+      <el-empty
+        v-if="!filteredStudentOptions.length"
+        :description="studentNameKeyword ? '未找到匹配学生，请调整搜索关键词' : '当前班级暂无学生'"
+        :image-size="72"
+      >
+        <el-button size="mini" @click="$router.push('/spas/student')" v-hasPermi="['spas:student:list']">去学生档案</el-button>
+      </el-empty>
+
+      <div v-else class="roster-grid">
+        <button
+          v-for="s in filteredStudentOptions"
+          :key="s.studentId"
+          type="button"
+          class="roster-tile"
+          :class="{ 'is-inactive': s.status !== '0' }"
+          @click="enterPortfolio(s)"
+        >
+          <span class="roster-avatar" :class="'tone-' + studentAvatarTone(s)">{{ studentAvatarText(s) }}</span>
+          <span class="roster-body">
+            <span class="roster-name-row">
+              <span class="roster-name">{{ s.studentName || '-' }}</span>
+              <span v-if="studentSexLabel(s)" class="roster-sex">{{ studentSexLabel(s) }}</span>
+              <el-tag v-if="s.status !== '0'" size="mini" type="info" effect="plain">停用</el-tag>
+            </span>
+            <span class="roster-no">学号 {{ s.studentNo || '-' }}</span>
+          </span>
+          <span class="roster-action">
+            一册<i class="el-icon-arrow-right" />
+          </span>
+        </button>
+      </div>
+    </div>
 
     <div v-else v-loading="loading">
       <el-card shadow="never" class="profile-card">
@@ -343,7 +432,7 @@ import { optionselectSubject } from '@/api/spas/subject'
 import { listStudent } from '@/api/spas/student'
 import { listMyTeachingDepts } from '@/api/spas/teacher'
 import { boundClassRoleFromDepts } from '@/utils/spasTeacherRole'
-import { applyTeachingDeptContext, canLoadSystemDeptTree } from '@/utils/spasDeptTree'
+import { applyTeachingDeptContext, canLoadSystemDeptTree, isLikelyClassDeptName } from '@/utils/spasDeptTree'
 import { deptTreeSelect } from '@/api/system/user'
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
@@ -361,6 +450,9 @@ export default {
       myDepts: [],
       studentOptions: [],
       studentLoading: false,
+      studentNameKeyword: '',
+      gradeFilter: '',
+      classTagsExpanded: false,
       portfolio: {},
       summary: {},
       interveneTimeline: [],
@@ -400,11 +492,82 @@ export default {
       if (id == null || id === '') return ''
       const mine = (this.myDepts || []).find(d => String(d.deptId) === String(id))
       if (mine && mine.deptName) return mine.deptName
+      const hit = (this.classTagOptions || []).find(d => Number(d.deptId) === Number(id))
+      if (hit && hit.deptName) return hit.deptName
       const node = this.findDeptNode(this.deptOptions, id)
       return node ? (node.label || node.deptName || '') : ''
     },
     boundClassRoleLabel() {
       return boundClassRoleFromDepts(this.myDepts, this.queryParams.deptId)
+    },
+    classTagOptions() {
+      const keepClass = list => (list || []).filter(d =>
+        isLikelyClassDeptName(d.deptName, d.parentLabel)
+      )
+      if (this.boundClassMode) {
+        return keepClass((this.myDepts || []).map(d => ({
+          deptId: d.deptId,
+          deptName: d.deptName,
+          primary: !!d.primary,
+          parentLabel: d.parentName || d.parentLabel || ''
+        })))
+      }
+      const leaves = []
+      const walk = (nodes, parentLabel) => {
+        ;(nodes || []).forEach(n => {
+          const id = n.id != null ? n.id : n.deptId
+          const name = n.label || n.deptName || ''
+          const kids = n.children || []
+          if (!kids.length) {
+            leaves.push({ deptId: id, deptName: name, parentLabel: parentLabel || '' })
+          } else {
+            walk(kids, name)
+          }
+        })
+      }
+      walk(this.deptOptions, '')
+      const classLeaves = keepClass(leaves)
+      if (classLeaves.length) return classLeaves
+      return keepClass((this.myDepts || []).map(d => ({
+        deptId: d.deptId,
+        deptName: d.deptName,
+        primary: !!d.primary,
+        parentLabel: d.parentName || d.parentLabel || ''
+      })))
+    },
+    gradeOptions() {
+      const set = {}
+      ;(this.classTagOptions || []).forEach(d => {
+        const g = this.extractGradeLabel(d.deptName, d.parentLabel)
+        if (g) set[g] = true
+      })
+      return Object.keys(set)
+    },
+    filteredClassTags() {
+      const all = this.classTagOptions || []
+      if (!this.gradeFilter) return all
+      return all.filter(d => this.extractGradeLabel(d.deptName, d.parentLabel) === this.gradeFilter)
+    },
+    classTagsOverflow() {
+      return this.filteredClassTags.length > 12
+    },
+    visibleClassTags() {
+      const list = this.filteredClassTags
+      if (this.classTagsExpanded || list.length <= 12) return list
+      return list.slice(0, 12)
+    },
+    filteredStudentOptions() {
+      const kw = (this.studentNameKeyword || '').trim().toLowerCase()
+      let list = (this.studentOptions || []).slice()
+      if (kw) {
+        list = list.filter(s => {
+          const no = String(s.studentNo || '').toLowerCase()
+          const name = String(s.studentName || '').toLowerCase()
+          return no.indexOf(kw) >= 0 || name.indexOf(kw) >= 0
+        })
+      }
+      list.sort((a, b) => String(a.studentNo || '').localeCompare(String(b.studentNo || ''), 'zh-CN', { numeric: true }))
+      return list
     },
     interveneOptions() {
       const map = {}
@@ -436,6 +599,9 @@ export default {
   },
   created() {
     const q = this.$route.query || {}
+    if (q.deptId) {
+      this.queryParams.deptId = Number(q.deptId) || q.deptId
+    }
     if (q.studentId) {
       this.queryParams.studentId = Number(q.studentId) || q.studentId
     }
@@ -443,25 +609,19 @@ export default {
       this.queryParams.subjectId = Number(q.subjectId) || q.subjectId
     }
     this.loadSubjects()
-    const fromRoute = !!(this.$route.query && this.$route.query.studentId)
     this.loadMyDepts().then(() => {
-      if (!this.queryParams.deptId && this.preferredDeptId) {
-        this.queryParams.deptId = this.preferredDeptId
+      // Enter page shows class chips + roster; only open portfolio when URL carries studentId
+      if (this.queryParams.deptId) {
+        return this.loadStudents()
       }
-      return this.loadStudents()
+      return null
     }).then(() => {
-      if (!this.queryParams.studentId && this.studentOptions.length && !fromRoute) {
-        this.queryParams.studentId = this.studentOptions[0].studentId
-      }
       if (this.queryParams.studentId) {
         this.loadPortfolio()
       }
-    })
+    }).catch(() => {})
   },
   methods: {
-    focusStudentSelect() {
-      this.$modal.msgInfo('请在上方「学生」框输入学号或姓名搜索')
-    },
     findDeptNode(nodes, id) {
       for (const n of nodes || []) {
         if (n.id === id || n.deptId === id) return n
@@ -470,27 +630,125 @@ export default {
       }
       return null
     },
+    extractGradeLabel(name, parentLabel) {
+      const text = String(name || '') + ' ' + String(parentLabel || '')
+      const patterns = ['高三', '高二', '高一', '初三', '初二', '初一', '九年级', '八年级', '七年级', '六年级', '五年级', '四年级', '三年级', '二年级', '一年级']
+      for (let i = 0; i < patterns.length; i++) {
+        if (text.indexOf(patterns[i]) >= 0) return patterns[i]
+      }
+      return ''
+    },
+    studentAvatarText(row) {
+      const name = String((row && row.studentName) || '').trim()
+      if (name) return name.slice(0, 1)
+      const no = String((row && row.studentNo) || '').trim()
+      return no ? no.slice(-2) : '?'
+    },
+    studentAvatarTone(row) {
+      const seed = String((row && (row.studentId || row.studentNo || row.studentName)) || '')
+      let h = 0
+      for (let i = 0; i < seed.length; i++) h = (h + seed.charCodeAt(i) * (i + 1)) % 5
+      return ['teal', 'blue', 'amber', 'rose', 'slate'][h]
+    },
+    studentSexLabel(row) {
+      if (!row) return ''
+      if (row.sex === '0' || row.sex === 0) return '男'
+      if (row.sex === '1' || row.sex === 1) return '女'
+      return ''
+    },
+    clearPortfolioView() {
+      this.queryParams.studentId = undefined
+      this.portfolio = {}
+      this.summary = {}
+      this.interveneTimeline = []
+      this.weakList = []
+      this.persistentWeak = []
+      this.errorCauseSummary = []
+      this.openWarnings = []
+      this.coachLogs = []
+      this.rankSubjects = []
+      this.rankSummary = {}
+      this.radarData = []
+      this.radarOption = {}
+      this.trendOption = {}
+    },
+    syncPortfolioRoute() {
+      const q = {}
+      if (this.queryParams.deptId) q.deptId = this.queryParams.deptId
+      if (this.queryParams.studentId) q.studentId = this.queryParams.studentId
+      if (this.queryParams.subjectId != null && this.queryParams.subjectId !== '') q.subjectId = this.queryParams.subjectId
+      this.$router.replace({ path: this.$route.path, query: q }).catch(() => {})
+    },
+    clearClassFilter() {
+      this.queryParams.deptId = undefined
+      this.studentOptions = []
+      this.studentNameKeyword = ''
+      this.clearPortfolioView()
+      this.syncPortfolioRoute()
+    },
+    selectClassTag(deptId) {
+      this.selectMyDept(deptId)
+    },
+    selectSubjectTag(subjectId) {
+      this.queryParams.subjectId = subjectId
+      this.syncPortfolioRoute()
+      if (this.queryParams.studentId) {
+        this.loadPortfolio()
+      }
+    },
     selectMyDept(deptId) {
       this.queryParams.deptId = deptId
-      this.queryParams.studentId = undefined
-      this.loadStudents().then(() => {
-        if (this.studentOptions.length) {
-          this.queryParams.studentId = this.studentOptions[0].studentId
-          this.loadPortfolio()
-        } else {
-          this.portfolio = {}
-          this.weakList = []
-          this.persistentWeak = []
-          this.errorCauseSummary = []
-          this.openWarnings = []
-          this.coachLogs = []
-          this.rankSubjects = []
-          this.rankSummary = {}
-          this.radarData = []
-          this.radarOption = {}
-          this.trendOption = {}
-        }
-      })
+      this.clearPortfolioView()
+      this.studentNameKeyword = ''
+      this.syncPortfolioRoute()
+      this.loadStudents()
+    },
+    enterPortfolio(row) {
+      const studentId = row && (row.studentId || row.id)
+      if (!studentId) {
+        this.$modal.msgWarning('无法定位学生')
+        return
+      }
+      this.queryParams.studentId = studentId
+      this.syncPortfolioRoute()
+      this.loadPortfolio()
+    },
+    backToStudentList() {
+      this.clearPortfolioView()
+      this.syncPortfolioRoute()
+      if (this.queryParams.deptId) {
+        this.loadStudents((this.studentNameKeyword || '').trim() || undefined)
+      }
+    },
+    handleStudentSearch() {
+      const kw = (this.studentNameKeyword || '').trim()
+      if (!this.queryParams.deptId) {
+        this.$modal.msgWarning('请先选择班级')
+        return
+      }
+      if (this.queryParams.studentId) {
+        this.backToStudentList()
+      }
+      this.loadStudents(kw || undefined)
+    },
+    handleQuery() {
+      if (this.queryParams.studentId) {
+        this.loadPortfolio()
+        return
+      }
+      if (!this.queryParams.deptId) {
+        this.$modal.msgWarning('请先选择班级')
+        return
+      }
+      this.loadStudents((this.studentNameKeyword || '').trim() || undefined)
+    },
+    resetQuery() {
+      this.gradeFilter = ''
+      this.classTagsExpanded = false
+      this.studentNameKeyword = ''
+      this.queryParams.subjectId = undefined
+      this.clearClassFilter()
+      this.loadSubjects()
     },
     toPercent(rate) {
       if (rate == null || rate === '') return 0
@@ -592,9 +850,6 @@ export default {
     loadSubjects() {
       return optionselectSubject().then(res => {
         this.subjectOptions = res.data || []
-        if (!this.queryParams.subjectId && this.subjectOptions.length) {
-          this.queryParams.subjectId = this.subjectOptions[0].subjectId
-        }
       })
     },
     loadDepts() {
@@ -639,20 +894,8 @@ export default {
         this.studentLoading = false
       })
     },
-    remoteStudent(query) {
-      if (this.queryParams.deptId && !query) {
-        this.loadStudents()
-        return
-      }
-      if (!query && !this.queryParams.deptId) {
-        this.studentOptions = []
-        return
-      }
-      this.loadStudents(query)
-    },
     handleDeptChange() {
-      this.queryParams.studentId = undefined
-      this.loadStudents()
+      this.selectMyDept(this.queryParams.deptId)
     },
     goAnalysis(extra) {
       if (!this.queryParams.studentId) {
@@ -812,26 +1055,282 @@ export default {
 </script>
 
 <style scoped>
-.spas-portfolio >>> .el-form--inline .class-row.el-form-item {
-  display: flex;
-  width: 100%;
-  margin-right: 0;
+.class-filter-panel {
+  background: #fff;
+  border: 1px solid #E8EDF5;
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
-.bound-class-wrap {
-  display: inline-flex;
+.filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-toolbar-left {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  min-height: 32px;
 }
-.bound-class-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #2C2940;
-  line-height: 32px;
+.filter-select {
+  width: 148px;
 }
-.bound-class-switch {
+.exam-search {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 240px;
+  max-width: 320px;
+  flex: 1;
+}
+.exam-search >>> .el-input__inner {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.exam-search-btn {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding: 0 14px;
+  background: #13C2C2;
+  border-color: #13C2C2;
+}
+.exam-search-btn:hover,
+.exam-search-btn:focus {
+  background: #36CFC9;
+  border-color: #36CFC9;
+}
+.filter-tag-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 2px;
+}
+.filter-tag-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.filter-tag-label {
+  flex: 0 0 42px;
+  line-height: 28px;
+  color: #64748B;
+  font-size: 13px;
+  text-align: right;
+}
+.filter-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 4px;
+  min-width: 0;
+  flex: 1;
+}
+.filter-chip {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  line-height: 28px;
+  padding: 0 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.filter-chip:hover {
+  color: #0F766E;
+  background: rgba(19, 194, 194, 0.08);
+}
+.filter-chip.active {
+  background: #13C2C2;
+  color: #fff;
+  font-weight: 500;
+}
+.filter-more {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #13C2C2;
+  font-size: 13px;
+  line-height: 28px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+.filter-more:hover {
+  color: #0F766E;
+}
+.filter-treeselect {
+  width: 240px;
   margin-left: 4px;
+}
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #E8EDF5;
+}
+.student-roster-panel {
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #E8EDF5;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  padding: 16px 16px 18px;
+  min-height: 220px;
+}
+.roster-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #EEF2F7;
+}
+.roster-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0F172A;
+  line-height: 1.3;
+}
+.roster-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94A3B8;
+}
+.roster-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.roster-count {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F766E;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.roster-count-label {
+  font-size: 12px;
+  color: #64748B;
+}
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding-right: 2px;
+}
+.roster-tile {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 12px 12px 12px 10px;
+  border: 1px solid #E8EDF5;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.roster-tile:hover {
+  border-color: #99E6E6;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+.roster-tile:hover .roster-action {
+  color: #0F766E;
+  opacity: 1;
+}
+.roster-tile.is-inactive {
+  opacity: 0.72;
+}
+.roster-avatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.roster-avatar.tone-teal { background: #14B8A6; }
+.roster-avatar.tone-blue { background: #3B82F6; }
+.roster-avatar.tone-amber { background: #F59E0B; }
+.roster-avatar.tone-rose { background: #F43F5E; }
+.roster-avatar.tone-slate { background: #64748B; }
+.roster-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.roster-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.roster-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0F172A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-sex {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #64748B;
+  background: #F1F5F9;
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 18px;
+}
+.roster-no {
+  font-size: 12px;
+  color: #94A3B8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-action {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94A3B8;
+  opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+@media (max-width: 768px) {
+  .roster-grid {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+  .roster-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 .card-header-row {
   display: flex;

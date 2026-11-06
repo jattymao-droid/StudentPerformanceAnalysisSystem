@@ -40,4 +40,10 @@ public interface SpasExamScoreMapper
     public List<SpasExamScore> selectScoresByStudentId(@Param("studentId") Long studentId);
 
     public List<SpasExamRankPoint> selectRankPoints();
+
+    /** Latest successfully imported exam for a class (for smart grouping). */
+    public SpasExam selectLatestDoneExamByDept(@Param("deptId") Long deptId);
+
+    /** All done exams of a class, oldest first (for group trend). */
+    public List<SpasExam> selectDoneExamsByDept(@Param("deptId") Long deptId);
 }
